@@ -1,0 +1,944 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "silk-server",
+    "description": "Silk Instant Extract Server Imitation",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/hostess/v1/hosts/{host_id}": {
+      "put": {
+        "tags": [
+          "hosts"
+        ],
+        "summary": "Register Host",
+        "description": "Register a new host",
+        "operationId": "register_host_api_hostess_v1_hosts__host_id__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "host_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 32,
+              "pattern": "^[a-zA-Z][a-zA-Z0-9_-]+[a-zA-Z0-9]$",
+              "description": "The ID of the host. Must start with letter, end with letter or number. Only letters, numbers, underscore and hyphen are allowed. Min length 3, max length 32",
+              "title": "Host Id"
+            },
+            "description": "The ID of the host. Must start with letter, end with letter or number. Only letters, numbers, underscore and hyphen are allowed. Min length 3, max length 32"
+          },
+          {
+            "name": "dbvendor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/DBVendor"
+                }
+              ],
+              "default": "mssql",
+              "title": "Dbvendor"
+            }
+          },
+          {
+            "name": "hs-ref-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Hs-Ref-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateHostResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Host already exists"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "hosts"
+        ],
+        "summary": "Unregister",
+        "description": "Unregister a host",
+        "operationId": "unregister_api_hostess_v1_hosts__host_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "host_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 32,
+              "pattern": "^[a-zA-Z][a-zA-Z0-9_-]+[a-zA-Z0-9]$",
+              "description": "The ID of the host. Must start with letter, end with letter or number. Only letters, numbers, underscore and hyphen are allowed. Min length 3, max length 32",
+              "title": "Host Id"
+            },
+            "description": "The ID of the host. Must start with letter, end with letter or number. Only letters, numbers, underscore and hyphen are allowed. Min length 3, max length 32"
+          },
+          {
+            "name": "hs-ref-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Hs-Ref-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "hosts"
+        ],
+        "summary": "Get Host",
+        "description": "get host information",
+        "operationId": "get_host_api_hostess_v1_hosts__host_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "host_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 32,
+              "pattern": "^[a-zA-Z][a-zA-Z0-9_-]+[a-zA-Z0-9]$",
+              "description": "The ID of the host. Must start with letter, end with letter or number. Only letters, numbers, underscore and hyphen are allowed. Min length 3, max length 32",
+              "title": "Host Id"
+            },
+            "description": "The ID of the host. Must start with letter, end with letter or number. Only letters, numbers, underscore and hyphen are allowed. Min length 3, max length 32"
+          },
+          {
+            "name": "hs-ref-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Hs-Ref-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Host"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hostess/v1/hosts": {
+      "get": {
+        "tags": [
+          "hosts"
+        ],
+        "summary": "List Hosts",
+        "description": "list registered hosts information",
+        "operationId": "list_hosts_api_hostess_v1_hosts_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hs-ref-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Hs-Ref-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Host"
+                  },
+                  "title": "Response List Hosts Api Hostess V1 Hosts Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hostess/v1/hosts/{host_id}/app-token": {
+      "get": {
+        "tags": [
+          "hosts"
+        ],
+        "summary": "App Token",
+        "description": "get application-token for host",
+        "operationId": "app_token_api_hostess_v1_hosts__host_id__app_token_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "host_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 32,
+              "pattern": "^[a-zA-Z][a-zA-Z0-9_-]+[a-zA-Z0-9]$",
+              "description": "The ID of the host. Must start with letter, end with letter or number. Only letters, numbers, underscore and hyphen are allowed. Min length 3, max length 32",
+              "title": "Host Id"
+            },
+            "description": "The ID of the host. Must start with letter, end with letter or number. Only letters, numbers, underscore and hyphen are allowed. Min length 3, max length 32"
+          },
+          {
+            "name": "hs-ref-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Hs-Ref-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Token"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ocie/v1/clone": {
+      "post": {
+        "tags": [
+          "extract"
+        ],
+        "summary": "Create Clone",
+        "operationId": "create_clone_api_ocie_v1_clone_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hs-ref-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Hs-Ref-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCloneRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskStatusResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request Id Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ocie/v1/create_extract": {
+      "post": {
+        "tags": [
+          "extract"
+        ],
+        "summary": "Create Extract",
+        "operationId": "create_extract_api_ocie_v1_create_extract_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hs-ref-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Hs-Ref-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateExtractRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskStatusResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request Id Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ocie/v1/import_extract": {
+      "post": {
+        "tags": [
+          "extract"
+        ],
+        "summary": "Import Extract",
+        "operationId": "import_extract_api_ocie_v1_import_extract_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hs-ref-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Hs-Ref-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportExtractRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskStatusResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request Id Conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ocie/v1/tasks/{request_id}": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "summary": "Get Task",
+        "operationId": "get_task_api_ocie_v1_tasks__request_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Request Id"
+            }
+          },
+          {
+            "name": "hs-ref-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Hs-Ref-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ocie/v1/tasks": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "summary": "List Task",
+        "operationId": "list_task_api_ocie_v1_tasks_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hs-ref-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Hs-Ref-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskStatusResponse"
+                  },
+                  "title": "Response List Task Api Ocie V1 Tasks Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Cloud": {
+        "type": "string",
+        "enum": [
+          "GCP",
+          "AWS",
+          "AZURE",
+          "UNKNOWN"
+        ],
+        "title": "Cloud"
+      },
+      "CommandKind": {
+        "type": "string",
+        "enum": [
+          "CreateCloneCommand",
+          "CreateExtractCommand",
+          "ImportExtractCommand"
+        ],
+        "title": "CommandKind"
+      },
+      "CreateCloneRequest": {
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "title": "Database Id"
+          },
+          "source_host_id": {
+            "type": "string",
+            "title": "Source Host Id"
+          },
+          "destination_host_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Destination Host Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "database_id",
+          "source_host_id",
+          "destination_host_ids"
+        ],
+        "title": "CreateCloneRequest"
+      },
+      "CreateExtractRequest": {
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "title": "Database Id"
+          },
+          "source_host_id": {
+            "type": "string",
+            "title": "Source Host Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "database_id",
+          "source_host_id"
+        ],
+        "title": "CreateExtractRequest"
+      },
+      "CreateHostResponse": {
+        "properties": {
+          "host_id": {
+            "type": "string",
+            "title": "Host Id"
+          },
+          "db_vendor": {
+            "$ref": "#/components/schemas/DBVendor"
+          },
+          "token": {
+            "type": "string",
+            "title": "Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "host_id",
+          "db_vendor",
+          "token"
+        ],
+        "title": "CreateHostResponse"
+      },
+      "DBVendor": {
+        "type": "string",
+        "enum": [
+          "mssql"
+        ],
+        "const": "mssql",
+        "title": "DBVendor"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Host": {
+        "properties": {
+          "host_id": {
+            "type": "string",
+            "title": "Host Id"
+          },
+          "db_vendor": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DBVendor"
+              }
+            ],
+            "default": "mssql"
+          },
+          "last_seen_ts": {
+            "type": "integer",
+            "title": "Last Seen Ts",
+            "default": 0
+          },
+          "host_name": {
+            "type": "string",
+            "title": "Host Name",
+            "default": ""
+          },
+          "host_iqn": {
+            "type": "string",
+            "title": "Host Iqn",
+            "default": ""
+          },
+          "host_os": {
+            "type": "string",
+            "title": "Host Os",
+            "default": ""
+          },
+          "host_os_version": {
+            "type": "string",
+            "title": "Host Os Version",
+            "default": ""
+          },
+          "agent_version": {
+            "type": "string",
+            "title": "Agent Version",
+            "default": ""
+          },
+          "cloud_vendor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Cloud"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "UNKNOWN"
+          }
+        },
+        "type": "object",
+        "required": [
+          "host_id"
+        ],
+        "title": "Host"
+      },
+      "ImportExtractRequest": {
+        "properties": {
+          "extract_id": {
+            "type": "string",
+            "title": "Extract Id"
+          },
+          "destination_host_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Destination Host Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "extract_id",
+          "destination_host_ids"
+        ],
+        "title": "ImportExtractRequest"
+      },
+      "TaskState": {
+        "type": "string",
+        "enum": [
+          "running",
+          "completed",
+          "failed",
+          "aborted"
+        ],
+        "title": "TaskState"
+      },
+      "TaskStatusResponse": {
+        "properties": {
+          "state": {
+            "$ref": "#/components/schemas/TaskState"
+          },
+          "create_ts": {
+            "type": "integer",
+            "title": "Create Ts"
+          },
+          "update_ts": {
+            "type": "integer",
+            "title": "Update Ts"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          },
+          "owner": {
+            "type": "string",
+            "title": "Owner"
+          },
+          "command_type": {
+            "$ref": "#/components/schemas/CommandKind"
+          },
+          "ref_id": {
+            "type": "string",
+            "title": "Ref Id"
+          },
+          "error": {
+            "type": "string",
+            "title": "Error",
+            "default": ""
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state",
+          "create_ts",
+          "update_ts",
+          "request_id",
+          "owner",
+          "command_type",
+          "ref_id"
+        ],
+        "title": "TaskStatusResponse"
+      },
+      "Token": {
+        "properties": {
+          "host_id": {
+            "type": "string",
+            "title": "Host Id"
+          },
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "expire_ts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expire Ts"
+          },
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "host_id",
+          "token",
+          "valid"
+        ],
+        "title": "Token"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}
