@@ -1,0 +1,97 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+default_language_version:
+  python: python3.9
+
+repos:
+  - repo: https://github.com/worroc/lockeye
+    rev: v0.0.6
+    hooks:
+      - id: exclude-marked
+        args: ['--log-level', 'info', '--marker', 'NO-COMMIT']
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: debug-statements
+      - id: trailing-whitespace
+        exclude: >
+          (?x)^(
+            kflex/.bumpversion.cfg|
+            .swm/.*|
+            harmony/bootstrap/fonts/glyphicons-halflings-regular.svg|
+            harmony/open-sans-fontface/fonts/.*|
+            harmony/font-awesome/fonts/.*|
+          )$
+      - id: end-of-file-fixer
+        exclude: >
+          (?x)^(
+            kflex/.bumpversion.cfg|
+            .swm/.*|
+            harmony/bootstrap/fonts/glyphicons-halflings-regular.svg|
+            harmony/open-sans-fontface/fonts/.*|
+            .*requirements.txt
+          )$
+      - id: check-json
+        exclude: >
+          (?x)^(
+            harmony/.vscode/settings.json|
+            harmony/.vscode/launch.json|
+            e2e_tests/json_data/extract_00.json|
+            ui-test/test/.*[Dd]ump.*.json|
+            ui-test/test/elastic_env_setup_files/.*|
+            ui-test/test/tsconfig.json|
+            harmony-test/.*[Dd]ump.*.json|
+            harmony-test/elastic_env_setup_files/.*|
+            harmony-test/tsconfig.json|
+            e2e_tests/json_data/tractor_preview_02.json|
+          )$
+      - id: check-docstring-first
+      - id: check-added-large-files
+        exclude: >
+          (?x)^(
+              harmony/open-sans-fontface/fonts/ExtraBold/OpenSans-ExtraBold.svg|
+              harmony/open-sans-fontface/fonts/Semibold/OpenSans-Semibold.svg|
+              harmony-test/dump/0-create-indexes/conf_1h_latest.mapping.json|
+              harmony-test/dump/0-create-indexes/conf_1h_all.mapping.json
+            )$
+      - id: check-merge-conflict
+      - id: check-executables-have-shebangs
+      - id: mixed-line-ending
+      - id: no-commit-to-branch
+        args: ["--branch", "master"]
+      - id: detect-private-key
+        exclude: >
+          (?x)^(
+            apimux/dev-certs/ci.key|
+            apimux/dev-certs/dev.key|
+            enforcer/backup_dir/extract/sign-json-flex-init-world.py|
+            docs/cluster-management/bot-access.rst|
+            authenticator/saml/certs/sp.key|
+            authenticator/onelogin/saml2/utils.py|
+            emailgw/module-settings.defaults.yaml|
+            harmony/aurelia_project/tasks/dev-server.ts|
+          )$
+  - repo: https://github.com/pre-commit/mirrors-isort
+    rev: v5.10.1
+    hooks:
+      - id: isort
+        additional_dependencies: ["toml"]  # To parse our pyproject.toml
+  - repo: https://github.com/pycqa/flake8.git
+    rev: 7.1.0
+    hooks:
+      - id: flake8
+  - repo: https://github.com/pre-commit/pygrep-hooks
+    rev: v1.10.0
+    hooks:
+      - id: python-use-type-annotations
+      - id: python-check-blanket-noqa
+      - id: python-no-eval
+      - id: rst-backticks
+        exclude: docs/misc/coding-guidelines.rst
+  - repo: https://github.com/syntaqx/git-hooks
+    rev: v0.0.18
+    hooks:
+      - id: shellcheck
+        files: "ci_jobs/.*\\.sh"
+        args: ["-x", "-P", "ci_jobs/", "--shell=bash"]
+        additional_dependencies: []
