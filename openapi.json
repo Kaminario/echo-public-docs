@@ -6,14 +6,14 @@
     "version": "0.1.0"
   },
   "paths": {
-    "/api/hostess/v1/hosts/{host_id}": {
+    "/flex/api/v1/hosts/{host_id}": {
       "put": {
         "tags": [
           "hosts"
         ],
         "summary": "Register Host",
         "description": "Register a new host",
-        "operationId": "register_host_api_hostess_v1_hosts__host_id__put",
+        "operationId": "register_host_flex_api_v1_hosts__host_id__put",
         "security": [
           {
             "HTTPBearer": []
@@ -90,7 +90,7 @@
         ],
         "summary": "Unregister",
         "description": "Unregister a host",
-        "operationId": "unregister_api_hostess_v1_hosts__host_id__delete",
+        "operationId": "unregister_flex_api_v1_hosts__host_id__delete",
         "security": [
           {
             "HTTPBearer": []
@@ -148,7 +148,7 @@
         ],
         "summary": "Get Host",
         "description": "get host information",
-        "operationId": "get_host_api_hostess_v1_hosts__host_id__get",
+        "operationId": "get_host_flex_api_v1_hosts__host_id__get",
         "security": [
           {
             "HTTPBearer": []
@@ -203,14 +203,14 @@
         }
       }
     },
-    "/api/hostess/v1/hosts": {
+    "/flex/api/v1/hosts": {
       "get": {
         "tags": [
           "hosts"
         ],
         "summary": "List Hosts",
         "description": "list registered hosts information",
-        "operationId": "list_hosts_api_hostess_v1_hosts_get",
+        "operationId": "list_hosts_flex_api_v1_hosts_get",
         "security": [
           {
             "HTTPBearer": []
@@ -237,7 +237,7 @@
                   "items": {
                     "$ref": "#/components/schemas/Host"
                   },
-                  "title": "Response List Hosts Api Hostess V1 Hosts Get"
+                  "title": "Response List Hosts Flex Api V1 Hosts Get"
                 }
               }
             }
@@ -255,75 +255,13 @@
         }
       }
     },
-    "/api/hostess/v1/hosts/{host_id}/app-token": {
-      "get": {
-        "tags": [
-          "hosts"
-        ],
-        "summary": "App Token",
-        "description": "get application-token for host",
-        "operationId": "app_token_api_hostess_v1_hosts__host_id__app_token_get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "host_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 3,
-              "maxLength": 32,
-              "pattern": "^[a-zA-Z][a-zA-Z0-9_-]+[a-zA-Z0-9]$",
-              "description": "The ID of the host. Must start with letter, end with letter or number. Only letters, numbers, underscore and hyphen are allowed. Min length 3, max length 32",
-              "title": "Host Id"
-            },
-            "description": "The ID of the host. Must start with letter, end with letter or number. Only letters, numbers, underscore and hyphen are allowed. Min length 3, max length 32"
-          },
-          {
-            "name": "hs-ref-id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "title": "Hs-Ref-Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Token"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/ocie/v1/clone": {
+    "/flex/api/v1/extract/replicate": {
       "post": {
         "tags": [
           "extract"
         ],
         "summary": "Create Clone",
-        "operationId": "create_clone_api_ocie_v1_clone_post",
+        "operationId": "create_clone_flex_api_v1_extract_replicate_post",
         "security": [
           {
             "HTTPBearer": []
@@ -377,13 +315,13 @@
         }
       }
     },
-    "/api/ocie/v1/create_extract": {
+    "/flex/api/v1/extract/capture": {
       "post": {
         "tags": [
           "extract"
         ],
         "summary": "Create Extract",
-        "operationId": "create_extract_api_ocie_v1_create_extract_post",
+        "operationId": "create_extract_flex_api_v1_extract_capture_post",
         "security": [
           {
             "HTTPBearer": []
@@ -437,13 +375,13 @@
         }
       }
     },
-    "/api/ocie/v1/import_extract": {
+    "/flex/api/v1/extract/deploy": {
       "post": {
         "tags": [
           "extract"
         ],
         "summary": "Import Extract",
-        "operationId": "import_extract_api_ocie_v1_import_extract_post",
+        "operationId": "import_extract_flex_api_v1_extract_deploy_post",
         "security": [
           {
             "HTTPBearer": []
@@ -497,13 +435,13 @@
         }
       }
     },
-    "/api/ocie/v1/tasks/{request_id}": {
+    "/flex/api/v1/extract/tasks/{request_id}": {
       "get": {
         "tags": [
           "status"
         ],
         "summary": "Get Task",
-        "operationId": "get_task_api_ocie_v1_tasks__request_id__get",
+        "operationId": "get_task_flex_api_v1_extract_tasks__request_id__get",
         "security": [
           {
             "HTTPBearer": []
@@ -556,13 +494,13 @@
         }
       }
     },
-    "/api/ocie/v1/tasks": {
+    "/flex/api/v1/extract/tasks": {
       "get": {
         "tags": [
           "status"
         ],
         "summary": "List Task",
-        "operationId": "list_task_api_ocie_v1_tasks_get",
+        "operationId": "list_task_flex_api_v1_extract_tasks_get",
         "security": [
           {
             "HTTPBearer": []
@@ -589,7 +527,7 @@
                   "items": {
                     "$ref": "#/components/schemas/TaskStatusResponse"
                   },
-                  "title": "Response List Task Api Ocie V1 Tasks Get"
+                  "title": "Response List Task Flex Api V1 Extract Tasks Get"
                 }
               }
             }
@@ -865,40 +803,6 @@
           "ref_id"
         ],
         "title": "TaskStatusResponse"
-      },
-      "Token": {
-        "properties": {
-          "host_id": {
-            "type": "string",
-            "title": "Host Id"
-          },
-          "token": {
-            "type": "string",
-            "title": "Token"
-          },
-          "expire_ts": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Expire Ts"
-          },
-          "valid": {
-            "type": "boolean",
-            "title": "Valid"
-          }
-        },
-        "type": "object",
-        "required": [
-          "host_id",
-          "token",
-          "valid"
-        ],
-        "title": "Token"
       },
       "ValidationError": {
         "properties": {

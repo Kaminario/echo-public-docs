@@ -24,30 +24,24 @@ class ClientHost:
     def register(
         self, host_id: str, *, db_vendor: str
     ) -> api_models.CreateHostResponse:
-        url = self.make_endpoint(f"/api/hostess/v1/hosts/{host_id}")
+        url = self.make_endpoint(f"/flex/api/v1/hosts/{host_id}")
         response = self.session.put(url, json={"db_vendor": db_vendor})
         response.raise_for_status()
         return api_models.CreateHostResponse(**response.json())
 
     def unregister(self, host_id) -> None:
-        url = self.make_endpoint(f"/api/hostess/v1/hosts/{host_id}")
+        url = self.make_endpoint(f"/flex/api/v1/hosts/{host_id}")
         response = self.session.delete(url)
         response.raise_for_status()
 
-    def get_app_token(self, host_id: str) -> api_models.Token:
-        url = self.make_endpoint(f"/api/hostess/v1/hosts/{host_id}/app-token")
-        response = self.session.get(url)
-        response.raise_for_status()
-        return api_models.Token(**response.json())
-
     def get(self, host_id) -> api_models.Host:
-        url = self.make_endpoint(f"/api/hostess/v1/hosts/{host_id}")
+        url = self.make_endpoint(f"/flex/api/v1/hosts/{host_id}")
         response = self.session.get(url)
         response.raise_for_status()
         return api_models.Host(**response.json())
 
     def list_hosts(self) -> list[api_models.Host]:
-        url = self.make_endpoint("/api/hostess/v1/hosts")
+        url = self.make_endpoint("/flex/api/v1/hosts")
         response = self.session.get(url)
         response.raise_for_status()
         return [api_models.Host(**h) for h in response.json()]
@@ -59,13 +53,13 @@ class ClientTasks:
     make_endpoint: Callable[[str], str]
 
     def get(self, request_id: str) -> api_models.Host:
-        url = self.make_endpoint(f"/api/ocie/v1/tasks/{request_id}")
+        url = self.make_endpoint(f"/flex/api/v1/extract/tasks/{request_id}")
         response = self.session.get(url)
         response.raise_for_status()
         return api_models.TaskStatusResponse(**response.json())
 
     def list(self) -> list[api_models.Host]:
-        url = self.make_endpoint("/api/ocie/v1/tasks")
+        url = self.make_endpoint("/flex/api/v1/extract/tasks")
         response = self.session.get(url)
         response.raise_for_status()
         return [api_models.TaskStatusResponse(**h) for h in response.json()]
@@ -79,7 +73,7 @@ class ClientAction:
     def create_clone(
         self, request: api_models.CreateCloneRequest
     ) -> api_models.TaskStatusResponse:
-        url = self.make_endpoint("/api/ocie/v1/clone")
+        url = self.make_endpoint("/flex/api/v1/extract/replicate")
         response = self.session.post(url, json=request.dict())
         response.raise_for_status()
         return api_models.TaskStatusResponse(**response.json())
@@ -88,7 +82,7 @@ class ClientAction:
         self,
         request: api_models.CreateExtractRequest,
     ) -> api_models.TaskStatusResponse:
-        url = self.make_endpoint("/api/ocie/v1/create_extract")
+        url = self.make_endpoint("/flex/api/v1/extract/capture")
         response = self.session.post(url, json=request.dict())
         response.raise_for_status()
         return api_models.TaskStatusResponse(**response.json())
@@ -97,7 +91,7 @@ class ClientAction:
         self,
         request: api_models.ImportExtractRequest,
     ) -> api_models.TaskStatusResponse:
-        url = self.make_endpoint("/api/ocie/v1/import_extract")
+        url = self.make_endpoint("/flex/api/v1/extract/deploy")
         response = self.session.post(url, json=request.dict())
         response.raise_for_status()
         return api_models.TaskStatusResponse(**response.json())

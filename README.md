@@ -57,13 +57,35 @@ curl -XGET "http://{flex}/{path}" -H "hs-ref-id: Hy6f50Ki"
 
 # APIS
 
+**Hosts APIs**
+|method|path|description|
+|-|-|-|
+|PUT|/flex/api/v1/hosts/{host_id}|Register host|
+|DELETE|/flex/api/v1/hosts/{host_id|Unregister Host|
+|GET|/flex/api/v1/hosts/{host_id}|Retreive Host Info|
+|GET|/flex/api/v1/hosts|Get All Registered Hosts Info|
+
+**Extract APIs**
+|method|path|description|
+|-|-|-|
+|POST|/flex/api/v1/extract/replicate|capture and deploy in one operation|
+|POST|/flex/api/v1/extract/capture|Create an Application consistent Snapshot of DB|
+|POST|/flex/api/v1/extract/deploy|Deploy extract to Host|
+
+**Tasks APIs**
+|method|path|description|
+|-|-|-|
+|GET|/flex/api/v1/extract/tasks/{request_id}|Retreive Task Info|
+|GET|/flex/api/v1/extract/tasks|Get All Registered Task Info|
+
+
 ## Host APIs
 
 ### Register Host
 
 #### Endpoint
 
-`PUT /api/hostess/v1/hosts/{host_id}`
+`PUT /flex/api/v1/hosts/{host_id}`
 
 #### Payload
 
@@ -93,7 +115,7 @@ curl -XGET "http://{flex}/{path}" -H "hs-ref-id: Hy6f50Ki"
 #### Example
 
 ```bash
-curl -XPUT "http://{flex}/api/hostess/v1/hosts/{host_id}" -d'{"db_vendor": "mssql"}'
+curl -XPUT "http://{flex}/flex/api/v1/hosts/{host_id}" -d'{"db_vendor": "mssql"}'
 ```
 
 #### Responses
@@ -122,7 +144,7 @@ Removes the host from the Flex.
 
 #### Endpoint
 
-`DELETE /api/hostess/v1/hosts/{host_id}`
+`DELETE /flex/api/v1/hosts/{host_id}`
 
 #### Payload
 
@@ -137,7 +159,7 @@ No
 #### Example
 
 ```bash
-curl -XDELETE "http://{flex}/api/hostess/v1/hosts/{host_id}"
+curl -XDELETE "http://{flex}/flex/api/v1/hosts/{host_id}"
 ```
 
 ### Get Host
@@ -146,7 +168,7 @@ Get the single Host information stored in Flex.
 
 #### Endpoint
 
-`GET /api/hostess/v1/hosts/{host_id}`
+`GET /flex/api/v1/hosts/{host_id}`
 
 #### Payload
 
@@ -185,7 +207,7 @@ Get the single Host information stored in Flex.
 #### Example
 
 ```bash
-curl -XGET "http://{flex}/api/hostess/v1/hosts/{host_id}"
+curl -XGET "http://{flex}/flex/api/v1/hosts/{host_id}"
 ```
 
 ### List Host
@@ -194,7 +216,7 @@ Get the Hosts information stored in Flex.
 
 #### Endpoint
 
-`GET /api/hostess/v1/hosts`
+`GET /flex/api/v1/hosts`
 
 #### Payload
 
@@ -232,45 +254,7 @@ No
 #### Example
 
 ```bash
-curl -XGET "http://{flex}/api/hostess/v1/hosts"
-```
-
-### Host Application Token
-
-Receive a token required for Agent Authentication
-
-#### Endpoint
-
-`GET /api/hostess/v1/hosts/{host_id}/app-token`
-
-#### Payload
-
-- `host_id` (string): The unique identifier for the host.
-
-#### Responses
-
-- 200 Ok
-
-    ```json
-    {
-        "host_id": "e1235",
-        "token": "FpcinCQ6W5AeBbVG6TpZFatx3O2rwYB0HSK8b84w3VY",
-        "expire_ts": null,
-        "valid": true
-    }
-    ```
-
-    - `host_id` (string): The unique identifier for the host.
-    - `token` (string): URL-safe string.
-    - `expire_ts` (Optional[integer]): Token expiration timestamp: Currently, all host tokens remain valid indefinitely unless explicitly deleted.
-    - `valid` (bool): Indicates whether the token is still valid.
-
-- 404 Not Found
-
-#### Example
-
-```bash
-curl -XGET "http://{flex}/api/hostess/v1/hosts/{host_id}/app-token"
+curl -XGET "http://{flex}/flex/api/v1/hosts"
 ```
 
 ## Extract APIs
@@ -281,7 +265,7 @@ Creates clone of DB located on host A and imports DB replica to Host B
 
 #### Endpoint
 
-`GET /api/ocie/v1/clone`
+`POST /flex/api/v1/extract/replicate`
 
 #### Payload
 
@@ -311,7 +295,7 @@ Creates clone of DB located on host A and imports DB replica to Host B
     "command_type": "CreateCloneCommand",
     "ref_id": "rkkF-EnSLVE",
     "error": "",
-    "location": "/api/ocie/v1/tasks/_HeD0pMK-kW8Oev_zdeY4_FbmhK9pzHL6NJoBJGamnQ"
+    "location": "/flex/api/v1/extract/tasks/_HeD0pMK-kW8Oev_zdeY4_FbmhK9pzHL6NJoBJGamnQ"
     }
     ```
     - `state` (string): Task state. Optional are: running, completed, failed, aborted.
@@ -327,7 +311,7 @@ Creates clone of DB located on host A and imports DB replica to Host B
 #### Example
 
 ```bash
-curl -XGET "http://{flex}/api/ocie/v1/clone" -d'{database_id="3",source_host_id="host01", destination_host_ids=["host02"]}' -H 'Content-Type: application/json'
+curl -XGET "http://{flex}/flex/api/v1/extract/replicate" -d'{database_id="3",source_host_id="host01", destination_host_ids=["host02"]}' -H 'Content-Type: application/json'
 ```
 
 ### Create Extract
@@ -336,7 +320,7 @@ Creates exctract of DB located on host A
 
 #### Endpoint
 
-`GET /api/ocie/v1/create_extract`
+`GET /flex/api/v1/extract/capture`
 
 #### Payload
 
@@ -364,7 +348,7 @@ Creates exctract of DB located on host A
         "command_type": "CreateExtractCommand",
         "ref_id": "JJ3jfgDUZaA",
         "error": "",
-        "location": "/api/ocie/v1/tasks/TqfKslECFKaVUDkS8GtbhrDHoGfLcVeqcpOxJzS7Gmw"
+        "location": "/flex/api/v1/extract/tasks/TqfKslECFKaVUDkS8GtbhrDHoGfLcVeqcpOxJzS7Gmw"
     }
     ```
 
@@ -373,7 +357,7 @@ Creates exctract of DB located on host A
 #### Example
 
 ```bash
-curl -XGET "http://{flex}/api/ocie/v1/create_extract" -d'{database_id="3",source_host_id="host01",destination_host_ids=["host02"]}' -H 'Content-Type: application/json'
+curl -XGET "http://{flex}/flex/api/v1/extract/capture" -d'{database_id="3",source_host_id="host01",destination_host_ids=["host02"]}' -H 'Content-Type: application/json'
 ```
 
 
@@ -383,7 +367,7 @@ Imports exctract of DB on host B
 
 #### Endpoint
 
-`GET /api/ocie/v1/import_extract`
+`GET /flex/api/v1/extract/deploy`
 
 #### Payload
 
@@ -411,7 +395,7 @@ Imports exctract of DB on host B
         "command_type": "ImportExtractCommand",
         "ref_id": "bjGP9ygRMew",
         "error": "",
-        "location": "/api/ocie/v1/tasks/_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was"
+        "location": "/flex/api/v1/extract/tasks/_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was"
     }
     ```
 
@@ -421,7 +405,7 @@ Imports exctract of DB on host B
 
 
 ```bash
-curl -XGET "http://{flex}/api/ocie/v1/import_extract" -d'{"extract_id":"3","destination_host_ids":["host02"]}' -H 'Content-Type: application/json'
+curl -XGET "http://{flex}/flex/api/v1/extract/deploy" -d'{"extract_id":"3","destination_host_ids":["host02"]}' -H 'Content-Type: application/json'
 ```
 
 
@@ -433,7 +417,7 @@ Retreive current Task state by ID
 
 #### Endpoint
 
-`GET /api/ocie/v1/tasks/{request_id}`
+`GET /flex/api/v1/extract/tasks/{request_id}`
 
 #### Payload
 
@@ -453,7 +437,7 @@ Retreive current Task state by ID
             "command_type": "ImportExtractCommand",
             "ref_id": "bjGP9ygRMew",
             "error": "",
-            "location": "/api/ocie/v1/tasks/_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was"
+            "location": "/flex/api/v1/extract/tasks/_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was"
         }
     ```
 
@@ -462,7 +446,7 @@ Retreive current Task state by ID
 #### Example
 
 ```bash
-curl -XGET "http://{flex}/api/ocie/v1/tasks/3583764857"
+curl -XGET "http://{flex}/flex/api/v1/extract/tasks/3583764857"
 ```
 
 ### List
@@ -471,7 +455,7 @@ Retreive All Tasks
 
 #### Endpoint
 
-`GET /api/ocie/v1/tasks`
+`GET /flex/api/v1/extract/tasks`
 
 #### Payload
 
@@ -492,7 +476,7 @@ No
             "command_type": "ImportExtractCommand",
             "ref_id": "bjGP9ygRMew",
             "error": "",
-            "location": "/api/ocie/v1/tasks/_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was"
+            "location": "/flex/api/v1/extract/tasks/_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was"
         }
     ]
     ```
@@ -500,5 +484,5 @@ No
 #### Example
 
 ```bash
-curl -XGET "http://{flex}/api/ocie/v1/tasks"
+curl -XGET "http://{flex}/flex/api/v1/extract/tasks"
 ```

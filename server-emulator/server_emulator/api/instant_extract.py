@@ -10,7 +10,7 @@ router = fastapi.APIRouter()
 
 
 @router.post(
-    "/api/ocie/v1/clone",
+    "/flex/api/v1/extract/replicate",
     responses={
         fastapi.status.HTTP_409_CONFLICT: {"description": "Request Id Conflict"}
     },
@@ -34,7 +34,7 @@ async def create_clone(
 
 
 @router.post(
-    "/api/ocie/v1/create_extract",
+    "/flex/api/v1/extract/capture",
     responses={
         fastapi.status.HTTP_409_CONFLICT: {"description": "Request Id Conflict"}
     },
@@ -55,7 +55,7 @@ async def create_extract(
 
 
 @router.post(
-    "/api/ocie/v1/import_extract",
+    "/flex/api/v1/extract/deploy",
     responses={
         fastapi.status.HTTP_409_CONFLICT: {"description": "Request Id Conflict"}
     },

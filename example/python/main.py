@@ -13,7 +13,7 @@ def url_safe_id(n=32):
 def wait_for_task(cl, task_id):
     print(f"Waiting for {task_id=}")
     task = cl.task.get(task_id)
-    while task.state != "completed":
+    while task.is_running():
         time.sleep(2)
         task = cl.task.get(task_id)
         print(task)

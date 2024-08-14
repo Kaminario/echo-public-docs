@@ -11,7 +11,7 @@ from . import exceptions, store
 
 logger = logging.getLogger(__name__)
 
-status_location = "/api/ocie/v1/tasks/{request_id}"
+status_location = "/flex/api/v1/extract/tasks/{request_id}"
 
 
 async def _task_runner(task: api_models.TaskStatusResponse, duration_sec: int):

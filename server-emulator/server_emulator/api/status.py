@@ -22,7 +22,7 @@ async def get_task(request_id: str) -> api_models.TaskStatusResponse:
 
 
 @router.get(
-    "/api/ocie/v1/tasks",
+    "/flex/api/v1/extract/tasks",
     tags=["status"],
 )
 async def list_task() -> list[api_models.TaskStatusResponse]:

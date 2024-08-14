@@ -23,7 +23,7 @@ router = fastapi.APIRouter()
 
 
 @router.put(
-    "/api/hostess/v1/hosts/{host_id}",
+    "/flex/api/v1/hosts/{host_id}",
     description="Register a new host",
     responses={
         fastapi.status.HTTP_409_CONFLICT: {"description": "Host already exists"}
@@ -51,7 +51,7 @@ async def register_host(
 
 
 @router.delete(
-    "/api/hostess/v1/hosts/{host_id}", description="Unregister a host", tags=["hosts"]
+    "/flex/api/v1/hosts/{host_id}", description="Unregister a host", tags=["hosts"]
 )
 async def unregister(host_id: Annotated[str, host_id_validator]):
     hosts_manager.unregister_host(host_id)
@@ -59,7 +59,7 @@ async def unregister(host_id: Annotated[str, host_id_validator]):
 
 
 @router.get(
-    "/api/hostess/v1/hosts/{host_id}",
+    "/flex/api/v1/hosts/{host_id}",
     description="get host information",
     tags=["hosts"],
 )
@@ -73,23 +73,9 @@ async def get_host(host_id: Annotated[str, host_id_validator]) -> api_models.Hos
 
 
 @router.get(
-    "/api/hostess/v1/hosts",
+    "/flex/api/v1/hosts",
     description="list registered hosts information",
     tags=["hosts"],
 )
 async def list_hosts() -> list[api_models.Host]:
     return hosts_manager.get_hosts()
-
-
-@router.get(
-    "/api/hostess/v1/hosts/{host_id}/app-token",
-    description="get application-token for host",
-    tags=["hosts"],
-)
-async def app_token(host_id: Annotated[str, host_id_validator]) -> api_models.Token:
-    token = hosts_manager.get_token(host_id)
-    if not token:
-        raise server_error_responses.HTTPNotFoundError(
-            detail=f"Host's '{host_id}' token  not found"
-        )
-    return token

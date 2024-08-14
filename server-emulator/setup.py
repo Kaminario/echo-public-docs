@@ -16,7 +16,8 @@ setup(
         "pydantic == 2.8",
         "fastapi == 0.112.0",
         "uvicorn == 0.30.5",
-        "requests == 2.32.3",  # for client
     ),
-    entry_points={"console_scripts": ("start-silk-server=server.server:main",)},
+    entry_points={
+        "console_scripts": ("start-silk-server=server_emulator.server:main",)
+    },
 )
