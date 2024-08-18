@@ -302,6 +302,9 @@
           "409": {
             "description": "Request Id Conflict"
           },
+          "202": {
+            "description": "Request Accepted"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -362,6 +365,9 @@
           "409": {
             "description": "Request Id Conflict"
           },
+          "202": {
+            "description": "Request Accepted"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -421,6 +427,9 @@
           },
           "409": {
             "description": "Request Id Conflict"
+          },
+          "202": {
+            "description": "Request Accepted"
           },
           "422": {
             "description": "Validation Error",

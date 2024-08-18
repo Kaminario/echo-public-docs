@@ -9,10 +9,19 @@ logger = logging.getLogger(__name__)
 router = fastapi.APIRouter()
 
 
+def created_task_response(task: api_models.TaskStatusResponse) -> fastapi.Response:
+    return fastapi.Response(
+        task.model_dump_json(),
+        media_type="application/json",
+        status_code=fastapi.status.HTTP_202_ACCEPTED,
+    )
+
+
 @router.post(
     "/flex/api/v1/extract/replicate",
     responses={
-        fastapi.status.HTTP_409_CONFLICT: {"description": "Request Id Conflict"}
+        fastapi.status.HTTP_409_CONFLICT: {"description": "Request Id Conflict"},
+        fastapi.status.HTTP_202_ACCEPTED: {"description": "Request Accepted"},
     },
     tags=["extract"],
 )
@@ -30,13 +39,14 @@ async def create_clone(
         command=kind,
         duration_sec=3,
     )
-    return task
+    return created_task_response(task)
 
 
 @router.post(
     "/flex/api/v1/extract/capture",
     responses={
-        fastapi.status.HTTP_409_CONFLICT: {"description": "Request Id Conflict"}
+        fastapi.status.HTTP_409_CONFLICT: {"description": "Request Id Conflict"},
+        fastapi.status.HTTP_202_ACCEPTED: {"description": "Request Accepted"},
     },
     tags=["extract"],
 )
@@ -51,13 +61,14 @@ async def create_extract(
         command=kind,
         duration_sec=3,
     )
-    return task
+    return created_task_response(task)
 
 
 @router.post(
     "/flex/api/v1/extract/deploy",
     responses={
-        fastapi.status.HTTP_409_CONFLICT: {"description": "Request Id Conflict"}
+        fastapi.status.HTTP_409_CONFLICT: {"description": "Request Id Conflict"},
+        fastapi.status.HTTP_202_ACCEPTED: {"description": "Request Accepted"},
     },
     tags=["extract"],
 )
@@ -72,4 +83,4 @@ async def import_extract(
         command=kind,
         duration_sec=3,
     )
-    return task
+    return created_task_response(task)
