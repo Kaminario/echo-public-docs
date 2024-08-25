@@ -60,6 +60,7 @@ async def create_extract(
         request_id=request_id,
         command=kind,
         duration_sec=3,
+        result={"extract_id": common.url_safe_id(n=5)},
     )
     return created_task_response(task)
 

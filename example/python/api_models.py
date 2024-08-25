@@ -76,6 +76,7 @@ class TaskStatusResponse(pydantic.BaseModel):
     ref_id: str
     error: str = ""
     location: Optional[str] = None  # URI for polling
+    result: Optional[dict] = None  # result of the task
 
     def is_failed(self):
         return self.state in (TaskState.failed, TaskState.aborted)
@@ -85,3 +86,7 @@ class TaskStatusResponse(pydantic.BaseModel):
 
     def is_completed(self):
         return self.state == TaskState.completed
+
+
+class CaptureExtractResponse(pydantic.BaseModel):
+    extract_id: str
