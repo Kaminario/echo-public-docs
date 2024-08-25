@@ -5,6 +5,7 @@ Server runtime context
 import asyncio
 import logging
 import time
+from typing import Union
 
 from .. import api_models, session_ctx
 from . import exceptions, store
@@ -21,13 +22,17 @@ async def _task_runner(task: api_models.TaskStatusResponse, duration_sec: int):
         await asyncio.sleep(1)
         task.update_ts = int(time.time())
 
+    task.result = task.get_result()
     task.state = api_models.TaskState.completed
     task.update_ts = int(time.time())
     logger.info(f"Task completed: {task}")
 
 
 async def create_task(
-    request_id: str, command: api_models.CommandKind, duration_sec: int
+    request_id: str,
+    command: api_models.CommandKind,
+    duration_sec: int,
+    result: Union[dict, None] = None,
 ) -> api_models.TaskStatusResponse:
     if request_id in store.tasks:
         task = store.tasks[request_id]
@@ -52,6 +57,11 @@ async def create_task(
             error="",
             location=status_location.format(request_id=request_id),
         )
+
+        if result is not None:
+            # set the result only after the task is completed
+            task.set_result(result)
+
         store.tasks[task.request_id] = task
         asyncio.create_task(_task_runner(task, duration_sec))
     return task

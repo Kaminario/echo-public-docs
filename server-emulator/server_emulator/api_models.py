@@ -83,6 +83,17 @@ class TaskStatusResponse(pydantic.BaseModel):
     ref_id: str
     error: str = ""
     location: Optional[str] = None  # URI for polling status
+    result: Optional[dict] = None  # result of the task
+    _result: Optional[dict] = None  # holds the result untill the task is completed
+
+    def set_result(self, result: dict):
+        # this method is used to set the result of the task
+        # only after the task is completed
+        # this result will be copied to self.result
+        self._result = result
+
+    def get_result(self):
+        return self._result
 
     def is_failed(self):
         return self.state in (TaskState.failed, TaskState.aborted)

@@ -799,6 +799,17 @@
               }
             ],
             "title": "Location"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
           }
         },
         "type": "object",
