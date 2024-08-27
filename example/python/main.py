@@ -38,7 +38,7 @@ HOST_1 = "host1"
 HOST_2 = "host2"
 
 
-def create_clone(cl):
+def replicate(cl):
     """
     register host01
     Create a clone of a database_01 from host01 to host02
@@ -52,7 +52,7 @@ def create_clone(cl):
     _register_host(cl, source_host_id, vendor)
     _register_host(cl, destination_host_id, vendor)
 
-    create_clone_request = api_models.CreateCloneRequest(
+    replicate_request = api_models.ReplicateRequest(
         database_id="3",
         source_host_id=source_host_id,
         destination_host_ids=[destination_host_id],
@@ -62,16 +62,16 @@ def create_clone(cl):
 from host {source_host_id}
 to host {destination_host_id}
 parameters:
-{create_clone_request.model_dump_json(indent=2)}
+{replicate_request.model_dump_json(indent=2)}
 """
     )
 
-    task = cl.action.create_clone(create_clone_request)
+    task = cl.action.replicate(replicate_request)
     print(f"committed task: {task.model_dump_json(indent=2)}")
     wait_for_task(cl, task.request_id)
 
 
-def create_extract(cl) -> api_models.CaptureExtractResponse:
+def capture(cl) -> api_models.CaptureExtractResponse:
     """
     register host01
     Create an extract of a database_01 from host01
@@ -83,7 +83,7 @@ def create_extract(cl) -> api_models.CaptureExtractResponse:
 
     _register_host(cl, source_host_id, vendor)
 
-    create_extract_request = api_models.CreateExtractRequest(
+    capture_request = api_models.CaptureRequest(
         database_id="3",
         source_host_id=source_host_id,
     )
@@ -91,17 +91,17 @@ def create_extract(cl) -> api_models.CaptureExtractResponse:
         f"""Creating an extract of database {database_id}
 from host {source_host_id}
 parameters:
-{create_extract_request.model_dump_json(indent=2)}
+{capture_request.model_dump_json(indent=2)}
 """
     )
 
-    started_task = cl.action.create_extract(create_extract_request)
+    started_task = cl.action.capture(capture_request)
     print(f"committed task: {started_task.model_dump_json(indent=2)}")
     completed_task = wait_for_task(cl, started_task.request_id)
     return api_models.CaptureExtractResponse(**completed_task.result)
 
 
-def import_extract(cl, extract_id: str):
+def deploy(cl, extract_id: str):
     """
     register host02
     Import an extract of a database_01 to host02
@@ -112,7 +112,7 @@ def import_extract(cl, extract_id: str):
 
     _register_host(cl, destination_host_id, vendor)
 
-    import_extract_request = api_models.ImportExtractRequest(
+    deploy_request = api_models.DeployRequest(
         extract_id=extract_id,
         destination_host_ids=[destination_host_id],
     )
@@ -120,11 +120,11 @@ def import_extract(cl, extract_id: str):
         f"""Importing an extract {extract_id}
 to host {destination_host_id}
 parameters:
-{import_extract_request.model_dump_json(indent=2)}
+{deploy_request.model_dump_json(indent=2)}
 """
     )
 
-    task = cl.action.import_extract(import_extract_request)
+    task = cl.action.deploy(deploy_request)
     print(f"committed task: {task.model_dump_json(indent=2)}")
     wait_for_task(cl, task.request_id)
 
@@ -135,9 +135,9 @@ def main():
 
     cl = Client(host="0.0.0.0", port=8000, token="1111", track_id=track_id)
 
-    create_clone(cl)
-    result = create_extract(cl)
-    import_extract(cl, result.extract_id)
+    replicate(cl)
+    result = capture(cl)
+    deploy(cl, result.extract_id)
 
 
 if __name__ == "__main__":

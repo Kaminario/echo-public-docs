@@ -37,18 +37,18 @@ class CreateHostResponse(pydantic.BaseModel):
     token: str
 
 
-class CreateCloneRequest(pydantic.BaseModel):
+class ReplicateRequest(pydantic.BaseModel):
     database_id: str
     source_host_id: str
     destination_host_ids: list[str]
 
 
-class CreateExtractRequest(pydantic.BaseModel):
+class CaptureRequest(pydantic.BaseModel):
     database_id: str
     source_host_id: str
 
 
-class ImportExtractRequest(pydantic.BaseModel):
+class DeployRequest(pydantic.BaseModel):
     extract_id: str
     destination_host_ids: list[str]
 
@@ -61,9 +61,9 @@ class TaskState(str, Enum):
 
 
 class CommandKind(str, Enum):
-    create_clone = "CreateCloneCommand"
-    create_extract = "CreateExtractCommand"
-    import_extract = "ImportExtractCommand"
+    replicate = "ReplicateCommand"
+    capture = "CaptureCommand"
+    deploy = "DeployCommand"
 
 
 class TaskStatusResponse(pydantic.BaseModel):

@@ -70,26 +70,26 @@ class ClientAction:
     session: requests.Session
     make_endpoint: Callable[[str], str]
 
-    def create_clone(
-        self, request: api_models.CreateCloneRequest
+    def replicate(
+        self, request: api_models.ReplicateRequest
     ) -> api_models.TaskStatusResponse:
         url = self.make_endpoint("/flex/api/v1/extract/replicate")
         response = self.session.post(url, json=request.dict())
         response.raise_for_status()
         return api_models.TaskStatusResponse(**response.json())
 
-    def create_extract(
+    def capture(
         self,
-        request: api_models.CreateExtractRequest,
+        request: api_models.CaptureRequest,
     ) -> api_models.TaskStatusResponse:
         url = self.make_endpoint("/flex/api/v1/extract/capture")
         response = self.session.post(url, json=request.dict())
         response.raise_for_status()
         return api_models.TaskStatusResponse(**response.json())
 
-    def import_extract(
+    def deploy(
         self,
-        request: api_models.ImportExtractRequest,
+        request: api_models.DeployRequest,
     ) -> api_models.TaskStatusResponse:
         url = self.make_endpoint("/flex/api/v1/extract/deploy")
         response = self.session.post(url, json=request.dict())

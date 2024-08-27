@@ -25,14 +25,14 @@ def created_task_response(task: api_models.TaskStatusResponse) -> fastapi.Respon
     },
     tags=["extract"],
 )
-async def create_clone(
-    request: api_models.CreateCloneRequest,
+async def replicate(
+    request: api_models.ReplicateRequest,
 ) -> api_models.TaskStatusResponse:
     # in the future request_id will be accepted from the client
     # and 409 will be returned if the request_id is already in use
     # for now, we generate a new request_id
     request_id = common.url_safe_id()
-    kind = api_models.CommandKind.create_clone
+    kind = api_models.CommandKind.replicate
     logger.info(f"Received request: {request}. {request_id=} {kind=}")
     task = await tasks_manager.create_task(
         request_id=request_id,
@@ -50,11 +50,11 @@ async def create_clone(
     },
     tags=["extract"],
 )
-async def create_extract(
-    request: api_models.CreateExtractRequest,
+async def capture(
+    request: api_models.CaptureRequest,
 ) -> api_models.TaskStatusResponse:
     request_id = common.url_safe_id()
-    kind = api_models.CommandKind.create_extract
+    kind = api_models.CommandKind.capture
     logger.info(f"Received request: {request}. {request_id=} {kind=}")
     task = await tasks_manager.create_task(
         request_id=request_id,
@@ -73,11 +73,11 @@ async def create_extract(
     },
     tags=["extract"],
 )
-async def import_extract(
-    request: api_models.ImportExtractRequest,
+async def deploy(
+    request: api_models.DeployRequest,
 ) -> api_models.TaskStatusResponse:
     request_id = common.url_safe_id()
-    kind = api_models.CommandKind.import_extract
+    kind = api_models.CommandKind.deploy
     logger.info(f"Received request: {request}. {request_id=} {kind=}")
     task = await tasks_manager.create_task(
         request_id=request_id,
