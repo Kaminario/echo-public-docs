@@ -260,8 +260,8 @@
         "tags": [
           "extract"
         ],
-        "summary": "Create Clone",
-        "operationId": "create_clone_flex_api_v1_extract_replicate_post",
+        "summary": "Replicate",
+        "operationId": "replicate_flex_api_v1_extract_replicate_post",
         "security": [
           {
             "HTTPBearer": []
@@ -283,7 +283,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateCloneRequest"
+                "$ref": "#/components/schemas/ReplicateRequest"
               }
             }
           }
@@ -323,8 +323,8 @@
         "tags": [
           "extract"
         ],
-        "summary": "Create Extract",
-        "operationId": "create_extract_flex_api_v1_extract_capture_post",
+        "summary": "Capture",
+        "operationId": "capture_flex_api_v1_extract_capture_post",
         "security": [
           {
             "HTTPBearer": []
@@ -346,7 +346,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateExtractRequest"
+                "$ref": "#/components/schemas/CaptureRequest"
               }
             }
           }
@@ -386,8 +386,8 @@
         "tags": [
           "extract"
         ],
-        "summary": "Import Extract",
-        "operationId": "import_extract_flex_api_v1_extract_deploy_post",
+        "summary": "Deploy",
+        "operationId": "deploy_flex_api_v1_extract_deploy_post",
         "security": [
           {
             "HTTPBearer": []
@@ -409,7 +409,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ImportExtractRequest"
+                "$ref": "#/components/schemas/DeployRequest"
               }
             }
           }
@@ -557,52 +557,7 @@
   },
   "components": {
     "schemas": {
-      "Cloud": {
-        "type": "string",
-        "enum": [
-          "GCP",
-          "AWS",
-          "AZURE",
-          "UNKNOWN"
-        ],
-        "title": "Cloud"
-      },
-      "CommandKind": {
-        "type": "string",
-        "enum": [
-          "CreateCloneCommand",
-          "CreateExtractCommand",
-          "ImportExtractCommand"
-        ],
-        "title": "CommandKind"
-      },
-      "CreateCloneRequest": {
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "title": "Database Id"
-          },
-          "source_host_id": {
-            "type": "string",
-            "title": "Source Host Id"
-          },
-          "destination_host_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Destination Host Ids"
-          }
-        },
-        "type": "object",
-        "required": [
-          "database_id",
-          "source_host_id",
-          "destination_host_ids"
-        ],
-        "title": "CreateCloneRequest"
-      },
-      "CreateExtractRequest": {
+      "CaptureRequest": {
         "properties": {
           "database_id": {
             "type": "string",
@@ -618,7 +573,26 @@
           "database_id",
           "source_host_id"
         ],
-        "title": "CreateExtractRequest"
+        "title": "CaptureRequest"
+      },
+      "Cloud": {
+        "type": "string",
+        "enum": [
+          "GCP",
+          "AWS",
+          "AZURE",
+          "UNKNOWN"
+        ],
+        "title": "Cloud"
+      },
+      "CommandKind": {
+        "type": "string",
+        "enum": [
+          "ReplicateCommand",
+          "CaptureCommand",
+          "DeployCommand"
+        ],
+        "title": "CommandKind"
       },
       "CreateHostResponse": {
         "properties": {
@@ -649,6 +623,27 @@
         ],
         "const": "mssql",
         "title": "DBVendor"
+      },
+      "DeployRequest": {
+        "properties": {
+          "extract_id": {
+            "type": "string",
+            "title": "Extract Id"
+          },
+          "destination_host_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Destination Host Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "extract_id",
+          "destination_host_ids"
+        ],
+        "title": "DeployRequest"
       },
       "HTTPValidationError": {
         "properties": {
@@ -725,11 +720,15 @@
         ],
         "title": "Host"
       },
-      "ImportExtractRequest": {
+      "ReplicateRequest": {
         "properties": {
-          "extract_id": {
+          "database_id": {
             "type": "string",
-            "title": "Extract Id"
+            "title": "Database Id"
+          },
+          "source_host_id": {
+            "type": "string",
+            "title": "Source Host Id"
           },
           "destination_host_ids": {
             "items": {
@@ -741,10 +740,11 @@
         },
         "type": "object",
         "required": [
-          "extract_id",
+          "database_id",
+          "source_host_id",
           "destination_host_ids"
         ],
-        "title": "ImportExtractRequest"
+        "title": "ReplicateRequest"
       },
       "TaskState": {
         "type": "string",

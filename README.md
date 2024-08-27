@@ -292,7 +292,7 @@ Creates clone of DB located on host A and imports DB replica to Host B
     "update_ts": 1723106068,
     "request_id": "_HeD0pMK-kW8Oev_zdeY4_FbmhK9pzHL6NJoBJGamnQ",
     "owner": "ocie",
-    "command_type": "CreateCloneCommand",
+    "command_type": "ReplicateCommand",
     "ref_id": "rkkF-EnSLVE",
     "error": "",
     "location": "/flex/api/v1/extract/tasks/_HeD0pMK-kW8Oev_zdeY4_FbmhK9pzHL6NJoBJGamnQ"
@@ -345,7 +345,7 @@ Creates exctract of DB located on host A
         "update_ts": 1723108196,
         "request_id": "TqfKslECFKaVUDkS8GtbhrDHoGfLcVeqcpOxJzS7Gmw",
         "owner": "ocie",
-        "command_type": "CreateExtractCommand",
+        "command_type": "CaptureCommand",
         "ref_id": "JJ3jfgDUZaA",
         "error": "",
         "location": "/flex/api/v1/extract/tasks/TqfKslECFKaVUDkS8GtbhrDHoGfLcVeqcpOxJzS7Gmw"
@@ -392,7 +392,7 @@ Imports exctract of DB on host B
         "update_ts": 1723108781,
         "request_id": "_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was",
         "owner": "ocie",
-        "command_type": "ImportExtractCommand",
+        "command_type": "DeployCommand",
         "ref_id": "bjGP9ygRMew",
         "error": "",
         "location": "/flex/api/v1/extract/tasks/_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was"
@@ -434,7 +434,7 @@ Retreive current Task state by ID
             "update_ts": 1723108781,
             "request_id": "_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was",
             "owner": "ocie",
-            "command_type": "ImportExtractCommand",
+            "command_type": "DeployCommand",
             "ref_id": "bjGP9ygRMew",
             "error": "",
             "location": "/flex/api/v1/extract/tasks/_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was"
@@ -473,7 +473,7 @@ No
             "update_ts": 1723108981,
             "request_id": "_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was",
             "owner": "ocie",
-            "command_type": "ImportExtractCommand",
+            "command_type": "DeployCommand",
             "ref_id": "bjGP9ygRMew",
             "error": "",
             "location": "/flex/api/v1/extract/tasks/_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was"
