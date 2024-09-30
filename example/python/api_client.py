@@ -3,6 +3,7 @@ from typing import Callable, Optional
 
 import api_models
 import requests
+import requests.auth
 
 base_url = "http://{host}:{port}"
 
