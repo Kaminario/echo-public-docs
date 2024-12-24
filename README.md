@@ -4,11 +4,11 @@ Silk Echo provides the ability to take an Application Consistent snapshot of a D
 
 ## Prerequisites
 
-Installed Flex
-Host Windows server runs MSSQL with original DB.
-Host Windows server runs MSSQL.
-Hosts are capable to communicate with the Flex server.
-Silk VSS installed and configured on both hosts.
+* Installed Flex.
+* Host Windows server runs MSSQL with original DB ("source host").
+* Host Windows server runs MSSQL ("destination host").
+* Hosts are capable to communicate with the Flex server.
+* Silk VSS installed and configured on both hosts.
 
 The required setup actions:
 
@@ -22,7 +22,7 @@ After Hosts are prepared, we can clone a DB from the source host to some target 
 1. (Optionally) Use Echo API to discover the registered Hosts and their existing Databases
 2. Call Flex to clone a DB from a "source" host to a "destination" host.
 
-The Most of the actions are long operation and can be monitored by "tasks" API calls.
+Most of the actions are long operation and can be monitored by "tasks" API calls.
 
 # Authentication
 
@@ -116,7 +116,7 @@ but it both of them will work the same way.
 #### Parameters
 
 - `host_id` (string):
-    The unique identifier for the host `host_id`, regulary it is the same as host name
+    The unique identifier for the host `host_id`, usually it is the same as host name
 
     It should be compliant to following:
 
@@ -152,6 +152,7 @@ curl -XPUT "http://{flex}/flex/api/v1/hosts/{host_id}" -d'{"db_vendor": "mssql"}
     - `host_id` (string): The unique identifier for the host.
     - `db_vendor` (string enum): The database vendor of the host.
     - `token` (string): unique token for the host is used to authenticate the agent with the Flex. URL-safe String of max 128 characters.
+      You need to save this token and use it when installing Silk Agent.
 
 - 409 Conflict
 
