@@ -9,7 +9,8 @@ requirements:
 pip install fire
 
 usage:
-python db_clone.py --snap-date "2024-12-24" --src primary --dest dev-1 --db-names sales_us,sales_eu --suffix "_bbbb34"
+python db_clone.py run --snap-date "2024-12-24" --src primary --dest dev-1
+      --db-names sales_us,sales_eu --suffix "_bbbb34"
 """
 
 import os
@@ -280,4 +281,4 @@ def _wait_for_task(task: dict) -> tuple[bool, dict]:
 
 
 if __name__ == "__main__":
-    fire.Fire(run)
+    fire.Fire()

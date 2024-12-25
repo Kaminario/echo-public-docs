@@ -7,7 +7,7 @@ requirements:
 pip install fire
 
 usage:
-python snapshot_daily.py --host-name <host name>
+python snapshot_daily.py run --host-name <host name>
 """
 
 import os
@@ -203,4 +203,4 @@ def _wait_for_task(task: dict) -> tuple[bool, dict]:
 
 
 if __name__ == "__main__":
-    fire.Fire(run)
+    fire.Fire()
