@@ -137,7 +137,7 @@ curl -XPUT "http://{flex}/flex/api/v1/hosts/{host_id}" -d'{"db_vendor": "mssql"}
         "token": "vd8iofbhsdohodxhgdx"
     }
     ```
-    **Notice:** The token is used to authenticate the host.
+    **Notice:** The token is used to authenticate the host, you need to store it securely and use it when installing Silk Agent.
 
 - **409 Conflict**
 
