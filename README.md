@@ -1,111 +1,107 @@
 # Silk Echo
 
-Silk Echo provides the ability to take an Application Consistent snapshot of a Database on one Host and use it to create a copy database on another Host, in human friendly manner or automated routine.
+Silk Echo provides the ability to take an application-consistent snapshot of a database on one host and use it to create a copy of the database on another host, either manually or as part of an automated routine.
 
 ## Prerequisites
 
-Installed Flex
-Host Windows server runs MSSQL with original DB.
-Host Windows server runs MSSQL.
-Hosts are capable to communicate with the Flex server.
-Silk VSS installed and configured on both hosts.
+- Installed Flex.
+- Source host running Windows Server with MSSQL and the original database.
+- Destination host running Windows Server with MSSQL.
+- Hosts must be capable of communicating with the Flex server and the SDP rest API.
+- Silk VSS installed and configured on both hosts.
 
-The required setup actions:
+### Required Setup Actions:
 
-1. Register the "source" host server in Flex. (The server that hold original MSSQL DB)
-2. Install Silk Agent on "source".
-3. Register the "destination" host server in Flex. (The server where Flex will restore DB)
-4. Install Silk Agent on "target".
+1. Register the "source" host server in Flex (the server that holds the original MSSQL database).
+2. Install Silk Agent on the "source" host.
+3. Register the "destination" host server in Flex (the server where Flex will restore the database).
+4. Install Silk Agent on the "destination" host.
 
-After Hosts are prepared, we can clone a DB from the source host to some target host.
+### Cloning a Database
 
-1. (Optionally) Use Echo API to discover the registered Hosts and their existing Databases
-2. Call Flex to clone a DB from a "source" host to a "destination" host.
+After preparing the hosts, you can clone a database from the source host to the destination host:
 
-The Most of the actions are long operation and can be monitored by "tasks" API calls.
+1. (Optional) Use the Echo API to discover registered hosts and their existing databases.
+2. Call Flex to clone a database from the "source" host to the "destination" host.
 
-# Authentication
+Most of these actions are long-running operations and can be monitored via the "tasks" API calls.
+
+## Authentication
 
 Flex uses Bearer Token Authentication.
 
-Example
+### Example:
 
 ```bash
 curl -XGET "http://{flex}/{path}" -H "Authorization: Bearer {token}"
 ```
 
-The authentication token obtained by using Flex UI and relies on operator that
-is an authenticated user in Flex.
+The authentication token is obtained while registering host in Flex.
 
-- Browse to Flex.
-- Click Cog at right upper corner of the web page
-- Click "App Tokens"
+## Operation Tracking
 
-The pop up dialog helps to mange existing Application Tokens and create new ones.
+A unique header parameter can be set, this will make it easier to track operations.
 
-# Operation Tracking
+### Header:
 
-A unique header parameter can be set, causing all Flex logs generated
-by that API call to include that value for ease of flow tracking interfnaly.
+- `hs-ref-id` (string): Keep it short, 6-8 characters. Format: `[a-zA-Z0-9]`.
 
-Header:
-
-- `hs-ref-id` (string): Keep it small, 6-8 characters. Format [a-zA-Z0-9]
-
-Example
+### Example:
 
 ```bash
 curl -XGET "http://{flex}/{path}" -H "hs-ref-id: Hy6f50Ki"
 ```
 
-# APIS
+## APIs
 
-**Topology API**
-|method|path|description|
-|-|-|-|
-|GET|/api/ocie/v1/topology|Retrieve full "host > db > snapshot" topology|
+### **Topology API**
 
-**Hosts APIs**
-|method|path|description|
-|-|-|-|
-|PUT|/flex/api/v1/hosts/{host_id}|Register host|
-|DELETE|/flex/api/v1/hosts/{host_id}|Unregister Host|
-|GET|/flex/api/v1/hosts/{host_id}|Retrieve Host Info|
-|GET|/flex/api/v1/hosts|Get All Registered Hosts Info|
+| Method | Path                       | Description                                  |
+|--------|----------------------------|----------------------------------------------|
+| GET    | /api/ocie/v1/topology      | Retrieve the full "host > db > snapshot" topology |
 
-**Clone APIs**
-|method|path|description|
-|-|-|-|
-|POST|/flex/api/v1/ocie/clone|Create Snapshot and clone it to a desdtination host|
-|DELETE|/flex/api/v1/ocie/clone|Delete clone|
+### **Host APIs**
 
+| Method | Path                           | Description          |
+|--------|--------------------------------|----------------------|
+| PUT    | /flex/api/v1/hosts/{host_id}   | Register a host      |
+| DELETE | /flex/api/v1/hosts/{host_id}   | Unregister a host    |
+| GET    | /flex/api/v1/hosts/{host_id}   | Retrieve host info   |
+| GET    | /flex/api/v1/hosts            | Get all registered hosts info |
 
-**Snapshot APIs**
-|method|path|description|
-|-|-|-|
-|POST|/flex/api/v1/db_snapshots|Create a snapshot|
-|DELETE|/flex/api/v1/db_snapshots/{db_snapshot_id}|Delete a snapshot|
-|POST|/flex/api/v1/db_snapshots/{db_snapshot_id}/clone|Clone a DB from an existing snapshot to a host|
+### **Clone APIs**
 
+| Method | Path                           | Description                                     |
+|--------|--------------------------------|-------------------------------------------------|
+| POST   | /flex/api/v1/ocie/clone        | Create a snapshot and clone it to a destination host |
+| DELETE | /flex/api/v1/ocie/clone        | Delete a clone                                 |
 
-**Tasks APIs**
-|method|path|description|
-|-|-|-|
-|GET|/flex/api/v1/ocie/tasks/{request_id}|Retrieve Task Info|
-|GET|/flex/api/v1/ocie/tasks|Get All Registered Task Info|
+### **Snapshot APIs**
 
-The "Task" returned by Clone/Snapshot API contains "location" field that can differ from Tasks API
-but it both of them will work the same way.
+| Method | Path                                | Description                                     |
+|--------|-------------------------------------|-------------------------------------------------|
+| POST   | /flex/api/v1/db_snapshots           | Create a snapshot                              |
+| DELETE | /flex/api/v1/db_snapshots/{id}      | Delete a snapshot                              |
+| POST   | /flex/api/v1/db_snapshots/{id}/clone | Clone a database from an existing snapshot to a host |
+
+### **Tasks APIs**
+
+| Method | Path                              | Description                |
+|--------|-----------------------------------|----------------------------|
+| GET    | /flex/api/v1/ocie/tasks/{id}     | Retrieve task info         |
+| GET    | /flex/api/v1/ocie/tasks          | Get all registered tasks info |
+
+The "task" returned by the Clone/Snapshot API contains a "location" field. While it may differ from the Tasks API, both provide equivalent functionality.
 
 ## Host APIs
 
 ### Register Host
 
-#### Endpoint
+#### Endpoint:
 
 `PUT /flex/api/v1/hosts/{host_id}`
 
-#### Request Body
+#### Request Body:
 
 ```json
 {
@@ -113,33 +109,26 @@ but it both of them will work the same way.
 }
 ```
 
-#### Parameters
+#### Parameters:
 
-- `host_id` (string):
-    The unique identifier for the host `host_id`, regulary it is the same as host name
+- `host_id` (string): The unique identifier for the host, typically the hostname. Must:
+  - Start with a letter and end with a letter or number.
+  - Only contain letters, numbers, underscores, and hyphens.
+  - Be 3-32 characters in length.
 
-    It should be compliant to following:
+  Example pattern: `^[a-zA-Z][a-zA-Z0-9_-]+[a-zA-Z0-9]$`
 
-    The ID of the host. Must start with letter, end with letter or number.
-    Only letters, numbers, underscore and hyphen are allowed.
-    Min length 3, max length 32
+- `db_vendor` (string): The database vendor for the host. Currently, only `mssql` is supported.
 
-  - min_length=3,
-  - max_length=32,
-  - pattern="^[a-zA-Z][a-zA-Z0-9_-]+[a-zA-Z0-9]$",
-
-- `db_vendor` (string enum):
-    The database vendor of the host. Currently only `mssql` is supported.
-
-#### Example
+#### Example:
 
 ```bash
 curl -XPUT "http://{flex}/flex/api/v1/hosts/{host_id}" -d'{"db_vendor": "mssql"}' -H "Authorization: Bearer {token}"
 ```
 
-#### Responses
+#### Responses:
 
-- 201 Created
+- **201 Created**
 
     ```json
     {
@@ -148,62 +137,39 @@ curl -XPUT "http://{flex}/flex/api/v1/hosts/{host_id}" -d'{"db_vendor": "mssql"}
         "token": "vd8iofbhsdohodxhgdx"
     }
     ```
+    **Notice:** The token is used to authenticate the host.
 
-    - `host_id` (string): The unique identifier for the host.
-    - `db_vendor` (string enum): The database vendor of the host.
-    - `token` (string): unique token for the host is used to authenticate the agent with the Flex. URL-safe String of max 128 characters.
+- **409 Conflict**
 
-- 409 Conflict
-
-    Host already exists
+    Host already exists.
 
 ### Unregister Host
 
-Removes the host from the Flex.
-
-#### Endpoint
+#### Endpoint:
 
 `DELETE /flex/api/v1/hosts/{host_id}`
 
-#### Request Body
+#### Responses:
 
-No
+- **204 No Content**
 
-#### Parameters
+    The host was successfully unregistered (or did not exist).
 
-- `host_id` (string): The unique identifier for the host.
-
-#### Responses
-
-- 204 No Content
-
-    The 204 returned even there is no such host exists.
-
-#### Example
+#### Example:
 
 ```bash
 curl -XDELETE "http://{flex}/flex/api/v1/hosts/{host_id}" -H "Authorization: Bearer {token}"
 ```
 
-### Get Host
+### Get Host Info
 
-Get the single Host information stored in Flex.
-
-#### Endpoint
+#### Endpoint:
 
 `GET /flex/api/v1/hosts/{host_id}`
 
-#### Request Body
+#### Responses:
 
-No
-
-#### Parameters
-
-- `host_id` (string): The unique identifier for the host.
-
-#### Responses
-
-- 200 Ok
+- **200 OK**
 
     ```json
     {
@@ -219,39 +185,25 @@ No
     }
     ```
 
-    - `host_id` (string): The unique identifier for the host.
-    - `db_vendor` (string): The vendor of DB on the host
-    - `last_seen_ts` (int): The Timestamp in seconds of last received heartbeat from the Host Agent
-    - `cloud_vendor` (string)
-    - `host_name` (string)
-    - `host_iqn` (string)
-    - `host_os` (string)
-    - `host_os_version` (string)
-    - `agent_version` (string): In format '1.2.3'
+- **404 Not Found**
 
-- 404 Not Found
+    Host does not exist.
 
-#### Example
+#### Example:
 
 ```bash
 curl -XGET "http://{flex}/flex/api/v1/hosts/{host_id}" -H "Authorization: Bearer {token}"
 ```
 
-### List Host
+### List Hosts
 
-Get the Hosts information stored in Flex.
-
-#### Endpoint
+#### Endpoint:
 
 `GET /flex/api/v1/hosts`
 
-#### Request Body
+#### Responses:
 
-No
-
-#### Responses
-
-- 200 Ok
+- **200 OK**
 
     ```json
     [
@@ -268,17 +220,12 @@ No
         }
     ]
     ```
-    Object fields are Identical to API `Get Host`
 
-- 204 No Content
+- **204 No Content**
 
-    If no host is registered, the response is an empty array:
+    No hosts are registered.
 
-    ```json
-    []
-    ```
-
-#### Example
+#### Example:
 
 ```bash
 curl -XGET "http://{flex}/flex/api/v1/hosts" -H "Authorization: Bearer {token}"
@@ -306,12 +253,12 @@ Takes a snapshot of a database located on host A and creates a copy on one or mo
     {
       "host_id": "host03",
       "db_id": "5",
-      "db_name": "employes_copy_05"
+      "db_name": "employees_copy_05"
     },
     {
       "host_id": "host06",
       "db_id": "5",
-      "db_name": "employes_copy_06"
+      "db_name": "employees_copy_06"
     }
   ]
 }
@@ -322,50 +269,54 @@ Takes a snapshot of a database located on host A and creates a copy on one or mo
 - `source_host_id` (string): The unique identifier for the source host.
 - `database_ids` (array of strings): The unique identifiers of the databases to clone.
 - `destinations` (array of objects): A list of objects detailing the destination databases:
-    - `host_id` (string): The unique identifier for the destination host.
-    - `db_id`  (string): The unique identifier of database to clone under new_name
-    - `db_name` (string): The name of the destination database.
+  - `host_id` (string): The unique identifier for the destination host.
+  - `db_id` (string): The unique identifier of the database to clone.
+  - `db_name` (string): The name of the destination database.
 
 #### Responses
 
-- 200 Ok
-
-    ```json
-    {
-        "state": "completed",
-        "create_ts": 1735025889,
-        "update_ts": 1735025908,
-        "request_id": "Fj3U7QTsDDWL45ikk0bvk2tsanfC3HBJH2zVyJvfRLc",
-        "owner": "ocie-0",
-        "command_type": "CreateCloneCommand",
-        "ref_id": "ADD62kMoLB",
-        "error": "",
-        "result": {"db_snapshot": {"id": "primary__5__1735025906"}, "cloned_dbs": [{
-            "id": "7",
-            "name": "dev_bd_copu_01",
-            "host_id": "host02",
-            "source_host_id": "host01",
-            "source_db_id": 5,
-            "source_db_name": "dev_db",
-        }]},
-        "location": "/api/ocie/v1/tasks/Fj3U7QTsDDWL45ikk0bvk2tsanfC3HBJH2zVyJvfRLc",
-    }
-    ```
-    - `state` (string): Task state. Optional are: running, completed, failed, aborted.
-    - `create_ts` (integer): Timestamp task was committed
-    - `update_ts` (integer): Last time Task state was updated
-    - `request_id` (string): The Original request_id
-    - `owner` (string): Flex owner of the task.
-    - `command_type` (CommandKind): Type of the task
-    - `ref_id` (string): ref_id to track the operation
-    - `error` (string): Error message.
-    - `result` (object): The Object hosts an information about created clones
-    - `location` (string): URL location to be queried for Task state
+- 200 OK
+  ```json
+  {
+      "state": "completed",
+      "create_ts": 1735025889,
+      "update_ts": 1735025908,
+      "request_id": "Fj3U7QTsDDWL45ikk0bvk2tsanfC3HBJH2zVyJvfRLc",
+      "owner": "ocie-0",
+      "command_type": "CreateCloneCommand",
+      "ref_id": "ADD62kMoLB",
+      "error": "",
+      "result": {
+          "db_snapshot": {"id": "primary__5__1735025906"},
+          "cloned_dbs": [
+              {
+                  "id": "7",
+                  "name": "dev_db_copy_01",
+                  "host_id": "host02",
+                  "source_host_id": "host01",
+                  "source_db_id": 5,
+                  "source_db_name": "dev_db"
+              }
+          ]
+      },
+      "location": "/api/ocie/v1/tasks/Fj3U7QTsDDWL45ikk0bvk2tsanfC3HBJH2zVyJvfRLc"
+  }
+  ```
+  - `state` (string): The task state. Possible values: `running`, `completed`, `failed`, `aborted`.
+  - `create_ts` (integer): The timestamp when the task was created.
+  - `update_ts` (integer): The timestamp of the last task state update.
+  - `request_id` (string): The original request ID.
+  - `owner` (string): The Flex owner of the task.
+  - `command_type` (string): The type of the task.
+  - `ref_id` (string): The reference ID to track the operation.
+  - `error` (string): Any error message.
+  - `result` (object): Information about the created clones.
+  - `location` (string): URL to query the task state.
 
 #### Example
 
 ```bash
-curl -XPOST "http://{flex}/flex/api/v1/ocie/clone" -d'{"source_host_id": "host01","database_ids":["5"],"destinations":[{"host_id":"host02","db_id":"5","db_name":"employes_copy_05"}]}' -H 'Content-Type: application/json' -H "Authorization: Bearer {token}"
+curl -XPOST "http://{flex}/flex/api/v1/ocie/clone" -d'{"source_host_id": "host01","database_ids":["5"],"destinations":[{"host_id":"host02","db_id":"5","db_name":"employees_copy_05"}]}' -H 'Content-Type: application/json' -H "Authorization: Bearer {token}"
 ```
 
 ## Snapshot APIs
@@ -385,33 +336,32 @@ Creates a snapshot of a database located on a host.
   "source_host_id": "host01",
   "database_ids": [
     "5", "6"
-  ],
+  ]
 }
 ```
 
 #### Parameters
 
 - `source_host_id` (string): The unique identifier for the source host.
-- `database_ids` (list of string): The unique identifiers for the databases to snapshot.
+- `database_ids` (list of strings): The unique identifiers for the databases to snapshot.
 
 #### Responses
 
-- 200 Ok
-
-    ```json
-    {
-        "state": "completed",
-        "create_ts": 1735025889,
-        "update_ts": 1735025908,
-        "request_id": "Fj3U7QTsDDWL45ikk0bvk2tsanfC3HBJH2zVyJvfRLc",
-        "owner": "ocie-0",
-        "command_type": "CreateDBSnapshotCommand",
-        "ref_id": "ADD62kMoLB",
-        "error": "",
-        "result": {"db_snapshot": {"id": "primary__5__1735025906"}},
-        "location": "/api/ocie/v1/tasks/Fj3U7QTsDDWL45ikk0bvk2tsanfC3HBJH2zVyJvfRLc",
-    }
-    ```
+- 200 OK
+  ```json
+  {
+      "state": "completed",
+      "create_ts": 1735025889,
+      "update_ts": 1735025908,
+      "request_id": "Fj3U7QTsDDWL45ikk0bvk2tsanfC3HBJH2zVyJvfRLc",
+      "owner": "ocie-0",
+      "command_type": "CreateDBSnapshotCommand",
+      "ref_id": "ADD62kMoLB",
+      "error": "",
+      "result": {"db_snapshot": {"id": "primary__5__1735025906"}},
+      "location": "/api/ocie/v1/tasks/Fj3U7QTsDDWL45ikk0bvk2tsanfC3HBJH2zVyJvfRLc"
+  }
+  ```
 
 #### Example
 
@@ -421,13 +371,13 @@ curl -XPOST "http://{flex}/flex/api/v1/db_snapshots" -d'{"source_host_id":"host0
 
 ### Clone DB Snapshot
 
-Clone a DB from an existing snapshot to a host
+Clone a database from an existing snapshot to a host.
 
 #### Endpoint
 
 `GET /flex/api/v1/db_snapshots/{db_snapshot_id}/clone`
 
-#### Payload
+#### Request Body
 
 ```json
 {
@@ -437,104 +387,98 @@ Clone a DB from an existing snapshot to a host
             "db_id": "5",
             "db_name": "db_name"
         }
-    ],
+    ]
 }
 ```
 
-- `db_snapshot_id` (string): The unique identifier for the database.
+#### Parameters
+
+- `db_snapshot_id` (string): The unique identifier for the database snapshot.
 - `destinations` (array of objects): A list of objects detailing the destination databases:
-    - `host_id` (string): The unique identifier for the destination host.
-    - `db_id` (string):  The unique identifier for database to name.
-    - `db_name` (string): The name of the destination database.
+  - `host_id` (string): The unique identifier for the destination host.
+  - `db_id` (string): The unique identifier for the database.
+  - `db_name` (string): The name of the destination database.
 
 #### Responses
 
-- 200 Ok
-
-    ```json
-    {
-        "state": "running",
-        "create_ts": 1735049892,
-        "update_ts": 1735049892,
-        "request_id": "YUiQ_S3SstXXtBQhCuyYUzDws-fAYnEsnlX84wsERvs",
-        "owner": "ocie-0",
-        "command_type": "ImportDBSnapshotCommand",
-        "ref_id": "asdasda",
-        "error": "",
-        "result": null,
-        "location": "/api/ocie/v1/tasks/YUiQ_S3SstXXtBQhCuyYUzDws-fAYnEsnlX84wsERvs"
-    }
-    ```
-
-    ```json
-    {
-        "state": "completed",
-        "create_ts": 1735049892,
-        "update_ts": 1735049907,
-        "request_id": "YUiQ_S3SstXXtBQhCuyYUzDws-fAYnEsnlX84wsERvs",
-        "owner": "ocie-0",
-        "command_type": "ImportDBSnapshotCommand",
-        "ref_id": "asdasda",
-        "error": "",
-        "result": {
-            "cloned_dbs": [
-            {
-                "source_db_name": "analytics_4",
-                "source_host_id": "primary",
-                "name": "alala",
-                "id": "5",
-                "host_id": "dev-2",
-                "source_db_id": 10
-            }
-            ]
-        },
-        "location": "/api/ocie/v1/tasks/YUiQ_S3SstXXtBQhCuyYUzDws-fAYnEsnlX84wsERvs"
-    }
-    ```
-
-    For explanation see `Create Clone` API
+- 200 OK
+  ```json
+  {
+      "state": "running",
+      "create_ts": 1735049892,
+      "update_ts": 1735049892,
+      "request_id": "YUiQ_S3SstXXtBQhCuyYUzDws-fAYnEsnlX84wsERvs",
+      "owner": "ocie-0",
+      "command_type": "ImportDBSnapshotCommand",
+      "ref_id": "asdasda",
+      "error": "",
+      "result": null,
+      "location": "/api/ocie/v1/tasks/YUiQ_S3SstXXtBQhCuyYUzDws-fAYnEsnlX84wsERvs"
+  }
+  ```
+  ```json
+  {
+      "state": "completed",
+      "create_ts": 1735049892,
+      "update_ts": 1735049907,
+      "request_id": "YUiQ_S3SstXXtBQhCuyYUzDws-fAYnEsnlX84wsERvs",
+      "owner": "ocie-0",
+      "command_type": "ImportDBSnapshotCommand",
+      "ref_id": "asdasda",
+      "error": "",
+      "result": {
+          "cloned_dbs": [
+              {
+                  "source_db_name": "analytics_4",
+                  "source_host_id": "primary",
+                  "name": "alala",
+                  "id": "5",
+                  "host_id": "dev-2",
+                  "source_db_id": 10
+              }
+          ]
+      },
+      "location": "/api/ocie/v1/tasks/YUiQ_S3SstXXtBQhCuyYUzDws-fAYnEsnlX84wsERvs"
+  }
+  ```
 
 #### Example
 
-
 ```bash
-curl -XPOST "http://{flex}/flex/api/v1/db_snapshots/primary__10__1735028786/clone" -d'{"destinations":[{"host_ids":"dev-2","db_name":"alala"}]}' -H 'Content-Type: application/json'
+curl -XPOST "http://{flex}/flex/api/v1/db_snapshots/primary__10__1735028786/clone" -d'{"destinations":[{"host_id":"dev-2","db_name":"alala"}]}' -H 'Content-Type: application/json'
 ```
-
 
 ## Task State APIs
 
-### Get
+### Get Task State
 
-Retrieve current Task state by ID
+Retrieve the current state of a task by ID.
 
 #### Endpoint
 
 `GET /flex/api/v1/ocie/tasks/{request_id}`
 
-#### Payload
+#### Parameters
 
-- `request_id` (string)
+- `request_id` (string): The unique identifier for the task.
 
 #### Responses
 
-- 200 Ok
-
-    ```json
-        {
-            "state": "running",
-            "create_ts": 1723108781,
-            "update_ts": 1723108781,
-            "request_id": "_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was",
-            "owner": "ocie",
-            "command_type": "DeployCommand",
-            "ref_id": "bjGP9ygRMew",
-            "error": "",
-            "result": null
-            "location": "/flex/api/v1/ocie/tasks/_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was"
-        }
-    ```
-
+- 200 OK
+  ```json
+  {
+      "state": "running",
+      "create_ts": 1723108781,
+      "update_ts": 1723108781,
+      "request_id": "_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was",
+      "owner": "ocie",
+      "command_type": "DeployCommand",
+      "ref_id": "bjGP9ygRMew",
+      "error": "",
+      "result": null,
+      "location": "/flex/api/v1/ocie/tasks/_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was"
+  }
+  ```
 - 404 Not Found
 
 #### Example
@@ -543,49 +487,44 @@ Retrieve current Task state by ID
 curl -XGET "http://{flex}/flex/api/v1/ocie/tasks/_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was"
 ```
 
-### List
+### List Tasks
 
-Retrieve All Tasks
+Retrieve all tasks.
 
 #### Endpoint
 
 `GET /flex/api/v1/ocie/tasks`
 
-#### Payload
-
-No
-
 #### Responses
 
-- 200 Ok
-
-    ```json
-    [
-        {
-            "state": "completed",
-            "create_ts": 1723108781,
-            "update_ts": 1723108981,
-            "request_id": "_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was",
-            "owner": "ocie",
-            "command_type": "DeployCommand",
-            "ref_id": "bjGP9ygRMew",
-            "error": "",
-            "result": {
-                "cloned_dbs": [
-                    {
-                        "source_db_name": "analytics_4",
-                        "source_host_id": "primary",
-                        "name": "alala",
-                        "id": "5",
-                        "host_id": "dev-2",
-                        "source_db_id": 10
-                    }
-                ]
-        },
-            "location": "/flex/api/v1/ocie/tasks/_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was"
-        }
-    ]
-    ```
+- 200 OK
+  ```json
+  [
+      {
+          "state": "completed",
+          "create_ts": 1723108781,
+          "update_ts": 1723108981,
+          "request_id": "_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was",
+          "owner": "ocie",
+          "command_type": "DeployCommand",
+          "ref_id": "bjGP9ygRMew",
+          "error": "",
+          "result": {
+              "cloned_dbs": [
+                  {
+                      "source_db_name": "analytics_4",
+                      "source_host_id": "primary",
+                      "name": "alala",
+                      "id": "5",
+                      "host_id": "dev-2",
+                      "source_db_id": 10
+                  }
+              ]
+          },
+          "location": "/flex/api/v1/ocie/tasks/_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was"
+      }
+  ]
+  ```
 
 #### Example
 
