@@ -1,15 +1,31 @@
 """
-This code will create snapshot for all databases in the source host.
-It assumes that all the volumes are on the same VG.
-Otherwise, it will create a snapshot for the fists one (AlphaBet sorted)
+Database Snapshot and Clone Script
 
-It uses Topology API to get the list of hosts, databases, VGs.
+This script automates the process of creating snapshots of databases on a source host
+and cloning them to a destination host. It uses the Flex Topology API to retrieve
+the list of hosts, databases, and volume groups (VGs) and handles snapshot creation
+and cloning efficiently.
 
-requirements:
-pip install fire
+### Features:
+- Retrieve database topology from the Flex Topology API.
+- Identify and validate snapshots based on date and database IDs.
+- Clone selected databases from a snapshot to a target host.
+- Ensure safety with user confirmations before making changes.
 
-usage:
-python db_clone.py --snap-date "2024-12-24" --src primary --dest dev-1 --db-names sales_us,sales_eu --suffix "_bbbb34"
+### Prerequisites:
+1. Python 3.6+
+2. Install dependencies:
+   ```
+   pip install fire requests
+   ```
+3. Set the following environment variables:
+   - `FLEX_TOKEN`: Bearer token for Flex API authentication.
+   - `FLEX_IP`: Flex server IP address.
+
+### Usage:
+```bash
+python db_clone.py --snap-date "2024-12-24" --src primary --dest dev-1 --db-names sales_us,sales_eu --suffix "_backup"
+```
 """
 
 import os
@@ -17,37 +33,43 @@ import random
 import sys
 import time
 from datetime import date, datetime, timezone
-from typing import Tuple
+from typing import Tuple, List, Dict, Optional
 
 import fire
 import requests
 
+# Disable SSL warnings for requests (not recommended for production)
 requests.packages.urllib3.disable_warnings()
 
+# Environment Variables
+FLEX_TOKEN = os.getenv("FLEX_TOKEN", "")
+FLEX_IP = os.getenv("FLEX_IP", "")
 
-FLEX_TOKEN = os.environ["FLEX_TOKEN"]
-FLEX_IP = os.environ["FLEX_IP"]
-
+if not FLEX_TOKEN or not FLEX_IP:
+    print("FLEX_TOKEN and FLEX_IP environment variables must be set.")
+    sys.exit(1)
 
 ############################################
-# helper functions
+# Helper Functions
 ############################################
 
 
-def _go_no_go(msg):
+def _go_no_go(msg: str):
+    """Prompt the user for confirmation before proceeding."""
     try:
         answer = input(f"{msg} [y/n]: ")
     except KeyboardInterrupt:
         answer = "n"
-        print()
+        print()  # Handle newline after CTRL+C
 
     if answer.lower() != "y":
-        print("Aborted")
+        print("Aborted by user.")
         sys.exit(0)
 
 
-def _tracking_id():
-    """random string [a-zA-Z0-9]{10} used to identify request at flex"""
+def _tracking_id() -> str:
+    """Generate a random string to track requests in Flex logs."""
+    # Generate a 10-character alphanumeric string
     return "".join(
         random.choices(
             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", k=10
@@ -55,169 +77,111 @@ def _tracking_id():
     )
 
 
-def _get_topology():
-    """
-    retrieve topology from flex
-    """
+def _get_topology() -> dict:
+    """Retrieve the full topology from the Flex API."""
     url = f"https://{FLEX_IP}/api/ocie/v1/topology"
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
         "hs-ref-id": _tracking_id(),
         "Accept": "application/json",
     }
-    r = requests.get(url, verify=False, headers=headers)
+    response = requests.get(url, verify=False, headers=headers)
 
-    if r.status_code // 100 != 2:
-        print(f"Failed to get db topology. Error: {r.status_code} {r.text}")
+    # Handle HTTP errors
+    if response.status_code // 100 != 2:
+        print(
+            f"Failed to retrieve topology. Error: {response.status_code} {response.text}"
+        )
         sys.exit(1)
-    topology = r.json()
-    return topology
+
+    return response.json()
+
+
+def _host_topology(host_name: str, topology: List[dict]) -> Optional[dict]:
+    """Retrieve topology data for a specific host.
+
+    Args:
+        host_name (str): The name of the host to find.
+        topology (List[dict]): The full topology data.
+
+    Returns:
+        dict: Topology data for the specified host, or None if not found.
+    """
+    for host in topology:
+        if host["host"]["name"] == host_name:
+            return host
+    return None
+
+
+def _host_names(topology: List[dict]) -> List[str]:
+    """Retrieve a sorted list of host names from the topology.
+
+    Args:
+        topology (List[dict]): The full topology data.
+
+    Returns:
+        List[str]: A sorted list of host names.
+    """
+    return sorted(host["host"]["name"] for host in topology)
 
 
 def _get_snapshot(
     host_topology: dict, dt: date, db_ids: set[str]
-) -> Tuple[datetime, str]:
-    """
-    get the snapshot id for the given date and db_ids
-    that are present in the host_topology
-    """
-    # the topology is alrteady filtered by host name
-    # select latest snapshot for the given date and db_ids
+) -> Tuple[Optional[datetime], Optional[str]]:
+    """Find the most recent snapshot for a given date and database IDs.
 
+    Args:
+        host_topology (dict): The topology data for the host.
+        dt (date): The date of the snapshot to find.
+        db_ids (set[str]): The database IDs to match.
+
+    Returns:
+        Tuple[Optional[datetime], Optional[str]]: The latest snapshot timestamp and ID, or (None, None) if not found.
+    """
     matched_snapshots = []
 
-    print(f"Looking for snapshot of {dt} for databases: {db_ids}")
-    for db in host_topology["databases"]:
-        for snap in db["db_snapshots"]:
-            # convert timestamp to datetime
-            sts = datetime.fromtimestamp(snap["timestamp"], tz=timezone.utc)
-            # compare date only
-            if sts.date() != dt:
+    print(f"Searching for snapshots dated {dt} for databases: {db_ids}")
+    for db in host_topology.get("databases", []):
+        for snap in db.get("db_snapshots", []):
+            snapshot_ts = datetime.fromtimestamp(snap["timestamp"], tz=timezone.utc)
+
+            # Match snapshots by date
+            if snapshot_ts.date() != dt:
                 continue
 
-            # the date of the snapshot is the same
-            # check all required db_ids are present
+            # Ensure all required DB IDs are present in the snapshot
             if not db_ids.issubset(set(snap["db_ids"])):
                 continue
 
-            # store the timestamp, snapshot id
-            matched_snapshots.append((sts, snap["id"]))
-    # return the latest snapshot
-    if not matched_snapshots:
-        return None, None
+            matched_snapshots.append((snapshot_ts, snap["id"]))
 
-    return max(matched_snapshots)
-
-
-def _host_topology(host_name, topology=None):
-    """
-    get the only topology of the host
-    """
-    topos = [t for t in topology if t["host"]["name"] == host_name]
-    if not topos:
-        return None
-    return topos[0]
-
-
-def _host_names(topology):
-    """
-    list of existing host names
-    """
-    return sorted([t["host"]["name"] for t in topology])
-
-
-############################################
-# command
-############################################
-
-
-def run(
-    snap_date: str,
-    src: str,
-    dest: str,
-    db_names: list[str],
-    suffix: str,
-):
-    """
-    snap_date format is "yyyy-mm-dd"
-    db_names are comma separated list of database names
-    suffix is the suffix to add to the cloned databases names
-    """
-    print(f"Cloning databases from snapshot `{snap_date}` {src} -> {dest}")
-    print(f"db_names: {db_names}")
-    print(f"suffix: {suffix}")
-
-    dt = date.fromisoformat(snap_date)
-
-    if isinstance(db_names, str):
-        db_names = [db_names]
-
-    full_topology = _get_topology()
-
-    src_host_topology = _host_topology(src, full_topology)
-    if not src_host_topology:
-        print(f"source host {src} not found")
-        print(f"The options are {_host_names(full_topology)}")
-        sys.exit(1)
-
-    dest_host_topology = _host_topology(dest, full_topology)
-    if not dest_host_topology:
-        print(f"destination host {dest} not found")
-        print(f"The options are {_host_names(full_topology)}")
-        sys.exit(1)
-
-    dest_host_id = dest_host_topology["host"]["id"]
-
-    # get db_ids for the databases
-    db_id_2_name = {
-        db["name"]: db["id"]
-        for db in src_host_topology["databases"]
-        if db["name"] in db_names
-    }
-
-    # validate we have all dbs and ids in the topology
-    if len(db_id_2_name) != len(db_names):
-        print(f"some databases not found: {set(db_names) - set(db_id_2_name.keys())}")
-        sys.exit(1)
-
-    # get snapshot id where all dbs are present
-    snap_ts, snapshot_id = _get_snapshot(
-        src_host_topology, dt, set(db_id_2_name.values())
-    )
-
-    if not snapshot_id:
-        print(f"snapshot for {dt} not found")
-        sys.exit(1)
-
-    print(
-        f"going to clone the following databases from snap id '{snapshot_id}' taken on '{snap_ts}'"
-    )
-
-    for db_name in db_names:
-        print(f"{src}[{db_name}] -> {dest}[{db_name + suffix}]")
-
-    _go_no_go(msg="Do you want to continue?")
-
-    _make_snapshot(snapshot_id, dest_host_id, db_id_2_name, suffix)
+    # Return the latest matching snapshot, or (None, None) if no match
+    return max(matched_snapshots, default=(None, None))
 
 
 def _make_snapshot(
-    snapshot_id: str, dest_host_id: str, dbs: dict[str, str], suffix: str
-) -> Tuple[bool, dict]:
+    snapshot_id: str, dest_host_id: str, dbs: Dict[str, str], suffix: str
+):
+    """Send a request to clone databases from a snapshot.
 
-    payload = {"destinations": []}
-    for db_name, db_id in dbs.items():
-        payload["destinations"].append(
+    Args:
+        snapshot_id (str): The ID of the snapshot to clone.
+        dest_host_id (str): The ID of the destination host.
+        dbs (Dict[str, str]): A mapping of database names to IDs.
+        suffix (str): The suffix to append to cloned database names.
+    """
+    payload = {
+        "destinations": [
             {
                 "host_id": dest_host_id,
                 "db_id": db_id,
                 "db_name": db_name + suffix,
             }
-        )
+            for db_name, db_id in dbs.items()
+        ]
+    }
 
-    # perform a request to make a snapshot
     url = f"https://{FLEX_IP}/flex/api/v1/db_snapshots/{snapshot_id}/clone"
-
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
         "hs-ref-id": _tracking_id(),
@@ -225,58 +189,127 @@ def _make_snapshot(
         "Content-Type": "application/json",
     }
 
-    r = requests.post(
-        url,
-        json=payload,
-        verify=False,
-        headers=headers,
-    )
-    if r.status_code // 100 != 2:
-        print(f"Failed to clone snapshot. Error: {r.status_code} {r.text}")
+    response = requests.post(url, json=payload, verify=False, headers=headers)
+
+    # Handle HTTP errors
+    if response.status_code // 100 != 2:
+        print(
+            f"Failed to clone snapshot. Error: {response.status_code} {response.text}"
+        )
         sys.exit(1)
 
-    task = r.json()
-    success, task = _wait_for_task(task)
+    task = response.json()
+    success, task_result = _wait_for_task(task)
+
     if not success:
-        print(f"Failed to clone. Error: {task['error']}")
+        print(
+            f"Snapshot cloning failed. Error: {task_result.get('error', 'Unknown error')}"
+        )
     else:
-        print(f"cloned. `{task['result']}`")
+        print(f"Snapshot cloned successfully. Result: {task_result['result']}")
 
 
-def _wait_for_task(task: dict) -> tuple[bool, dict]:
+def _wait_for_task(task: dict) -> Tuple[bool, dict]:
+    """Poll the task API to check task completion.
+
+    Args:
+        task (dict): The task data returned from the initial request.
+
+    Returns:
+        Tuple[bool, dict]: A boolean indicating success and the final task data.
     """
-    task structure example:
-    {
-        "state": "completed",
-        "create_ts": 1735025889,
-        "update_ts": 1735025908,
-        "request_id": "Fj3U7QTsDDWL45ikk0bvk2tsanfC3HBJH2zVyJvfRLc",
-        "owner": "ocie-0",
-        "command_type": "CreateDBSnapshotCommand",
-        "ref_id": "ADD62kMoLB",
-        "error": "",
-        "result": {"db_snapshot": {"id": "primary__5__1735025906"}},
-        "location": "/api/ocie/v1/tasks/Fj3U7QTsDDWL45ikk0bvk2tsanfC3HBJH2zVyJvfRLc",
-    }"""
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
         "hs-ref-id": _tracking_id(),
         "Accept": "application/json",
     }
+
     while task["state"] == "running":
         time.sleep(5)
-        print(".", end="", flush=True)  # no buffering, print right away
-        url = f"https://{FLEX_IP}{task['location']}"
-        r = requests.get(url, verify=False, headers=headers)
-        if r.status_code // 100 == 2:
-            task = r.json()
+        print(".", end="", flush=True)
+        response = requests.get(
+            f"https://{FLEX_IP}{task['location']}", verify=False, headers=headers
+        )
 
-        if task["state"] == "running":
-            continue
+        if response.status_code // 100 == 2:
+            task = response.json()
 
-        print()
-        # task states: "completed", "failed", "aborted"
-        return task["state"] == "completed", task
+    print()  # Add a newline after dots
+    return task["state"] == "completed", task
+
+
+############################################
+# Main Command
+############################################
+
+
+def run(
+    snap_date: str,
+    src: str,
+    dest: str,
+    db_names: str,
+    suffix: str,
+):
+    """Main function to orchestrate snapshot cloning.
+
+    Args:
+        snap_date (str): Snapshot date in "yyyy-mm-dd" format.
+        src (str): Source host name.
+        dest (str): Destination host name.
+        db_names (str): Comma-separated list of database names to clone.
+        suffix (str): Suffix to append to cloned database names.
+    """
+    print(f"Cloning databases from `{snap_date}` snapshot: {src} -> {dest}")
+    print(f"Databases: {db_names}")
+    print(f"Suffix: {suffix}")
+
+    dt = date.fromisoformat(snap_date)
+
+    topology = _get_topology()
+
+    # Retrieve source host topology
+    src_topology = _host_topology(src, topology)
+    if not src_topology:
+        print(
+            f"Source host `{src}` not found. Available hosts: {_host_names(topology)}"
+        )
+        sys.exit(1)
+
+    # Retrieve destination host topology
+    dest_topology = _host_topology(dest, topology)
+    if not dest_topology:
+        print(
+            f"Destination host `{dest}` not found. Available hosts: {_host_names(topology)}"
+        )
+        sys.exit(1)
+
+    # Map database names to IDs
+    db_map = {
+        db["name"]: db["id"]
+        for db in src_topology["databases"]
+        if db["name"] in db_names
+    }
+
+    breakpoint()
+    # Validate all databases are found
+    if len(db_map) != len(db_names):
+        missing_dbs = set(db_names) - set(db_map.keys())
+        print(f"Missing databases: {missing_dbs}")
+        sys.exit(1)
+
+    # Find the relevant snapshot
+    snap_ts, snap_id = _get_snapshot(src_topology, dt, set(db_map.values()))
+
+    if not snap_id:
+        print(f"No snapshot found for `{dt}` containing all requested databases.")
+        sys.exit(1)
+
+    print(f"Cloning databases from snapshot `{snap_id}` taken on `{snap_ts}`")
+    for db_name in db_names:
+        print(f"{src}[{db_name}] -> {dest}[{db_name + suffix}]")
+
+    _go_no_go("Proceed with cloning?")
+    _make_snapshot(snap_id, dest_topology["host"]["id"], db_map, suffix)
 
 
 if __name__ == "__main__":
