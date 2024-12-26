@@ -319,11 +319,56 @@ Takes a snapshot of a database located on host A and creates a copy on one or mo
 curl -XPOST "http://{flex}/flex/api/v1/ocie/clone" -d'{"source_host_id": "host01","database_ids":["5"],"destinations":[{"host_id":"host02","db_id":"5","db_name":"employees_copy_05"}]}' -H 'Content-Type: application/json' -H "Authorization: Bearer {token}"
 ```
 
+### Delete Cloned DB
+
+Delete a Cloned DB from a host and related thin volumes from the SDP.
+
+#### Endpoint
+
+`DELETE /flex/api/v1/ocie/clone`
+
+#### Request Body
+
+```json
+{
+    "host_id":"dev-2",
+    "database_id":"6"
+}
+```
+
+#### Parameters
+  - `host_id` (string): The unique identifier for the host to delete from.
+  - `database_id` (string): The unique identifier for the database to delete.
+
+#### Responses
+
+- 202 OK
+  ```json
+  {
+    "state":"running",
+    "create_ts":1722841284,
+    "update_ts":1722841284,
+    "request_id":"1GUQEnC1fk3sQCc0BHTpFseyB8PfUaS51_lD3iPaRP4",
+    "owner":"ocie-0",
+    "command_type":"DeleteCommand",
+    "ref_id":"592855db",
+    "error":"",
+    "result":null,
+    "location":"/api/ocie/v1/tasks/1GUQEnC1fk3sQCc0BHTpFseyB8PfUaS51_lD3iPaRP4"
+  }
+  ```
+
+#### Example
+
+```bash
+curl -XDELETE "http://{flex}/flex/api/v1/ocie/clone" -H 'Content-Type: application/json' -H 'Authorization: Bearer {token}' -d'{"host_id":"dev-2","database_id":"6"}'
+```
+
 ## Snapshot APIs
 
 ### Create DB Snapshot
 
-Creates a snapshot of a database located on a host.
+Create a snapshot of a database.
 
 #### Endpoint
 
@@ -446,6 +491,26 @@ Clone a database from an existing snapshot to a host.
 
 ```bash
 curl -XPOST "http://{flex}/flex/api/v1/db_snapshots/primary__10__1735028786/clone" -d'{"destinations":[{"host_id":"dev-2","db_name":"alala"}]}' -H 'Content-Type: application/json'
+```
+
+### Delete DB Snapshot
+
+Deletes a DB Snapshot. It is only possible to delete a DB Snapshot if there are no cloned databases that were created from that snapshot.
+
+Note that this endpoint does not create a task. A successful status code indicates that the DB Snapshot has already been deleted.
+
+#### Endpoint
+
+`DELETE /flex/api/v1/db_snapshots/{db_snapshot_id}`
+
+#### Responses
+
+- 204 OK
+
+#### Example
+
+```bash
+curl -XDELETE "http://{flex}/flex/api/v1/db_snapshots/primary__10__1735028786" -H 'Authorization: Bearer {token}'
 ```
 
 ## Task State APIs
