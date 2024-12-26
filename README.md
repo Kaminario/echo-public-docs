@@ -495,6 +495,10 @@ curl -XPOST "http://{flex}/flex/api/v1/db_snapshots/primary__10__1735028786/clon
 
 ### Delete DB Snapshot
 
+Deletes a DB Snapshot. It is only possible to delete a DB Snapshot if there are no cloned databases that were created from that snapshot.
+
+Note that this endpoint does not create a task. A successful status code indicates that the DB Snapshot has already been deleted.
+
 #### Endpoint
 
 `DELETE /flex/api/v1/db_snapshots/{db_snapshot_id}`
