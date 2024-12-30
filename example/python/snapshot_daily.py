@@ -1,15 +1,3 @@
-"""
-This code will create snapshot for all databases in the source host.
-
-It uses Topology API to get the list of hosts, databases, VGs.
-
-requirements:
-pip install fire
-
-usage:
-python snapshot_daily.py run --host-name <host name>
-"""
-
 import os
 import random
 import sys
@@ -19,14 +7,21 @@ from typing import Tuple
 import fire
 import requests
 
+# Disable SSL warnings from requests
 requests.packages.urllib3.disable_warnings()
 
+# Environment variables
+FLEX_TOKEN = os.environ.get("FLEX_TOKEN")
+FLEX_IP = os.environ.get("FLEX_IP")
 
-FLEX_TOKEN = os.environ["FLEX_TOKEN"]
-FLEX_IP = os.environ["FLEX_IP"]
+# Validate environment variables
+if not FLEX_TOKEN or not FLEX_IP:
+    print("Error: FLEX_TOKEN and FLEX_IP environment variables must be set.")
+    sys.exit(1)
 
 
-def _go_no_go(msg):
+def _go_no_go(msg: str):
+    """Prompt the user for confirmation before proceeding."""
     try:
         answer = input(f"{msg} [y/n]: ")
     except KeyboardInterrupt:
@@ -38,10 +33,8 @@ def _go_no_go(msg):
         sys.exit(0)
 
 
-def _tracking_id():
-    """random string [a-zA-Z0-9]{10}.
-    used to identify request at flex
-    """
+def _tracking_id() -> str:
+    """Generate a random tracking ID."""
     return "".join(
         random.choices(
             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", k=10
@@ -49,157 +42,119 @@ def _tracking_id():
     )
 
 
-def _host_topology(host_name):
-    topo = _get_topology()
-    return [t for t in topo if t["host"]["name"] == host_name][0]
+def _safe_request(method: str, url: str, headers: dict, data: dict = None):
+    """Wrapper for making safe HTTP requests with error handling."""
+    try:
+        response = requests.request(
+            method, url, headers=headers, json=data, verify=False
+        )
+        response.raise_for_status()
+        return response
+    except requests.exceptions.RequestException as e:
+        print(f"Request error: {e}")
+        sys.exit(1)
 
 
-def _get_topology():
+def _get_topology() -> dict:
+    """Fetch the topology of the hosts and databases."""
     url = f"https://{FLEX_IP}/api/ocie/v1/topology"
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
         "hs-ref-id": _tracking_id(),
         "Accept": "application/json",
     }
-    r = requests.get(url, verify=False, headers=headers)
-
-    if r.status_code // 100 != 2:
-        print(f"Failed to get db topology. Error: {r.status_code} {r.text}")
-        sys.exit(1)
-    topology = r.json()
-
-    return topology
+    response = _safe_request("GET", url, headers)
+    return response.json()
 
 
-def _group_dbs(host_topology: dict) -> dict:
-    # currently we support only one VG per snapshot
-    # so we will group all databases by VG
+def _host_topology(host_name: str) -> dict:
+    """Retrieve the topology for a specific host."""
+    topo = _get_topology()
+    return next((t for t in topo if t["host"]["name"] == host_name), None)
 
-    # accomulate all databases by VG, order of the dbs is not important
-    # groups_ids is an associative array where the key is VG id and the value is a set of db ids
-    # groups_names is an associative array where the key is VG id and the value is a set of db names
 
-    groups_ids = dict()
-    groups_names = dict()
+def _group_dbs(host_topology: dict) -> Tuple[dict, dict]:
+    """Group databases by volume group (VG)."""
+    groups_ids = {}
+    groups_names = {}
     for db in host_topology["databases"]:
         for file in db["files"]:
-            # add the db to the VG
-            if file["volume_group_id"] not in groups_ids:
-                groups_ids[file["volume_group_id"]] = set()
-                groups_names[file["volume_group_id"]] = set()
-
-            groups_ids[file["volume_group_id"]].add(db["id"])
-            groups_names[file["volume_group_id"]].add(db["name"])
-
+            vg_id = file["volume_group_id"]
+            groups_ids.setdefault(vg_id, set()).add(db["id"])
+            groups_names.setdefault(vg_id, set()).add(db["name"])
     return groups_ids, groups_names
 
 
 def _make_snapshot(host_id: str, db_ids: set[str]) -> Tuple[bool, dict]:
-
-    # perform a request to make a snapshot
+    """Create a snapshot for the specified databases."""
     url = f"https://{FLEX_IP}/flex/api/v1/db_snapshots"
-
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
         "hs-ref-id": _tracking_id(),
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
-
-    r = requests.post(
+    response = _safe_request(
+        "POST",
         url,
-        json={
+        headers,
+        {
             "source_host_id": host_id,
             "database_ids": list(db_ids),
         },
-        verify=False,
-        headers=headers,
     )
-    if r.status_code // 100 != 2:
-        return False, {"error": r.text}
-
-    task = r.json()
-
+    task = response.json()
     return _wait_for_task(task)
 
 
-def run(host_name: str):
-    """
-    Create snapshot for all databases in the source host related to a common VG
-    If there is more than one VG it will create a snapshot for the fists one.
-
-    It uses Topology API to get the list of hosts, databases, VGs.
-
-    curl -k 'https://{FLEX_IP}/flex/api/v1/db_snapshots' -X POST -H 'Accept: application/json'
-      -H 'hs-ref-id: trackid_123' -H 'Content-Type: application/json'
-      --data-raw '{"source_host_id": "host_id","database_ids": ["5","6"],"destinations": []}'
-
-    the call will return the status of a finished task.
-    """
-
-    # get_database_ids by host_id by vg
-    topology = _host_topology(host_name)
-    host_id = topology["host"]["id"]
-
-    db_ids_by_vg, db_names_by_vg = _group_dbs(topology)
-
-    print(f"making snapshot/s of the host `{host_name}` with the following databases:")
-    for vg_id in db_ids_by_vg:
-        db_ids = db_ids_by_vg[vg_id]
-        db_names = db_names_by_vg[vg_id]
-        for db_name in db_names:
-            print(f"\t{db_name}")
-
-    _go_no_go(msg="Do you want to continue?")
-
-    for vg_id in db_ids_by_vg:
-        db_ids = db_ids_by_vg[vg_id]
-        db_names = db_names_by_vg[vg_id]
-        print(f"making snapshot of databases: {db_names}")
-        success, task = _make_snapshot(host_id, db_ids)
-        if not success:
-            print(f"Failed to create snapshot. Error: {task['error']}")
-            _go_no_go(msg="Do you want to continue?")
-        else:
-            print(f"snapshot created: `{task['result']['db_snapshot']['id']}`")
-            print(f"\tdbs in the snapshot: {db_names}")
-
-
-def _wait_for_task(task: dict) -> tuple[bool, dict]:
-    """
-    task structure example:
-    {
-        "state": "completed",
-        "create_ts": 1735025889,
-        "update_ts": 1735025908,
-        "request_id": "Fj3U7QTsDDWL45ikk0bvk2tsanfC3HBJH2zVyJvfRLc",
-        "owner": "ocie-0",
-        "command_type": "CreateDBSnapshotCommand",
-        "ref_id": "ADD62kMoLB",
-        "error": "",
-        "result": {"db_snapshot": {"id": "primary__5__1735025906"}},
-        "location": "/api/ocie/v1/tasks/Fj3U7QTsDDWL45ikk0bvk2tsanfC3HBJH2zVyJvfRLc",
-    }"""
-
+def _wait_for_task(task: dict, timeout: int = 600) -> Tuple[bool, dict]:
+    """Wait for the task to complete within the given timeout."""
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
         "hs-ref-id": _tracking_id(),
         "Accept": "application/json",
     }
+    start_time = time.time()
     while task["state"] == "running":
+        if time.time() - start_time > timeout:
+            print("\nTask timed out.")
+            return False, {"error": "Timeout exceeded"}
         time.sleep(5)
-        print(".", end="", flush=True)  # no buffering, print right away
+        print(".", end="", flush=True)
         url = f"https://{FLEX_IP}{task['location']}"
-        r = requests.get(url, verify=False, headers=headers)
-        if r.status_code // 100 == 2:
-            task = r.json()
+        response = _safe_request("GET", url, headers)
+        task = response.json()
+    print()
+    return task["state"] == "completed", task
 
-        if task["state"] == "running":
-            continue
 
-        print()
-        # task states: "completed", "failed", "aborted"
-        return task["state"] == "completed", task
+def run(host_name: str):
+    """Create snapshots for all databases on the specified host."""
+    topology = _host_topology(host_name)
+    if not topology:
+        print(f"Host `{host_name}` not found.")
+        sys.exit(1)
+
+    host_id = topology["host"]["id"]
+    db_ids_by_vg, db_names_by_vg = _group_dbs(topology)
+
+    print(f"Making snapshot(s) of the host `{host_name}` with the following databases:")
+    for vg_id, db_names in db_names_by_vg.items():
+        print(f"\tVG {vg_id}: {', '.join(db_names)}")
+
+    _go_no_go(msg="Do you want to continue?")
+
+    for vg_id, db_ids in db_ids_by_vg.items():
+        db_names = db_names_by_vg[vg_id]
+        print(f"Creating snapshot for VG {vg_id}: {', '.join(db_names)}")
+        success, task = _make_snapshot(host_id, db_ids)
+        if not success:
+            print(f"Failed to create snapshot for VG {vg_id}. Error: {task['error']}")
+            _go_no_go(msg="Do you want to continue?")
+        else:
+            snapshot_id = task["result"]["db_snapshot"]["id"]
+            print(f"Snapshot created: `{snapshot_id}`")
+            print(f"\tDatabases in the snapshot: {', '.join(db_names)}")
 
 
 if __name__ == "__main__":
