@@ -56,40 +56,40 @@ curl -XGET "http://{flex}/{path}" -H "hs-ref-id: Hy6f50Ki"
 
 ### **Topology API**
 
-| Method | Path                       | Description                                  |
-|--------|----------------------------|----------------------------------------------|
-| GET    | /api/ocie/v1/topology      | Retrieve the full "host > db > snapshot" topology |
+| Method | Path                  | Description                                       |
+| ------ | --------------------- | ------------------------------------------------- |
+| GET    | /api/ocie/v1/topology | Retrieve the full "host > db > snapshot" topology |
 
 ### **Host APIs**
 
-| Method | Path                           | Description          |
-|--------|--------------------------------|----------------------|
-| PUT    | /flex/api/v1/hosts/{host_id}   | Register a host      |
-| DELETE | /flex/api/v1/hosts/{host_id}   | Unregister a host    |
-| GET    | /flex/api/v1/hosts/{host_id}   | Retrieve host info   |
-| GET    | /flex/api/v1/hosts            | Get all registered hosts info |
+| Method | Path                         | Description                   |
+| ------ | ---------------------------- | ----------------------------- |
+| PUT    | /flex/api/v1/hosts/{host_id} | Register a host               |
+| DELETE | /flex/api/v1/hosts/{host_id} | Unregister a host             |
+| GET    | /flex/api/v1/hosts/{host_id} | Retrieve host info            |
+| GET    | /flex/api/v1/hosts           | Get all registered hosts info |
 
 ### **Clone APIs**
 
-| Method | Path                           | Description                                     |
-|--------|--------------------------------|-------------------------------------------------|
-| POST   | /flex/api/v1/ocie/clone        | Create a snapshot and clone it to a destination host |
-| DELETE | /flex/api/v1/ocie/clone        | Delete a clone                                 |
+| Method | Path                    | Description                                          |
+| ------ | ----------------------- | ---------------------------------------------------- |
+| POST   | /flex/api/v1/ocie/clone | Create a snapshot and clone it to a destination host |
+| DELETE | /flex/api/v1/ocie/clone | Delete a clone                                       |
 
 ### **Snapshot APIs**
 
-| Method | Path                                | Description                                     |
-|--------|-------------------------------------|-------------------------------------------------|
-| POST   | /flex/api/v1/db_snapshots           | Create a snapshot                              |
-| DELETE | /flex/api/v1/db_snapshots/{id}      | Delete a snapshot                              |
+| Method | Path                                 | Description                                          |
+| ------ | ------------------------------------ | ---------------------------------------------------- |
+| POST   | /flex/api/v1/db_snapshots            | Create a snapshot                                    |
+| DELETE | /flex/api/v1/db_snapshots/{id}       | Delete a snapshot                                    |
 | POST   | /flex/api/v1/db_snapshots/{id}/clone | Clone a database from an existing snapshot to a host |
 
 ### **Tasks APIs**
 
-| Method | Path                              | Description                |
-|--------|-----------------------------------|----------------------------|
-| GET    | /flex/api/v1/ocie/tasks/{id}     | Retrieve task info         |
-| GET    | /flex/api/v1/ocie/tasks          | Get all registered tasks info |
+| Method | Path                         | Description                   |
+| ------ | ---------------------------- | ----------------------------- |
+| GET    | /flex/api/v1/ocie/tasks/{id} | Retrieve task info            |
+| GET    | /flex/api/v1/ocie/tasks      | Get all registered tasks info |
 
 The "task" returned by the Clone/Snapshot API contains a "location" field. While it may differ from the Tasks API, both provide equivalent functionality.
 
@@ -123,20 +123,22 @@ The "task" returned by the Clone/Snapshot API contains a "location" field. While
 #### Example:
 
 ```bash
-curl -XPUT "http://{flex}/flex/api/v1/hosts/{host_id}" -d'{"db_vendor": "mssql"}' -H "Authorization: Bearer {token}"
+curl -XPUT "http://{flex}/flex/api/v1/hosts/{host_id}" \
+-H "Authorization: Bearer {token}" \
+-d'{"db_vendor": "mssql"}' \
 ```
 
 #### Responses:
 
 - **201 Created**
 
-    ```json
-    {
-        "host_id": "host_id",
-        "db_vendor": "mssql",
-        "token": "vd8iofbhsdohodxhgdx"
-    }
-    ```
+  ```json
+  {
+      "host_id": "host_id",
+      "db_vendor": "mssql",
+      "token": "vd8iofbhsdohodxhgdx"
+  }
+  ```
     **Notice:** The token is used to authenticate the host, you need to store it securely and use it when installing Silk Agent.
 
 - **409 Conflict**
@@ -158,7 +160,8 @@ curl -XPUT "http://{flex}/flex/api/v1/hosts/{host_id}" -d'{"db_vendor": "mssql"}
 #### Example:
 
 ```bash
-curl -XDELETE "http://{flex}/flex/api/v1/hosts/{host_id}" -H "Authorization: Bearer {token}"
+curl -XDELETE "http://{flex}/flex/api/v1/hosts/{host_id}" \
+-H "Authorization: Bearer {token}"
 ```
 
 ### Get Host Info
@@ -171,19 +174,19 @@ curl -XDELETE "http://{flex}/flex/api/v1/hosts/{host_id}" -H "Authorization: Bea
 
 - **200 OK**
 
-    ```json
-    {
-        "host_id": "host01",
-        "db_vendor": "mssql",
-        "last_seen_ts": 1722841284,
-        "host_name": "host_wfGIWX4",
-        "host_iqn": "iqn.2009-01.com.kaminario:initiator.host_wfGIWX4",
-        "host_os": "Windows",
-        "host_os_version": "Windows 10",
-        "agent_version": "0.1.0",
-        "cloud_vendor": "AZURE"
-    }
-    ```
+  ```json
+  {
+      "host_id": "host01",
+      "db_vendor": "mssql",
+      "last_seen_ts": 1722841284,
+      "host_name": "host_wfGIWX4",
+      "host_iqn": "iqn.2009-01.com.kaminario:initiator.host_wfGIWX4",
+      "host_os": "Windows",
+      "host_os_version": "Windows 10",
+      "agent_version": "0.1.0",
+      "cloud_vendor": "AZURE"
+  }
+  ```
 
 - **404 Not Found**
 
@@ -192,7 +195,8 @@ curl -XDELETE "http://{flex}/flex/api/v1/hosts/{host_id}" -H "Authorization: Bea
 #### Example:
 
 ```bash
-curl -XGET "http://{flex}/flex/api/v1/hosts/{host_id}" -H "Authorization: Bearer {token}"
+curl -XGET "http://{flex}/flex/api/v1/hosts/{host_id}" \
+-H "Authorization: Bearer {token}"
 ```
 
 ### List Hosts
@@ -205,21 +209,21 @@ curl -XGET "http://{flex}/flex/api/v1/hosts/{host_id}" -H "Authorization: Bearer
 
 - **200 OK**
 
-    ```json
-    [
-        {
-            "host_id": "host01",
-            "db_vendor": "mssql",
-            "last_seen_ts": 1722841284,
-            "host_name": "host_wfGIWX4",
-            "host_iqn": "iqn.2009-01.com.kaminario:initiator.host_wfGIWX4",
-            "host_os": "Windows",
-            "host_os_version": "Windows 10",
-            "agent_version": "0.1.0",
-            "cloud_vendor": "AZURE"
-        }
-    ]
-    ```
+  ```json
+  [
+      {
+          "host_id": "host01",
+          "db_vendor": "mssql",
+          "last_seen_ts": 1722841284,
+          "host_name": "host_wfGIWX4",
+          "host_iqn": "iqn.2009-01.com.kaminario:initiator.host_wfGIWX4",
+          "host_os": "Windows",
+          "host_os_version": "Windows 10",
+          "agent_version": "0.1.0",
+          "cloud_vendor": "AZURE"
+      }
+  ]
+  ```
 
 - **204 No Content**
 
@@ -228,7 +232,8 @@ curl -XGET "http://{flex}/flex/api/v1/hosts/{host_id}" -H "Authorization: Bearer
 #### Example:
 
 ```bash
-curl -XGET "http://{flex}/flex/api/v1/hosts" -H "Authorization: Bearer {token}"
+curl -XGET "http://{flex}/flex/api/v1/hosts" \
+-H "Authorization: Bearer {token}"
 ```
 
 ## Clone APIs
@@ -276,12 +281,13 @@ Takes a snapshot of a database located on host A and creates a copy on one or mo
 #### Responses
 
 - 200 OK
+
   ```json
   {
       "state": "completed",
       "create_ts": 1735025889,
       "update_ts": 1735025908,
-      "request_id": "Fj3U7QTsDDWL45ikk0bvk2tsanfC3HBJH2zVyJvfRLc",
+      "request_id": "Fj3U7QTsDDWL45ikk0bvk2tsanfC3H",
       "owner": "ocie-0",
       "command_type": "CreateCloneCommand",
       "ref_id": "ADD62kMoLB",
@@ -299,7 +305,7 @@ Takes a snapshot of a database located on host A and creates a copy on one or mo
               }
           ]
       },
-      "location": "/api/ocie/v1/tasks/Fj3U7QTsDDWL45ikk0bvk2tsanfC3HBJH2zVyJvfRLc"
+      "location": "/api/ocie/v1/tasks/Fj3U7QTsDDWL45ikk0bvk2tsanfC3H"
   }
   ```
   - `state` (string): The task state. Possible values: `running`, `completed`, `failed`, `aborted`.
@@ -316,7 +322,22 @@ Takes a snapshot of a database located on host A and creates a copy on one or mo
 #### Example
 
 ```bash
-curl -XPOST "http://{flex}/flex/api/v1/ocie/clone" -d'{"source_host_id": "host01","database_ids":["5"],"destinations":[{"host_id":"host02","db_id":"5","db_name":"employees_copy_05"}]}' -H 'Content-Type: application/json' -H "Authorization: Bearer {token}"
+curl -XPOST "http://{flex}/flex/api/v1/ocie/clone" \
+-H 'Content-Type: application/json' \
+-H "Authorization: Bearer {token}" \
+-d'{
+  "source_host_id": "host01",
+  "database_ids": [
+    "5"
+  ],
+  "destinations": [
+    {
+      "host_id": "host02",
+      "db_id": "5",
+      "db_name": "employees_copy_05"
+    }
+  ]
+}'
 ```
 
 ### Delete Cloned DB
@@ -393,25 +414,29 @@ Create a snapshot of a database.
 #### Responses
 
 - 200 OK
+
   ```json
   {
       "state": "completed",
       "create_ts": 1735025889,
       "update_ts": 1735025908,
-      "request_id": "Fj3U7QTsDDWL45ikk0bvk2tsanfC3HBJH2zVyJvfRLc",
+      "request_id": "Fj3U7QTsDDWL45ikk0bvk2tsanfC3H",
       "owner": "ocie-0",
       "command_type": "CreateDBSnapshotCommand",
       "ref_id": "ADD62kMoLB",
       "error": "",
       "result": {"db_snapshot": {"id": "primary__5__1735025906"}},
-      "location": "/api/ocie/v1/tasks/Fj3U7QTsDDWL45ikk0bvk2tsanfC3HBJH2zVyJvfRLc"
+      "location": "/api/ocie/v1/tasks/Fj3U7QTsDDWL45ikk0bvk2tsanfC3H"
   }
   ```
 
 #### Example
 
 ```bash
-curl -XPOST "http://{flex}/flex/api/v1/db_snapshots" -d'{"source_host_id":"host01","database_ids":["5","6"]}' -H 'Content-Type: application/json' -H "Authorization: Bearer {token}"
+curl -XPOST "http://{flex}/flex/api/v1/db_snapshots" \
+-H 'Content-Type: application/json' \
+-H "Authorization: Bearer {token}" \
+-d'{"source_host_id":"host01","database_ids":["5","6"]}'
 ```
 
 ### Clone DB Snapshot
@@ -447,26 +472,28 @@ Clone a database from an existing snapshot to a host.
 #### Responses
 
 - 200 OK
+
   ```json
   {
       "state": "running",
       "create_ts": 1735049892,
       "update_ts": 1735049892,
-      "request_id": "YUiQ_S3SstXXtBQhCuyYUzDws-fAYnEsnlX84wsERvs",
+      "request_id": "YUiQ_S3SstXXtBQhCuyYUzDws",
       "owner": "ocie-0",
       "command_type": "ImportDBSnapshotCommand",
       "ref_id": "asdasda",
       "error": "",
       "result": null,
-      "location": "/api/ocie/v1/tasks/YUiQ_S3SstXXtBQhCuyYUzDws-fAYnEsnlX84wsERvs"
+      "location": "/api/ocie/v1/tasks/YUiQ_S3SstXXtBQhCuyYUzDws"
   }
   ```
+
   ```json
   {
       "state": "completed",
       "create_ts": 1735049892,
       "update_ts": 1735049907,
-      "request_id": "YUiQ_S3SstXXtBQhCuyYUzDws-fAYnEsnlX84wsERvs",
+      "request_id": "YUiQ_S3SstXXtBQhCuyYUzDws",
       "owner": "ocie-0",
       "command_type": "ImportDBSnapshotCommand",
       "ref_id": "asdasda",
@@ -483,14 +510,16 @@ Clone a database from an existing snapshot to a host.
               }
           ]
       },
-      "location": "/api/ocie/v1/tasks/YUiQ_S3SstXXtBQhCuyYUzDws-fAYnEsnlX84wsERvs"
+      "location": "/api/ocie/v1/tasks/YUiQ_S3SstXXtBQhCuyYUzDws"
   }
   ```
 
 #### Example
 
 ```bash
-curl -XPOST "http://{flex}/flex/api/v1/db_snapshots/primary__10__1735028786/clone" -d'{"destinations":[{"host_id":"dev-2","db_name":"alala"}]}' -H 'Content-Type: application/json'
+curl -XPOST "http://{flex}/flex/api/v1/db_snapshots/primary__10__1735028786/clone" \
+-H 'Content-Type: application/json' \
+-d'{"destinations":[{"host_id":"dev-2","db_name":"alala"}]}'
 ```
 
 ### Delete DB Snapshot
@@ -530,18 +559,19 @@ Retrieve the current state of a task by ID.
 #### Responses
 
 - 200 OK
+
   ```json
   {
       "state": "running",
       "create_ts": 1723108781,
       "update_ts": 1723108781,
-      "request_id": "_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was",
+      "request_id": "KscTYPMYiMUjCjJleHLauR0y",
       "owner": "ocie",
       "command_type": "DeployCommand",
       "ref_id": "bjGP9ygRMew",
       "error": "",
       "result": null,
-      "location": "/flex/api/v1/ocie/tasks/_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was"
+      "location": "/flex/api/v1/ocie/tasks/KscTYPMYiMUjCjJleHLauR0y"
   }
   ```
 - 404 Not Found
@@ -549,7 +579,7 @@ Retrieve the current state of a task by ID.
 #### Example
 
 ```bash
-curl -XGET "http://{flex}/flex/api/v1/ocie/tasks/_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was"
+curl -XGET "http://{flex}/flex/api/v1/ocie/tasks/KscTYPMYiMUjCjJleHLauR0y"
 ```
 
 ### List Tasks
@@ -563,13 +593,14 @@ Retrieve all tasks.
 #### Responses
 
 - 200 OK
+
   ```json
   [
       {
           "state": "completed",
           "create_ts": 1723108781,
           "update_ts": 1723108981,
-          "request_id": "_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was",
+          "request_id": "KscTYPMYiMUjCjJleHLauR0y",
           "owner": "ocie",
           "command_type": "DeployCommand",
           "ref_id": "bjGP9ygRMew",
@@ -586,7 +617,7 @@ Retrieve all tasks.
                   }
               ]
           },
-          "location": "/flex/api/v1/ocie/tasks/_gfSro_KscTYPMYiMUjCjJleHLauR0y_kSTzlIi8was"
+          "location": "/flex/api/v1/ocie/tasks/KscTYPMYiMUjCjJleHLauR0y"
       }
   ]
   ```
