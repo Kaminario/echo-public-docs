@@ -1,6 +1,10 @@
 # Silk Echo
 
-Silk Echo offers a powerful solution for creating application-consistent snapshots of databases. With this capability, you can capture the state of a database on one host with precision and reliability. These snapshots can then be used to create an identical copy of the database on a different host. The process is flexible, allowing you to perform it manually for specific needs or integrate it into automated workflows to streamline operations. This ensures consistent, efficient, and error-free database replication.
+Silk Echo offers a powerful solution for creating application-consistent or crash-consistent snapshots of databases. 
+
+With silk, you can capture application-consistent state of a database on one host with precision and reliability. These snapshots can then be used to create an identical copy of the database on a different host. The process is flexible, allowing you to perform it manually for specific needs or integrate it into automated workflows to streamline operations. This ensures consistent, efficient, and error-free database replication.
+
+For rapid data capture, crash-consistent snapshots offer a fast and reliable way to preserve system state instantly. These snapshots enable quick recovery from failures or disaster scenarios. However, since they do not ensure application-level consistency, databases and transactional applications may require log replay or application-consistent snapshots for full data integrity.
 
 ## Prerequisites
 
