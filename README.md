@@ -73,6 +73,12 @@ curl -XGET "http://{flex}/{path}" -H "hs-ref-id: Hy6f50Ki"
 | GET    | /flex/api/v1/hosts/{host_id} | Retrieve host info            |
 | GET    | /flex/api/v1/hosts           | Get all registered hosts info |
 
+### **Refresh APIs**
+
+| Method | Path                                            | Description                                 |
+| ------ | ----------------------------------------------- | ------------------------------------------- |
+| POST   | /flex/api/v1/hosts/{host_id}/databases/_replace | replaces host dbs with dbs from a snapshot  |
+
 ### **Clone APIs**
 
 | Method | Path                    | Description                                          |
@@ -239,6 +245,76 @@ curl -XGET "http://{flex}/flex/api/v1/hosts/{host_id}" \
 curl -XGET "http://{flex}/flex/api/v1/hosts" \
 -H "Authorization: Bearer {token}"
 ```
+
+## Refresh API
+
+### Endpoint:
+
+`POST /flex/api/v1/hosts/{host_id}/databases/_replace`
+
+#### Request Body:
+
+```json
+{
+  "snapshot_id": "string",
+  "db_names": [
+    "string"
+  ],
+  "keep_backup": true
+}
+```
+
+#### Parameters:
+
+- `host_id` (string): The unique identifier for the host, typically the hostname. Must:
+  - Start with a letter and end with a letter or number.
+  - Only contain letters, numbers, underscores, and hyphens.
+  - Be 3-32 characters in length.
+
+  Example pattern: `^[a-zA-Z][a-zA-Z0-9_-]+[a-zA-Z0-9]$`
+
+- `snapshot_id` (string): The unique identifier for the database snapshot.
+- `db_names` (array of strings): The names of the databases on the host to be replaced
+- `keep_backup` (boolean): If set to true, Flex will rename the original db to `{name}_bkp_1` instead of deletion.
+
+#### Example:
+
+```bash
+curl -XPUT "http://{flex}/flex/api/v1/hosts/{host_id}/databases/_replace" \
+-H "Authorization: Bearer {token}" \
+-d'{"snapshot_id":"primary__5__1735025906","db_names": ["dev_db","dev_db2"],"keep_backup":true}'
+```
+
+#### Responses:
+
+Following response example has a result field. This field will have a value only after operation completion. See: **Task State APIs**
+
+- 200 OK
+
+  ```json
+  {
+      "state": "completed",
+      "create_ts": 1735025889,
+      "update_ts": 1735025908,
+      "request_id": "Gm9X2VpqAZNY78sjl5cwRbPfKtoQ6B",
+      "owner": "ocie-0",
+      "command_type": "ReplaceDBCommand",
+      "ref_id": "HHudu8s",
+      "error": "",
+      "result": {
+        "cloned_dbs": [{
+            "id": "dest_db_id",
+            "name": "dest_db_name",
+            "host_id": "host_id",
+            "source_host_id": "source_host_id",
+            "source_db_id": "source_db_id",
+            "source_db_name": "source_db_name"
+        }]
+      },
+      "location": "/api/ocie/v1/tasks/Gm9X2VpqAZNY78sjl5cwRbPfKtoQ6B"
+  }
+  ```
+
 
 ## Clone APIs
 
