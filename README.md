@@ -12,7 +12,7 @@ For rapid data capture, crash-consistent snapshots offer a fast and reliable way
 - Source host running Windows Server with MSSQL and the original database.
 - Destination host running Windows Server with MSSQL.
 - Hosts must be capable of communicating with the Flex server and the SDP rest API.
-- Silk VSS installed and configured on both hosts.
+- You'l need Silk VSS installed (on both sides) if you're doing app-consistent operations on MSSQL2019 .
 
 ### Required Setup Actions:
 
