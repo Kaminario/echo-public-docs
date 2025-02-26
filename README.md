@@ -248,6 +248,20 @@ curl -XGET "http://{flex}/flex/api/v1/hosts" \
 
 ## Refresh API
 
+This api will replace underline volumes of the selected databases with an new volumes.
+The new volumes are cloned from a desired snapshot.
+
+In case of keep_backup is true. The original database is renamed to a new name
+
+```
+<db_name>_bkp_<timestamp>
+```
+
+db_name: is an original db name
+timestamp: The time of the refresh. The timestamp is in ISO 8601 format. "20250216T143521Z"
+
+fin-db => fin-db_bkp_20250216T143521Z
+
 ### Endpoint:
 
 `POST /flex/api/v1/hosts/{host_id}/databases/_replace`
