@@ -296,7 +296,7 @@ fin-db => fin-db_bkp_20250216T143521Z
 ```bash
 curl -XPUT "http://{flex}/flex/api/v1/hosts/{host_id}/databases/_replace" \
 -H "Authorization: Bearer {token}" \
--d'{"snapshot_id":"primary__5__1735025906","db_names": ["dev_db","dev_db2"],"keep_backup":true}'
+-d'{"snapshot_id":"snap_1735025906","db_names": ["dev_db","dev_db2"],"keep_backup":true}'
 ```
 
 #### Responses:
