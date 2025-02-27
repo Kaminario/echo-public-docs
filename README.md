@@ -244,90 +244,6 @@ curl -XGET "http://{flex}/flex/api/v1/hosts" \
 -H "Authorization: Bearer {token}"
 ```
 
-## Refresh API
-
-This api will replace underline volumes of the selected databases with an new volumes.
-The new volumes are cloned from a desired snapshot.
-
-In case of keep_backup is true. The original database is renamed to a new name
-
-```
-<db_name>_bkp_<timestamp>
-```
-
-db_name: is an original db name
-timestamp: The time of the refresh. The timestamp is in ISO 8601 format. "20250216T143521Z"
-
-fin-db => fin-db_bkp_20250216T143521Z
-
-### Endpoint:
-
-`POST /flex/api/v1/hosts/{host_id}/databases/_replace`
-
-#### Request Body:
-
-```json
-{
-  "snapshot_id": "string",
-  "db_names": [
-    "string"
-  ],
-  "keep_backup": true
-}
-```
-
-#### Parameters:
-
-- `host_id` (string): The unique identifier for the host, typically the hostname. Must:
-  - Start with a letter and end with a letter or number.
-  - Only contain letters, numbers, underscores, and hyphens.
-  - Be 3-32 characters in length.
-
-  Example pattern: `^[a-zA-Z][a-zA-Z0-9_-]+[a-zA-Z0-9]$`
-
-- `snapshot_id` (string): The unique identifier for the database snapshot.
-- `db_names` (array of strings): The names of the databases on the host to be replaced
-- `keep_backup` (boolean): If set to true, Flex will rename the original db to `{name}_bkp_1` instead of deletion.
-
-#### Example:
-
-```bash
-curl -XPUT "http://{flex}/flex/api/v1/hosts/{host_id}/databases/_replace" \
--H "Authorization: Bearer {token}" \
--d'{"snapshot_id":"snap_1735025906","db_names": ["dev_db","dev_db2"],"keep_backup":true}'
-```
-
-#### Responses:
-
-Following response example has a result field. This field will have a value only after operation completion. See: **Task State APIs**
-
-- 200 OK
-
-  ```json
-  {
-      "state": "completed",
-      "create_ts": 1735025889,
-      "update_ts": 1735025908,
-      "request_id": "Gm9X2VpqAZNY78sjl5cwRbPfKtoQ6B",
-      "owner": "ocie-0",
-      "command_type": "ReplaceDBCommand",
-      "ref_id": "HHudu8s",
-      "error": "",
-      "result": {
-        "cloned_dbs": [{
-            "id": "dest_db_id",
-            "name": "dest_db_name",
-            "host_id": "host_id",
-            "source_host_id": "source_host_id",
-            "source_db_id": "source_db_id",
-            "source_db_name": "source_db_name"
-        }]
-      },
-      "location": "/api/ocie/v1/tasks/Gm9X2VpqAZNY78sjl5cwRbPfKtoQ6B"
-  }
-  ```
-
-
 ## Clone APIs
 
 ### Clone DB
@@ -476,6 +392,89 @@ Delete a Cloned DB from a host and related thin volumes from the SDP.
 ```bash
 curl -XDELETE "http://{flex}/flex/api/v1/ocie/clone" -H 'Content-Type: application/json' -H 'Authorization: Bearer {token}' -d'{"host_id":"dev-2","database_id":"6"}'
 ```
+
+## Refresh API
+
+This api will replace underline volumes of the selected databases with an new volumes.
+The new volumes are cloned from a desired snapshot.
+
+In case of keep_backup is true. The original database is renamed to a new name
+
+```
+<db_name>_bkp_<timestamp>
+```
+
+db_name: is an original db name
+timestamp: The time of the refresh. The timestamp is in ISO 8601 format. "20250216T143521Z"
+
+fin-db => fin-db_bkp_20250216T143521Z
+
+### Endpoint:
+
+`POST /flex/api/v1/hosts/{host_id}/databases/_replace`
+
+#### Request Body:
+
+```json
+{
+  "snapshot_id": "string",
+  "db_names": [
+    "string"
+  ],
+  "keep_backup": true
+}
+```
+
+#### Parameters:
+
+- `host_id` (string): The unique identifier for the host, typically the hostname. Must:
+  - Start with a letter and end with a letter or number.
+  - Only contain letters, numbers, underscores, and hyphens.
+  - Be 3-32 characters in length.
+
+  Example pattern: `^[a-zA-Z][a-zA-Z0-9_-]+[a-zA-Z0-9]$`
+
+- `snapshot_id` (string): The unique identifier for the database snapshot.
+- `db_names` (array of strings): The names of the databases on the host to be replaced
+- `keep_backup` (boolean): If set to true, Flex will rename the original db to `{name}_bkp_1` instead of deletion.
+
+#### Example:
+
+```bash
+curl -XPUT "http://{flex}/flex/api/v1/hosts/{host_id}/databases/_replace" \
+-H "Authorization: Bearer {token}" \
+-d'{"snapshot_id":"snap_1735025906","db_names": ["dev_db","dev_db2"],"keep_backup":true}'
+```
+
+#### Responses:
+
+Following response example has a result field. This field will have a value only after operation completion. See: **Task State APIs**
+
+- 200 OK
+
+  ```json
+  {
+      "state": "completed",
+      "create_ts": 1735025889,
+      "update_ts": 1735025908,
+      "request_id": "Gm9X2VpqAZNY78sjl5cwRbPfKtoQ6B",
+      "owner": "ocie-0",
+      "command_type": "ReplaceDBCommand",
+      "ref_id": "HHudu8s",
+      "error": "",
+      "result": {
+        "cloned_dbs": [{
+            "id": "dest_db_id",
+            "name": "dest_db_name",
+            "host_id": "host_id",
+            "source_host_id": "source_host_id",
+            "source_db_id": "source_db_id",
+            "source_db_name": "source_db_name"
+        }]
+      },
+      "location": "/api/ocie/v1/tasks/Gm9X2VpqAZNY78sjl5cwRbPfKtoQ6B"
+  }
+  ```
 
 ## Snapshot APIs
 
