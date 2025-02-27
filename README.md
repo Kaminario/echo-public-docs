@@ -101,8 +101,6 @@ curl -XGET "http://{flex}/{path}" -H "hs-ref-id: Hy6f50Ki"
 | GET    | /flex/api/v1/ocie/tasks/{id} | Retrieve task info            |
 | GET    | /flex/api/v1/ocie/tasks      | Get all registered tasks info |
 
-The "task" returned by the Clone/Snapshot API contains a "location" field. While it may differ from the Tasks API, both provide equivalent functionality.
-
 ## Host APIs
 
 ### Register Host
