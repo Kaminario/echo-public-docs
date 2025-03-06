@@ -1,0 +1,23 @@
+*.bkp
+
+__pycache__/
+*.py[cod]
+
+*.egg-info/
+*.egg
+
+# Excluding IDE: PyCharm, KDevelop, vscode, vim, e.t.c.
+.kdev4
+*.kdev4
+.idea
+*-workspace
+*.sublime-workspace
+*.vscode
+.*.swp
+.swp
+.*.swo
+.swo
+
+# Excluding OS generated files:
+.history
+.venv
