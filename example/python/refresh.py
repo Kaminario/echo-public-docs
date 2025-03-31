@@ -7,9 +7,9 @@ import os
 import random
 import sys
 import time
+from optparse import OptionParser
 from typing import Tuple
 
-import fire
 import requests
 
 requests.packages.urllib3.disable_warnings()
@@ -17,10 +17,16 @@ requests.packages.urllib3.disable_warnings()
 # Environment Variables
 FLEX_TOKEN = None
 FLEX_IP = None
+is_interactive = False
 
 ############################################
 # Helper Functions
 ############################################
+
+
+def log(msg: str, **kwargs):
+    # print to stderr to avoid mixing with stdout
+    print(msg, file=sys.stderr, **kwargs)
 
 
 def _ensure_env():
@@ -30,16 +36,18 @@ def _ensure_env():
     FLEX_IP = os.getenv("FLEX_IP", "")
 
     if not FLEX_TOKEN or not FLEX_IP:
-        print("FLEX_TOKEN and FLEX_IP environment variables must be set.")
+        log("FLEX_TOKEN and FLEX_IP environment variables must be set.")
         sys.exit(1)
 
 
 def _go_no_go(msg):
+    if not is_interactive:
+        return
     try:
         answer = input(f"{msg} [y/n]: ")
     except KeyboardInterrupt:
         answer = "n"
-        print()
+        print("")
 
     if answer.lower() != "y":
         print("Aborted")
@@ -58,14 +66,14 @@ def _tracking_id():
 
 
 def _make_refresh(
-    host_name: str,
+    host_id: str,
     db_names: tuple[str],
     keep_backup: bool,
     snapshot_id: str,
 ) -> Tuple[bool, dict]:
 
     # perform a request to make a snapshot
-    url = f"https://{FLEX_IP}/flex/api/v1/hosts/{host_name}/databases/_replace"
+    url = f"https://{FLEX_IP}/flex/api/v1/hosts/{host_id}/databases/_replace"
 
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
@@ -135,7 +143,7 @@ def _wait_for_task(task: dict) -> tuple[bool, dict]:
 
 
 def run(
-    host_name: str,
+    host_id: str,
     db_names: tuple[str],
     keep_backup: bool,
     snapshot_id: str,
@@ -148,32 +156,89 @@ def run(
        - `FLEX_TOKEN`: Bearer token for Flex API authentication.
        - `FLEX_IP`: Flex server IP address.
 
-    python refresh.py run --host-name <host-name> --db-names <db-name-1,db-name-2> --keep-backup <keep-backup> --snapshot-id <snapshot-id>
+    python refresh.py --host-name <host-name> --db-names <db-name-1,db-name-2> --keep-backup --snapshot-id <snapshot-id>
 
     Args:
-        host_name (str): Host name to take snapshot from
+        host_id (str): Host id to take snapshot from
         db_names (list[str]): List of database names to refresh
         keep_backup (bool): Keep backup of the current databases by renaming them
-        -- (str): Snapshot id to refresh from
+        snapshot_id (str): Snapshot id to refresh from
     """
 
     _ensure_env()
 
-    print("Going to refresh databases:")
-    if isinstance(db_names, str):
-        db_names = (db_names,)
+    print(f"Going to refresh databases: {db_names}")
 
-    for db_name in db_names:
-        print(f"\t{db_name}")
     _go_no_go(msg="Do you want to continue?")
 
     print(f"refreshing")
-    success, task = _make_refresh(host_name, db_names, keep_backup, snapshot_id)
+    success, task = _make_refresh(host_id, db_names, keep_backup, snapshot_id)
     if not success:
-        print(f"Failed to refresh databases. Error: {task['error']}")
+        log(f"Failed to refresh databases. Error: {task['error']}")
     else:
-        print(f"Databases refreshed successfully. Task: {task}")
+        print(f"Databases refreshed successfully.")
+
+
+def parse_arguments():
+    parser = OptionParser(
+        usage="usage: %prog [options]",
+        description="This script refreshes databases on host from a snapshot.",
+    )
+    parser.add_option(
+        "-i",
+        "--interactive",
+        dest="interactive",
+        action="store_true",
+        default=False,
+        help="Interactive mode",
+        metavar="INTERACTIVE_MODE",
+    )
+    parser.add_option(
+        "--host-id",
+        dest="host_id",
+        help="Host name to take snapshot from",
+        metavar="HOST_ID",
+    )
+    parser.add_option(
+        "--db-names",
+        dest="db_names",
+        help="Comma-separated list of database names to refresh",
+        metavar="DB_NAMES",
+    )
+    parser.add_option(
+        "--keep-backup",
+        dest="keep_backup",
+        action="store_true",
+        default=False,
+        help="Keep backup of the current databases by renaming them",
+    )
+    parser.add_option(
+        "--snapshot-id",
+        dest="snapshot_id",
+        help="Snapshot id to refresh from",
+        metavar="SNAPSHOT_ID",
+    )
+
+    (options, _) = parser.parse_args()
+
+    if not options.host_id or not options.db_names or not options.snapshot_id:
+        parser.print_help()
+        sys.exit(1)
+
+    # Parse db_names to tuple
+    db_names = tuple(options.db_names.split(","))
+
+    global is_interactive
+    is_interactive = options.interactive
+
+    return {
+        "host_id": options.host_id,
+        "db_names": db_names,
+        "keep_backup": options.keep_backup,
+        "snapshot_id": options.snapshot_id,
+    }
 
 
 if __name__ == "__main__":
-    fire.Fire(run)
+    args = parse_arguments()
+    run(**args)

@@ -24,6 +24,11 @@ FLEX_IP = None
 ############################################
 
 
+def log(msg: str, **kwargs):
+    # print to stderr to avoid mixing with stdout
+    print(msg, file=sys.stderr, **kwargs)
+
+
 def _ensure_env():
     global FLEX_TOKEN, FLEX_IP
 
@@ -31,7 +36,7 @@ def _ensure_env():
     FLEX_IP = os.getenv("FLEX_IP", "")
 
     if not FLEX_TOKEN or not FLEX_IP:
-        print("FLEX_TOKEN and FLEX_IP environment variables must be set.")
+        log("FLEX_TOKEN and FLEX_IP environment variables must be set.")
         sys.exit(1)
 
 
@@ -44,7 +49,7 @@ def _go_no_go(msg: str):
         print()
 
     if answer.lower() != "y":
-        print("Aborted")
+        log("Aborted")
         sys.exit(0)
 
 
@@ -70,9 +75,7 @@ def _get_topology() -> dict:
 
     # Handle HTTP errors
     if response.status_code // 100 != 2:
-        print(
-            f"Failed to retrieve topology. Error: {response.status_code} {response.text}"
-        )
+        log(f"Failed to retrieve topology. Error: {response.status_code} {response.text}")
         sys.exit(1)
 
     return response.json()
@@ -182,7 +185,7 @@ def _make_snapshot(
     task = response.json()
     success, task = _wait_for_task(task)
     if not success:
-        print(f"Snapshot cloning failed. Error: {task.get('error', 'Unknown error')}")
+        log(f"Snapshot cloning failed. Error: {task.get('error', 'Unknown error')}")
     else:
         print(f"Snapshot cloned successfully. Result: {task['result']}")
 
@@ -275,10 +278,10 @@ def run(
     FLEX_IP = os.getenv("FLEX_IP", "")
 
     if not FLEX_TOKEN or not FLEX_IP:
-        print("FLEX_TOKEN and FLEX_IP environment variables must be set.")
+        log("FLEX_TOKEN and FLEX_IP environment variables must be set.")
         sys.exit(1)
 
-    print(f"Cloning databases from `{snap_date}` snapshot: {src} -> {dest}")
+    print(f"Cloning databases from '{snap_date}' snapshot: {src} -> {dest}")
     print(f"Databases: {db_names}")
     print(f"Suffix: {suffix}")
 
@@ -291,17 +294,13 @@ def run(
 
     src_topology = _host_topology(src, topology)
     if not src_topology:
-        print(
-            f"Source host `{src}` not found. Available hosts: {_host_names(topology)}"
-        )
+        log(f"Source host '{src}' not found. Available hosts: {_host_names(topology)}")
         sys.exit(1)
 
     # Retrieve destination host topology
     dest_topology = _host_topology(dest, topology)
     if not dest_topology:
-        print(
-            f"Destination host `{dest}` not found. Available hosts: {_host_names(topology)}"
-        )
+        log(f"Destination host '{dest}' not found. Available hosts: {_host_names(topology)}")
         sys.exit(1)
 
     dest_host_id = dest_topology["host"]["id"]
@@ -315,17 +314,17 @@ def run(
     # validate we have all dbs and ids in the topology
     if len(db_map) != len(db_names):
         missing_dbs = set(db_names) - set(db_map.keys())
-        print(f"Missing databases: {missing_dbs}")
+        log(f"Missing databases: {missing_dbs}")
         sys.exit(1)
 
     # get snapshot id where all dbs are present
     snap_ts, snap_id = _get_snapshot(src_topology, dt, set(db_map.values()))
 
     if not snap_id:
-        print(f"No snapshot found for `{dt}` containing all requested databases.")
+        log(f"No snapshot found for date {dt} containing all requested databases.")
         sys.exit(1)
 
-    print(f"Cloning databases from snapshot `{snap_id}` taken on `{snap_ts}`")
+    print(f"Cloning databases from snapshot '{snap_id}' taken on '{snap_ts}'")
     for db_name in db_names:
         print(f"{src}[{db_name}] -> {dest}[{db_name + suffix}]")
 
