@@ -168,7 +168,7 @@ def _wait_for_task(task: dict) -> tuple[bool, dict]:
 
 
 def run(host_id: str, db_names: list[str]):
-    """This script deletes Echo a databases from the host.
+    """This script deletes an Echo databases from the host.
 
     Usage example:
 
