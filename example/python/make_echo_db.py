@@ -68,11 +68,14 @@ def _tracking_id():
 
 def _fetch_topology():
     url = f"https://{FLEX_IP}/api/ocie/v1/topology"
+    tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
-        "hs-ref-id": _tracking_id(),
+        "hs-ref-id": tracking_id,
         "Accept": "application/json",
     }
+    log(f"Fetching topology with tracking ID: {tracking_id}")
+
     r = requests.get(url, verify=False, headers=headers)
 
     if r.status_code // 100 != 2:
@@ -137,14 +140,16 @@ def _make_echo_dbs(snapshot_id: str, destinations: list[dict]) -> Tuple[bool, di
     # perform a request to make a snapshot
     url = f"https://{FLEX_IP}/flex/api/v1/db_snapshots/{snapshot_id}/clone"
 
+    tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
-        "hs-ref-id": _tracking_id(),
+        "hs-ref-id": tracking_id,
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
-
     post_data = {"destinations": destinations}
+    log(f"Creating Echo databases with tracking ID: {tracking_id}, data: {post_data}")
+
     r = requests.post(
         url,
         json=post_data,

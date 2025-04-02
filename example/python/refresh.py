@@ -72,20 +72,23 @@ def _make_refresh(
     # perform a request to make a snapshot
     url = f"https://{FLEX_IP}/flex/api/v1/hosts/{host_id}/databases/_replace"
 
+    tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
-        "hs-ref-id": _tracking_id(),
+        "hs-ref-id": tracking_id,
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
+    post_data = {
+        "db_names": db_names,
+        "keep_backup": keep_backup,
+        "snapshot_id": snapshot_id,
+    }
+    log(f"Making refresh request with tracking ID: {tracking_id}, data: {post_data}")
 
     r = requests.post(
         url,
-        json={
-            "db_names": db_names,
-            "keep_backup": keep_backup,
-            "snapshot_id": snapshot_id,
-        },
+        json=post_data,
         verify=False,
         headers=headers,
     )

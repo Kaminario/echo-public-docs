@@ -75,11 +75,14 @@ def _host_topology(host_id):
 
 def _get_topology():
     url = f"https://{FLEX_IP}/api/ocie/v1/topology"
+    tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
-        "hs-ref-id": _tracking_id(),
+        "hs-ref-id": tracking_id,
         "Accept": "application/json",
     }
+    log(f"Fetching topology with tracking ID: {tracking_id}")
+
     r = requests.get(url, verify=False, headers=headers)
 
     if r.status_code // 100 != 2:
@@ -107,20 +110,21 @@ def _make_snapshot(
     # perform a request to make a snapshot
     url = f"https://{FLEX_IP}/flex/api/v1/db_snapshots"
 
+    tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
-        "hs-ref-id": _tracking_id(),
+        "hs-ref-id": tracking_id,
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
-
     post_data = {
         "source_host_id": host_id,
         "database_ids": list(db_ids),
         "name_prefix": name_prefix,
         "consistency_level": consistency_level.value,
     }
-    print(f"Creating snapshot with the following data: {post_data}")
+    log(f"Creating snapshot with tracking ID: {tracking_id}, data: {post_data}")
+
     r = requests.post(
         url,
         json=post_data,

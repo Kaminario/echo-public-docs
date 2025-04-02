@@ -70,13 +70,13 @@ def _host_topology(host_id):
 
 def _get_topology():
     url = f"https://{FLEX_IP}/api/ocie/v1/topology"
-    ref_id = _tracking_id()
+    tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
-        "hs-ref-id": ref_id,
+        "hs-ref-id": tracking_id,
         "Accept": "application/json",
     }
-    log(f"get topology with ref_id {ref_id}")
+    log(f"Fetching topology with tracking ID: {tracking_id}")
 
     r = requests.get(url, verify=False, headers=headers)
 
@@ -99,16 +99,15 @@ def _delete_echo_db(host_id: str, db_id: str) -> tuple[bool, dict]:
     """Delete an Echo database from the specified host."""
 
     url = f"https://{FLEX_IP}/flex/api/v1/ocie/clone"
-    ref_id = _tracking_id()
+    tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
-        "hs-ref-id": ref_id,
+        "hs-ref-id": tracking_id,
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
-    log(f"delete echo db with ref_id {ref_id}")
-
     post_data = {"host_id": host_id, "database_id": db_id}
+    log(f"Deleting Echo database with tracking ID: {tracking_id}, data: {post_data}")
 
     r = requests.delete(
         url,

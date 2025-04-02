@@ -22,6 +22,7 @@ FLEX_IP = os.getenv("FLEX_IP", "")
 # Helper Functions
 ############################################
 
+
 def log(msg: str, **kwargs):
     # print to stderr to avoid mixing with stdout
     print(msg, file=sys.stderr, **kwargs)
@@ -53,11 +54,14 @@ def _host_topology(host_name):
 
 def _get_topology():
     url = f"https://{FLEX_IP}/api/ocie/v1/topology"
+    tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
-        "hs-ref-id": _tracking_id(),
+        "hs-ref-id": tracking_id,
         "Accept": "application/json",
     }
+    log(f"Fetching topology with tracking ID: {tracking_id}")
+
     r = requests.get(url, verify=False, headers=headers)
 
     if r.status_code // 100 != 2:

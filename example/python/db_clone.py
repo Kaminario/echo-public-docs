@@ -63,16 +63,21 @@ def _tracking_id() -> str:
 def _get_topology() -> dict:
     """Retrieve the full topology from the Flex API."""
     url = f"https://{FLEX_IP}/api/ocie/v1/topology"
+    tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
-        "hs-ref-id": _tracking_id(),
+        "hs-ref-id": tracking_id,
         "Accept": "application/json",
     }
+    log(f"Fetching topology with tracking ID: {tracking_id}")
+
     response = requests.get(url, verify=False, headers=headers)
 
     # Handle HTTP errors
     if response.status_code // 100 != 2:
-        log(f"Failed to retrieve topology. Error: {response.status_code} {response.text}")
+        log(
+            f"Failed to retrieve topology. Error: {response.status_code} {response.text}"
+        )
         sys.exit(1)
 
     return response.json()
@@ -150,9 +155,9 @@ def _make_snapshot(
         dbs (Dict[str, str]): A mapping of database names to IDs.
         suffix (str): The suffix to append to cloned database names.
     """
-    payload = {"destinations": []}
+    post_data = {"destinations": []}
     for db_name, db_id in dbs.items():
-        payload["destinations"].append(
+        post_data["destinations"].append(
             {
                 "host_id": dest_host_id,
                 "db_id": db_id,
@@ -163,14 +168,16 @@ def _make_snapshot(
     # perform a request to make a snapshot
     url = f"https://{FLEX_IP}/flex/api/v1/db_snapshots/{snapshot_id}/clone"
 
+    tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
-        "hs-ref-id": _tracking_id(),
+        "hs-ref-id": tracking_id,
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
+    log(f"Cloning snapshot with tracking ID: {tracking_id}, data: {post_data}")
 
-    response = requests.post(url, json=payload, verify=False, headers=headers)
+    response = requests.post(url, json=post_data, verify=False, headers=headers)
 
     # Handle HTTP errors
     if response.status_code // 100 != 2:
@@ -270,7 +277,6 @@ def run(
 
     _ensure_env()
 
-
     print(f"Cloning databases from '{snap_date}' snapshot: {src} -> {dest}")
     print(f"Databases: {db_names}")
     print(f"Suffix: {suffix}")
@@ -290,7 +296,9 @@ def run(
     # Retrieve destination host topology
     dest_topology = _host_topology(dest, topology)
     if not dest_topology:
-        log(f"Destination host '{dest}' not found. Available hosts: {_host_names(topology)}")
+        log(
+            f"Destination host '{dest}' not found. Available hosts: {_host_names(topology)}"
+        )
         sys.exit(1)
 
     dest_host_id = dest_topology["host"]["id"]
