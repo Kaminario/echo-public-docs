@@ -2,9 +2,6 @@
 #
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
-"""
-this script restores a database from a snapshot to a new database onthe desired host.
-"""
 
 import os
 import random
@@ -233,7 +230,6 @@ def parse_arguments():
         action="store_true",
         default=False,
         help="Interactive mode",
-        metavar="INTERACTIVE_MODE",
     )
     parser.add_option(
         "-s",

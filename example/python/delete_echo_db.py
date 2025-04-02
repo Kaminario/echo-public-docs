@@ -224,7 +224,6 @@ def parse_arguments():
         action="store_true",
         default=False,
         help="Interactive mode",
-        metavar="INTERACTIVE_MODE",
     )
     parser.add_option(
         "--host-id",

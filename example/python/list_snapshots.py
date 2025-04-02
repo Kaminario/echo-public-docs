@@ -196,7 +196,7 @@ def parse_arguments():
     parser.add_option(
         "--db-names",
         dest="db_names",
-        help="Comaseparated list of database names to be contained in the snapshot",
+        help="Comma-separated list of database names to be contained in the snapshot",
         type="string",
         metavar="DB_NAMES",
     )
