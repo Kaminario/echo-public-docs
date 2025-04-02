@@ -186,7 +186,7 @@ def run(host_name: str, db_names: str):
 def parse_arguments():
     parser = OptionParser(
         usage="usage: %prog [options]",
-        description="This script list snapshots from host that includes requested DB names.",
+        description="This script list snapshots for the given DB names on the given host.",
     )
     parser.add_option(
         "--host-name",
