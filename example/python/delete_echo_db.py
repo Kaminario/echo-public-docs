@@ -216,7 +216,7 @@ def run(host_id: str, db_names: list[str]):
 def parse_arguments():
     parser = OptionParser(
         usage="usage: %prog [options]",
-        description="This script deletes Echo a databases from the host.",
+        description="This script deletes an Echo databases from the host.",
     )
     parser.add_option(
         "-i",
