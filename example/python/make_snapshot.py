@@ -25,17 +25,17 @@ is_interactive = False
 ############################################
 
 
-def log(msg: str, **kwargs):
+def exit_with_error(msg: str, **kwargs):
     # print to stderr to avoid mixing with stdout
     print(msg, file=sys.stderr, **kwargs)
+    sys.exit(1)
 
 
 def _ensure_env():
     global FLEX_TOKEN, FLEX_IP
 
     if not FLEX_TOKEN or not FLEX_IP:
-        log("FLEX_TOKEN and FLEX_IP environment variables must be set.")
-        sys.exit(1)
+        exit_with_error("FLEX_TOKEN and FLEX_IP environment variables must be set.")
 
 
 def _go_no_go(msg):
@@ -81,13 +81,15 @@ def _get_topology():
         "hs-ref-id": tracking_id,
         "Accept": "application/json",
     }
-    log(f"Fetching topology with tracking ID: {tracking_id}")
+    print(f"Fetching topology with tracking ID: {tracking_id}")
 
     r = requests.get(url, verify=False, headers=headers)
 
     if r.status_code // 100 != 2:
-        log(f"Failed to get database topology. Error: {r.status_code} {r.text}")
-        sys.exit(1)
+        exit_with_error(
+            f"Failed to get database topology. Error: {r.status_code} {r.text}"
+        )
+
     topology = r.json()
 
     return topology
@@ -123,7 +125,7 @@ def _make_snapshot(
         "name_prefix": name_prefix,
         "consistency_level": consistency_level.value,
     }
-    log(f"Creating snapshot with tracking ID: {tracking_id}, data: {post_data}")
+    print(f"Creating snapshot with tracking ID: {tracking_id}, data: {post_data}")
 
     r = requests.post(
         url,
@@ -218,10 +220,9 @@ def run(
         # Check if all requested databases exist
         missing_dbs = db_names - available_db_names
         if missing_dbs:
-            log(
+            exit_with_error(
                 f"Error: The following requested databases do not exist on host {host_id}: {missing_dbs}"
             )
-            sys.exit(1)
 
         # Filter db_id_2_name to include only requested databases
         filtered_db_id_2_name = {
@@ -239,7 +240,7 @@ def run(
         host_id, set(db_id_2_name.keys()), name_prefix, consistency_level
     )
     if not success:
-        log(f"Failed to create snapshot. Error: {task['error']}")
+        exit_with_error(f"Failed to create snapshot. Error: {task['error']}")
     else:
         print(f"Snapshot created successfully. Task: {task}")
 
@@ -255,7 +256,7 @@ def parse_arguments():
         dest="interactive",
         action="store_true",
         default=False,
-        help="Interactive mode"
+        help="Interactive mode",
     )
     parser.add_option(
         "--host-id",

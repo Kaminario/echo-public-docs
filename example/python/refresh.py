@@ -24,17 +24,17 @@ is_interactive = False
 ############################################
 
 
-def log(msg: str, **kwargs):
+def exit_with_error(msg: str, **kwargs):
     # print to stderr to avoid mixing with stdout
     print(msg, file=sys.stderr, **kwargs)
+    sys.exit(1)
 
 
 def _ensure_env():
     global FLEX_TOKEN, FLEX_IP
 
     if not FLEX_TOKEN or not FLEX_IP:
-        log("FLEX_TOKEN and FLEX_IP environment variables must be set.")
-        sys.exit(1)
+        exit_with_error("FLEX_TOKEN and FLEX_IP environment variables must be set.")
 
 
 def _go_no_go(msg):
@@ -84,7 +84,7 @@ def _make_refresh(
         "keep_backup": keep_backup,
         "snapshot_id": snapshot_id,
     }
-    log(f"Making refresh request with tracking ID: {tracking_id}, data: {post_data}")
+    print(f"Making refresh request with tracking ID: {tracking_id}, data: {post_data}")
 
     r = requests.post(
         url,
@@ -174,7 +174,7 @@ def run(
     print(f"refreshing")
     success, task = _make_refresh(host_id, db_names, keep_backup, snapshot_id)
     if not success:
-        log(f"Failed to refresh databases. Error: {task['error']}")
+        exit_with_error(f"Failed to refresh databases. Error: {task['error']}")
     else:
         print(f"Databases refreshed successfully.")
 

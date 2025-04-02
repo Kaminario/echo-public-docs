@@ -25,17 +25,17 @@ is_interactive = False
 ############################################
 
 
-def log(msg: str, **kwargs):
+def exit_with_error(msg: str, **kwargs):
     # print to stderr to avoid mixing with stdout
     print(msg, file=sys.stderr, **kwargs)
+    sys.exit(1)
 
 
 def _ensure_env():
     global FLEX_TOKEN, FLEX_IP
 
     if not FLEX_TOKEN or not FLEX_IP:
-        log("FLEX_TOKEN and FLEX_IP environment variables must be set.")
-        sys.exit(1)
+        exit_with_error("FLEX_TOKEN and FLEX_IP environment variables must be set.")
 
 
 def _go_no_go(msg):
@@ -76,13 +76,15 @@ def _get_topology():
         "hs-ref-id": tracking_id,
         "Accept": "application/json",
     }
-    log(f"Fetching topology with tracking ID: {tracking_id}")
+    print(f"Fetching topology with tracking ID: {tracking_id}")
 
     r = requests.get(url, verify=False, headers=headers)
 
     if r.status_code // 100 != 2:
-        log(f"Failed to get database topology. Error: {r.status_code} {r.text}")
-        sys.exit(1)
+        exit_with_error(
+            f"Failed to get database topology. Error: {r.status_code} {r.text}"
+        )
+
     topology = r.json()
 
     return topology
@@ -107,7 +109,7 @@ def _delete_echo_db(host_id: str, db_id: str) -> tuple[bool, dict]:
         "Content-Type": "application/json",
     }
     post_data = {"host_id": host_id, "database_id": db_id}
-    log(f"Deleting Echo database with tracking ID: {tracking_id}, data: {post_data}")
+    print(f"Deleting Echo database with tracking ID: {tracking_id}, data: {post_data}")
 
     r = requests.delete(
         url,
@@ -196,18 +198,17 @@ def run(host_id: str, db_names: list[str]):
     for db_name in db_names:
         db_id = db_name_2_id.get(db_name)
         if not db_id:
-            log(f"Database '{db_name}' not found on host '{host_id}'")
+            print(f"Database '{db_name}' not found on host '{host_id}'")
             continue
 
         print(f"Deleting Echo database '{db_name}'")
 
         success, task = _delete_echo_db(host_id, db_id)
         if not success:
-            log(f"Failed to delete database. Error: {task['error']}")
             failures.append((db_id, db_name, host_id, task))
 
     if failures:
-        log(f"Failed to delete all databases. Error: {failures}")
+        exit_with_error(f"Failed to delete databases. Error: {failures}")
     else:
         print(f"Echo databases deleted successfully.")
 

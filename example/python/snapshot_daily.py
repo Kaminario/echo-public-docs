@@ -24,17 +24,17 @@ FLEX_IP = os.getenv("FLEX_IP", "")
 ############################################
 
 
-def log(msg: str, **kwargs):
+def exit_with_error(msg: str, **kwargs):
     # print to stderr to avoid mixing with stdout
     print(msg, file=sys.stderr, **kwargs)
+    sys.exit(1)
 
 
 def _ensure_env():
     global FLEX_TOKEN, FLEX_IP
 
     if not FLEX_TOKEN or not FLEX_IP:
-        log("FLEX_TOKEN and FLEX_IP environment variables must be set.")
-        sys.exit(1)
+        exit_with_error("FLEX_TOKEN and FLEX_IP environment variables must be set.")
 
 
 class CLevel(str, Enum):
@@ -50,7 +50,7 @@ def _go_no_go(msg):
         print()
 
     if answer.lower() != "y":
-        log("Aborted")
+        print("Aborted")
         sys.exit(0)
 
 
@@ -78,13 +78,15 @@ def _get_topology():
         "hs-ref-id": tracking_id,
         "Accept": "application/json",
     }
-    log(f"Fetching topology with tracking ID: {tracking_id}")
+    print(f"Fetching topology with tracking ID: {tracking_id}")
 
     r = requests.get(url, verify=False, headers=headers)
 
     if r.status_code // 100 != 2:
-        log(f"Failed to get database topology. Error: {r.status_code} {r.text}")
-        sys.exit(1)
+        exit_with_error(
+            f"Failed to get database topology. Error: {r.status_code} {r.text}"
+        )
+
     topology = r.json()
 
     return topology
@@ -120,7 +122,7 @@ def _make_snapshot(
         "name_prefix": name_prefix,
         "consistency_level": str(consistency_level),
     }
-    log(f"Creating snapshot with tracking ID: {tracking_id}, data: {post_data}")
+    print(f"Creating snapshot with tracking ID: {tracking_id}, data: {post_data}")
 
     r = requests.post(
         url,
@@ -219,7 +221,7 @@ def run(
         host_id, set(db_id_2_name.keys()), name_prefix, consistency_level
     )
     if not success:
-        log(f"Failed to create snapshot. Error: {task['error']}")
+        exit_with_error(f"Failed to create snapshot. Error: {task['error']}")
     else:
         print(f"Snapshot created successfully. Task: {task}")
 

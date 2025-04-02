@@ -25,17 +25,17 @@ is_interactive = False
 ############################################
 
 
-def log(msg: str, **kwargs):
+def exit_with_error(msg: str, **kwargs):
     # print to stderr to avoid mixing with stdout
     print(msg, file=sys.stderr, **kwargs)
+    sys.exit(1)
 
 
 def _ensure_env():
     global FLEX_TOKEN, FLEX_IP
 
     if not FLEX_TOKEN or not FLEX_IP:
-        log("FLEX_TOKEN and FLEX_IP environment variables must be set.")
-        sys.exit(1)
+        exit_with_error("FLEX_TOKEN and FLEX_IP environment variables must be set.")
 
 
 def _go_no_go(msg):
@@ -71,13 +71,15 @@ def _fetch_topology():
         "hs-ref-id": tracking_id,
         "Accept": "application/json",
     }
-    log(f"Fetching topology with tracking ID: {tracking_id}")
+    print(f"Fetching topology with tracking ID: {tracking_id}")
 
     r = requests.get(url, verify=False, headers=headers)
 
     if r.status_code // 100 != 2:
-        log(f"Failed to get database topology. Error: {r.status_code} {r.text}")
-        sys.exit(1)
+        exit_with_error(
+            f"Failed to get database topology. Error: {r.status_code} {r.text}"
+        )
+
     topology = r.json()
 
     return topology
@@ -145,7 +147,7 @@ def _make_echo_dbs(snapshot_id: str, destinations: list[dict]) -> Tuple[bool, di
         "Content-Type": "application/json",
     }
     post_data = {"destinations": destinations}
-    log(f"Creating Echo databases with tracking ID: {tracking_id}, data: {post_data}")
+    print(f"Creating Echo databases with tracking ID: {tracking_id}, data: {post_data}")
 
     r = requests.post(
         url,
