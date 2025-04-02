@@ -16,8 +16,8 @@ import requests
 requests.packages.urllib3.disable_warnings()
 
 # Environment Variables
-FLEX_TOKEN = None
-FLEX_IP = None
+FLEX_TOKEN = os.getenv("FLEX_TOKEN", "")
+FLEX_IP = os.getenv("FLEX_IP", "")
 
 ############################################
 # Helper Functions
@@ -31,9 +31,6 @@ def log(msg: str, **kwargs):
 
 def _ensure_env():
     global FLEX_TOKEN, FLEX_IP
-
-    FLEX_TOKEN = os.getenv("FLEX_TOKEN", "")
-    FLEX_IP = os.getenv("FLEX_IP", "")
 
     if not FLEX_TOKEN or not FLEX_IP:
         log("FLEX_TOKEN and FLEX_IP environment variables must be set.")
@@ -273,13 +270,6 @@ def run(
 
     _ensure_env()
 
-    # Environment Variables
-    FLEX_TOKEN = os.getenv("FLEX_TOKEN", "")
-    FLEX_IP = os.getenv("FLEX_IP", "")
-
-    if not FLEX_TOKEN or not FLEX_IP:
-        log("FLEX_TOKEN and FLEX_IP environment variables must be set.")
-        sys.exit(1)
 
     print(f"Cloning databases from '{snap_date}' snapshot: {src} -> {dest}")
     print(f"Databases: {db_names}")
