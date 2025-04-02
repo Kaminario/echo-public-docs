@@ -84,7 +84,7 @@ def _get_topology():
 
     if r.status_code // 100 != 2:
         exit_with_error(
-            f"Failed to get database topology. Error: {r.status_code} {r.text}"
+            f"Failed to get database topology. tracking_id: {tracking_id} Error: {r.status_code} {r.text}"
         )
 
     topology = r.json()

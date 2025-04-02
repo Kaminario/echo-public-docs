@@ -60,13 +60,12 @@ def _get_topology():
         "hs-ref-id": tracking_id,
         "Accept": "application/json",
     }
-    print(f"Fetching topology with tracking ID: {tracking_id}")
 
     r = requests.get(url, verify=False, headers=headers)
 
     if r.status_code // 100 != 2:
         exit_with_error(
-            f"Failed to get database topology. Error: {r.status_code} {r.text}"
+            f"Failed to get database topology. tracking_id: {tracking_id} Error: {r.status_code} {r.text}"
         )
 
     topology = r.json()
