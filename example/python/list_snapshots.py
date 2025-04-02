@@ -191,7 +191,7 @@ def parse_arguments():
     parser.add_option(
         "--host-name",
         dest="host_name",
-        help="Host name to take snapshot from",
+        help="Look for databases on this host",
         metavar="HOST_NAME",
     )
     parser.add_option(
