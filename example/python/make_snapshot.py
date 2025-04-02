@@ -247,7 +247,7 @@ def run(
 def parse_arguments():
     parser = OptionParser(
         usage="usage: %prog [options]",
-        description="This script creates a snapshot of all databases on the source host.",
+        description="This script creates a snapshot of databases on the source host.",
     )
     parser.add_option(
         "-i",

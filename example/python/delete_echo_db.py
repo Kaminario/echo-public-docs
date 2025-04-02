@@ -166,7 +166,7 @@ def _wait_for_task(task: dict) -> tuple[bool, dict]:
 
 
 def run(host_id: str, db_names: list[str]):
-    """This script creates a snapshot of all databases on the source host.
+    """This script deletes Echo a databases from the host.
 
     Usage example:
 
@@ -215,7 +215,7 @@ def run(host_id: str, db_names: list[str]):
 def parse_arguments():
     parser = OptionParser(
         usage="usage: %prog [options]",
-        description="This script creates a snapshot of all databases on the source host.",
+        description="This script deletes Echo a databases from the host.",
     )
     parser.add_option(
         "-i",
