@@ -184,8 +184,9 @@ def run(
     host_id: str,
     name_prefix: str,
     consistency_level: CLevel = CLevel.crash,
+    db_names: list[str] = None,
 ):
-    """This script creates a snapshot of all databases on the source host.
+    """This script creates a snapshot of databases on the source host.
 
     Usage example:
 
@@ -193,12 +194,13 @@ def run(
        - `FLEX_TOKEN`: Bearer token for Flex API authentication.
        - `FLEX_IP`: Flex server IP address.
 
-    python make_snapshot.py --host-name <host-name> --name-prefix <prefix-for-snapshot> --consistency-level <crash|application>
+    python make_snapshot.py --host-name <host-name> --name-prefix <prefix-for-snapshot> --consistency-level <crash|application> --db-names <comma-separated-db-names>
 
     Args:
         host_id (str): Name of the host to take snapshot from
         name_prefix (str): Prefix for the snapshot name
         consistency_level (CLevel): Consistency level of the taken snapshot. Options are ['crash', 'application']
+        db_names (set[str]): List of database names to snapshot. If not provided, all databases will be snapshotted.
     """
 
     _ensure_env()
@@ -207,6 +209,24 @@ def run(
     topology = _host_topology(host_id)
 
     db_id_2_name = _map_db_id_2_db_name(topology)
+
+    # If db_names is provided, filter the databases
+    if db_names:
+        available_db_names = set(db_id_2_name.values())
+
+        # Check if all requested databases exist
+        missing_dbs = db_names - available_db_names
+        if missing_dbs:
+            log(
+                f"Error: The following requested databases do not exist on host {host_id}: {missing_dbs}"
+            )
+            sys.exit(1)
+
+        # Filter db_id_2_name to include only requested databases
+        filtered_db_id_2_name = {
+            db_id: name for db_id, name in db_id_2_name.items() if name in db_names
+        }
+        db_id_2_name = filtered_db_id_2_name
 
     print(
         f"going to make snapshot of the host `{host_id}` with the following databases: {list(db_id_2_name.values())}"
@@ -258,6 +278,14 @@ def parse_arguments():
         help="Consistency level of the taken snapshot. Options are ['crash', 'application']",
         metavar="CONSISTENCY_LEVEL",
     )
+    parser.add_option(
+        "-d",
+        "--db-names",
+        dest="db_names",
+        default="",
+        help="Comma-separated list of database names to snapshot. If not provided, all databases will be snapshotted.",
+        metavar="DB_NAMES",
+    )
 
     (options, _) = parser.parse_args()
 
@@ -270,13 +298,20 @@ def parse_arguments():
     if options.consistency_level == "application":
         consistency_level = CLevel.application
 
+    # Convert db_names string to set
+    if options.db_names:
+        db_names = {name.strip() for name in options.db_names.split(",")}
+    else:
+        db_names = set()
+
     global is_interactive
-    is_interactive = False
+    is_interactive = options.interactive
 
     return {
         "host_id": options.host_id,
         "name_prefix": options.name_prefix,
         "consistency_level": consistency_level,
+        "db_names": db_names,
     }
 
 
