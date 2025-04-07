@@ -8,9 +8,9 @@ import random
 import sys
 import time
 from enum import Enum
+from optparse import OptionParser
 from typing import Tuple
 
-import fire
 import requests
 
 requests.packages.urllib3.disable_warnings()
@@ -18,6 +18,7 @@ requests.packages.urllib3.disable_warnings()
 # Environment Variables
 FLEX_TOKEN = os.getenv("FLEX_TOKEN", "")
 FLEX_IP = os.getenv("FLEX_IP", "")
+is_interactive = False
 
 ############################################
 # Helper Functions
@@ -37,12 +38,9 @@ def _ensure_env():
         exit_with_error("FLEX_TOKEN and FLEX_IP environment variables must be set.")
 
 
-class CLevel(str, Enum):
-    crash = "crash"
-    application = "application"
-
-
 def _go_no_go(msg):
+    if not is_interactive:
+        return
     try:
         answer = input(f"{msg} [y/n]: ")
     except KeyboardInterrupt:
@@ -65,9 +63,9 @@ def _tracking_id():
     )
 
 
-def _host_topology(host_name):
+def _host_topology(host_id):
     topo = _get_topology()
-    return [t for t in topo if t["host"]["name"] == host_name][0]
+    return [t for t in topo if t["host"]["id"] == host_id][0]
 
 
 def _get_topology():
@@ -92,23 +90,17 @@ def _get_topology():
     return topology
 
 
-def _map_db_id_2_db_name(host_topology: dict) -> dict[str, str]:
-    db_id_2_dn_name = dict()
+def _map_db_name_2_db_id(host_topology: dict) -> dict[str, str]:
+    mp = dict()
     for db in host_topology["databases"]:
-        db_id_2_dn_name[db["id"]] = db["name"]
-    return db_id_2_dn_name
+        mp[db["name"]] = db["id"]
+    return mp
 
 
-def _make_snapshot(
-    host_id: str,
-    db_ids: set[str],
-    name_prefix: str,
-    consistency_level: CLevel,
-) -> Tuple[bool, dict]:
+def _delete_echo_db(host_id: str, db_id: str) -> tuple[bool, dict]:
+    """Delete an Echo database from the specified host."""
 
-    # perform a request to make a snapshot
-    url = f"https://{FLEX_IP}/flex/api/v1/db_snapshots"
-
+    url = f"https://{FLEX_IP}/flex/api/v1/ocie/clone"
     tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
@@ -116,15 +108,10 @@ def _make_snapshot(
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
-    post_data = {
-        "source_host_id": host_id,
-        "database_ids": list(db_ids),
-        "name_prefix": name_prefix,
-        "consistency_level": str(consistency_level),
-    }
-    print(f"Creating snapshot with tracking ID: {tracking_id}, data: {post_data}")
+    post_data = {"host_id": host_id, "database_id": db_id}
+    print(f"Deleting Echo database with tracking ID: {tracking_id}, data: {post_data}")
 
-    r = requests.post(
+    r = requests.delete(
         url,
         json=post_data,
         verify=False,
@@ -180,12 +167,8 @@ def _wait_for_task(task: dict) -> tuple[bool, dict]:
 ############################################
 
 
-def run(
-    host_name: str,
-    name_prefix: str,
-    consistency_level: CLevel = CLevel.crash,
-):
-    """This script creates a snapshot of all databases on the source host.
+def run(host_id: str, db_names: list[str]):
+    """This script deletes an Echo databases from the host.
 
     Usage example:
 
@@ -193,38 +176,84 @@ def run(
        - `FLEX_TOKEN`: Bearer token for Flex API authentication.
        - `FLEX_IP`: Flex server IP address.
 
-    python snapshot_daily.py run --host-name <host-name> --name-prefix <prefix-for-snapshot> --consistency_level <crash|application>
+    python delete_echo_db.py --host-id <host-id> --db-name <db-name>
 
     Args:
-        host_name (str): Host name to take snapshot from
-        name_prefix (str): Prefix for the snapshot name
-        consistency_level (CLevel, optional): Consistency level ot the taken snapshot. Options are ["crash", "application"].
+        host_id (str): Name of the host to take snapshot from
+        db_names (str): Databases names to delete
     """
 
     _ensure_env()
 
     # get_database_ids by host_id by vg
-    topology = _host_topology(host_name)
-    host_id = topology["host"]["id"]
+    topology = _host_topology(host_id)
+    db_name_2_id = _map_db_name_2_db_id(topology)
 
-    db_id_2_name = _map_db_id_2_db_name(topology)
+    failures = []
 
-    print(f"making snapshot/s of the host `{host_name}` with the following databases:")
-
-    for db_name in db_id_2_name.values():
-        print(f"\t{db_name}")
+    print(f" Going to delete Echo databases {db_names} from host '{host_id}'")
 
     _go_no_go(msg="Do you want to continue?")
 
-    print(f"making snapshot")
-    success, task = _make_snapshot(
-        host_id, set(db_id_2_name.keys()), name_prefix, consistency_level
-    )
-    if not success:
-        exit_with_error(f"Failed to create snapshot. Error: {task['error']}")
+    for db_name in db_names:
+        db_id = db_name_2_id.get(db_name)
+        if not db_id:
+            print(f"Database '{db_name}' not found on host '{host_id}'")
+            continue
+
+        print(f"Deleting Echo database '{db_name}'")
+
+        success, task = _delete_echo_db(host_id, db_id)
+        if not success:
+            failures.append((db_id, db_name, host_id, task))
+
+    if failures:
+        exit_with_error(f"Failed to delete databases. Error: {failures}")
     else:
-        print(f"Snapshot created successfully. Task: {task}")
+        print(f"Echo databases deleted successfully.")
+
+
+def parse_arguments():
+    parser = OptionParser(
+        usage="usage: %prog [options]",
+        description="This script deletes an Echo databases from the host.",
+    )
+    parser.add_option(
+        "-i",
+        "--interactive",
+        dest="interactive",
+        action="store_true",
+        default=False,
+        help="Interactive mode",
+    )
+    parser.add_option(
+        "--host-id",
+        dest="host_id",
+        help="Host id to take snapshot from",
+        metavar="HOST_ID",
+    )
+    parser.add_option(
+        "--db-names",
+        dest="db_names",
+        help="Comma-separated list of database names to delete",
+        metavar="DB_NAME",
+    )
+
+    (options, _) = parser.parse_args()
+
+    if not options.host_id or not options.db_names:
+        parser.print_help()
+        sys.exit(1)
+
+    global is_interactive
+    is_interactive = options.interactive
+
+    return {
+        "host_id": options.host_id,
+        "db_names": options.db_names.split(","),
+    }
 
 
 if __name__ == "__main__":
-    fire.Fire(run)
+    args = parse_arguments()
+    run(**args)

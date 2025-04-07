@@ -8,9 +8,9 @@ import random
 import sys
 import time
 from enum import Enum
+from optparse import OptionParser
 from typing import Tuple
 
-import fire
 import requests
 
 requests.packages.urllib3.disable_warnings()
@@ -18,6 +18,7 @@ requests.packages.urllib3.disable_warnings()
 # Environment Variables
 FLEX_TOKEN = os.getenv("FLEX_TOKEN", "")
 FLEX_IP = os.getenv("FLEX_IP", "")
+is_interactive = False
 
 ############################################
 # Helper Functions
@@ -37,12 +38,9 @@ def _ensure_env():
         exit_with_error("FLEX_TOKEN and FLEX_IP environment variables must be set.")
 
 
-class CLevel(str, Enum):
-    crash = "crash"
-    application = "application"
-
-
 def _go_no_go(msg):
+    if not is_interactive:
+        return
     try:
         answer = input(f"{msg} [y/n]: ")
     except KeyboardInterrupt:
@@ -65,9 +63,14 @@ def _tracking_id():
     )
 
 
-def _host_topology(host_name):
+class CLevel(str, Enum):
+    crash = "crash"
+    application = "application"
+
+
+def _host_topology(host_id):
     topo = _get_topology()
-    return [t for t in topo if t["host"]["name"] == host_name][0]
+    return [t for t in topo if t["host"]["id"] == host_id][0]
 
 
 def _get_topology():
@@ -120,7 +123,7 @@ def _make_snapshot(
         "source_host_id": host_id,
         "database_ids": list(db_ids),
         "name_prefix": name_prefix,
-        "consistency_level": str(consistency_level),
+        "consistency_level": consistency_level.value,
     }
     print(f"Creating snapshot with tracking ID: {tracking_id}, data: {post_data}")
 
@@ -181,11 +184,12 @@ def _wait_for_task(task: dict) -> tuple[bool, dict]:
 
 
 def run(
-    host_name: str,
+    host_id: str,
     name_prefix: str,
     consistency_level: CLevel = CLevel.crash,
+    db_names: list[str] = None,
 ):
-    """This script creates a snapshot of all databases on the source host.
+    """This script creates a snapshot of databases on the source host.
 
     Usage example:
 
@@ -193,30 +197,45 @@ def run(
        - `FLEX_TOKEN`: Bearer token for Flex API authentication.
        - `FLEX_IP`: Flex server IP address.
 
-    python snapshot_daily.py run --host-name <host-name> --name-prefix <prefix-for-snapshot> --consistency_level <crash|application>
+    python make_snapshot.py --host-name <host-name> --name-prefix <prefix-for-snapshot> --consistency-level <crash|application> --db-names <comma-separated-db-names>
 
     Args:
-        host_name (str): Host name to take snapshot from
+        host_id (str): Name of the host to take snapshot from
         name_prefix (str): Prefix for the snapshot name
-        consistency_level (CLevel, optional): Consistency level ot the taken snapshot. Options are ["crash", "application"].
+        consistency_level (CLevel): Consistency level of the taken snapshot. Options are ['crash', 'application']
+        db_names (set[str]): List of database names to snapshot. If not provided, all databases will be snapshotted.
     """
 
     _ensure_env()
 
     # get_database_ids by host_id by vg
-    topology = _host_topology(host_name)
-    host_id = topology["host"]["id"]
+    topology = _host_topology(host_id)
 
     db_id_2_name = _map_db_id_2_db_name(topology)
 
-    print(f"making snapshot/s of the host `{host_name}` with the following databases:")
+    # If db_names is provided, filter the databases
+    if db_names:
+        available_db_names = set(db_id_2_name.values())
 
-    for db_name in db_id_2_name.values():
-        print(f"\t{db_name}")
+        # Check if all requested databases exist
+        missing_dbs = db_names - available_db_names
+        if missing_dbs:
+            exit_with_error(
+                f"Error: The following requested databases do not exist on host {host_id}: {missing_dbs}"
+            )
+
+        # Filter db_id_2_name to include only requested databases
+        filtered_db_id_2_name = {
+            db_id: name for db_id, name in db_id_2_name.items() if name in db_names
+        }
+        db_id_2_name = filtered_db_id_2_name
+
+    print(
+        f"going to make snapshot of the host `{host_id}` with the following databases: {list(db_id_2_name.values())}"
+    )
 
     _go_no_go(msg="Do you want to continue?")
 
-    print(f"making snapshot")
     success, task = _make_snapshot(
         host_id, set(db_id_2_name.keys()), name_prefix, consistency_level
     )
@@ -226,5 +245,77 @@ def run(
         print(f"Snapshot created successfully. Task: {task}")
 
 
+def parse_arguments():
+    parser = OptionParser(
+        usage="usage: %prog [options]",
+        description="This script creates a snapshot of databases on the source host.",
+    )
+    parser.add_option(
+        "-i",
+        "--interactive",
+        dest="interactive",
+        action="store_true",
+        default=False,
+        help="Interactive mode",
+    )
+    parser.add_option(
+        "--host-id",
+        dest="host_id",
+        help="Host id to take snapshot from",
+        metavar="HOST_ID",
+    )
+    parser.add_option(
+        "-p",
+        "--name-prefix",
+        dest="name_prefix",
+        help="Prefix for the snapshot name",
+        metavar="NAME_PREFIX",
+    )
+    parser.add_option(
+        "-c",
+        "--consistency-level",
+        dest="consistency_level",
+        default="crash",
+        help="Consistency level of the taken snapshot. Options are ['crash', 'application']",
+        metavar="CONSISTENCY_LEVEL",
+    )
+    parser.add_option(
+        "-d",
+        "--db-names",
+        dest="db_names",
+        default="",
+        help="Comma-separated list of database names to snapshot. If not provided, all databases will be snapshotted.",
+        metavar="DB_NAMES",
+    )
+
+    (options, _) = parser.parse_args()
+
+    if not options.host_id or not options.name_prefix:
+        parser.print_help()
+        sys.exit(1)
+
+    # Convert string to CLevel enum
+    consistency_level = CLevel.crash
+    if options.consistency_level == "application":
+        consistency_level = CLevel.application
+
+    # Convert db_names string to set
+    if options.db_names:
+        db_names = {name.strip() for name in options.db_names.split(",")}
+    else:
+        db_names = set()
+
+    global is_interactive
+    is_interactive = options.interactive
+
+    return {
+        "host_id": options.host_id,
+        "name_prefix": options.name_prefix,
+        "consistency_level": consistency_level,
+        "db_names": db_names,
+    }
+
+
 if __name__ == "__main__":
-    fire.Fire(run)
+    args = parse_arguments()
+    run(**args)

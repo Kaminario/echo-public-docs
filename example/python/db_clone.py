@@ -16,23 +16,25 @@ import requests
 requests.packages.urllib3.disable_warnings()
 
 # Environment Variables
-FLEX_TOKEN = None
-FLEX_IP = None
+FLEX_TOKEN = os.getenv("FLEX_TOKEN", "")
+FLEX_IP = os.getenv("FLEX_IP", "")
 
 ############################################
 # Helper Functions
 ############################################
 
 
+def exit_with_error(msg: str, **kwargs):
+    # print to stderr to avoid mixing with stdout
+    print(msg, file=sys.stderr, **kwargs)
+    sys.exit(1)
+
+
 def _ensure_env():
     global FLEX_TOKEN, FLEX_IP
 
-    FLEX_TOKEN = os.getenv("FLEX_TOKEN", "")
-    FLEX_IP = os.getenv("FLEX_IP", "")
-
     if not FLEX_TOKEN or not FLEX_IP:
-        print("FLEX_TOKEN and FLEX_IP environment variables must be set.")
-        sys.exit(1)
+        exit_with_error("FLEX_TOKEN and FLEX_IP environment variables must be set.")
 
 
 def _go_no_go(msg: str):
@@ -61,19 +63,21 @@ def _tracking_id() -> str:
 def _get_topology() -> dict:
     """Retrieve the full topology from the Flex API."""
     url = f"https://{FLEX_IP}/api/ocie/v1/topology"
+    tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
-        "hs-ref-id": _tracking_id(),
+        "hs-ref-id": tracking_id,
         "Accept": "application/json",
     }
+    print(f"Fetching topology with tracking ID: {tracking_id}")
+
     response = requests.get(url, verify=False, headers=headers)
 
     # Handle HTTP errors
     if response.status_code // 100 != 2:
-        print(
+        exit_with_error(
             f"Failed to retrieve topology. Error: {response.status_code} {response.text}"
         )
-        sys.exit(1)
 
     return response.json()
 
@@ -150,9 +154,9 @@ def _make_snapshot(
         dbs (Dict[str, str]): A mapping of database names to IDs.
         suffix (str): The suffix to append to cloned database names.
     """
-    payload = {"destinations": []}
+    post_data = {"destinations": []}
     for db_name, db_id in dbs.items():
-        payload["destinations"].append(
+        post_data["destinations"].append(
             {
                 "host_id": dest_host_id,
                 "db_id": db_id,
@@ -163,26 +167,29 @@ def _make_snapshot(
     # perform a request to make a snapshot
     url = f"https://{FLEX_IP}/flex/api/v1/db_snapshots/{snapshot_id}/clone"
 
+    tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
-        "hs-ref-id": _tracking_id(),
+        "hs-ref-id": tracking_id,
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
+    print(f"Cloning snapshot with tracking ID: {tracking_id}, data: {post_data}")
 
-    response = requests.post(url, json=payload, verify=False, headers=headers)
+    response = requests.post(url, json=post_data, verify=False, headers=headers)
 
     # Handle HTTP errors
     if response.status_code // 100 != 2:
-        print(
+        exit_with_error(
             f"Failed to clone snapshot. Error: {response.status_code} {response.text}"
         )
-        sys.exit(1)
 
     task = response.json()
     success, task = _wait_for_task(task)
     if not success:
-        print(f"Snapshot cloning failed. Error: {task.get('error', 'Unknown error')}")
+        exit_with_error(
+            f"Snapshot cloning failed. Error: {task.get('error', 'Unknown error')}"
+        )
     else:
         print(f"Snapshot cloned successfully. Result: {task['result']}")
 
@@ -270,15 +277,7 @@ def run(
 
     _ensure_env()
 
-    # Environment Variables
-    FLEX_TOKEN = os.getenv("FLEX_TOKEN", "")
-    FLEX_IP = os.getenv("FLEX_IP", "")
-
-    if not FLEX_TOKEN or not FLEX_IP:
-        print("FLEX_TOKEN and FLEX_IP environment variables must be set.")
-        sys.exit(1)
-
-    print(f"Cloning databases from `{snap_date}` snapshot: {src} -> {dest}")
+    print(f"Cloning databases from '{snap_date}' snapshot: {src} -> {dest}")
     print(f"Databases: {db_names}")
     print(f"Suffix: {suffix}")
 
@@ -291,18 +290,16 @@ def run(
 
     src_topology = _host_topology(src, topology)
     if not src_topology:
-        print(
-            f"Source host `{src}` not found. Available hosts: {_host_names(topology)}"
+        exit_with_error(
+            f"Source host '{src}' not found. Available hosts: {_host_names(topology)}"
         )
-        sys.exit(1)
 
     # Retrieve destination host topology
     dest_topology = _host_topology(dest, topology)
     if not dest_topology:
-        print(
-            f"Destination host `{dest}` not found. Available hosts: {_host_names(topology)}"
+        exit_with_error(
+            f"Destination host '{dest}' not found. Available hosts: {_host_names(topology)}"
         )
-        sys.exit(1)
 
     dest_host_id = dest_topology["host"]["id"]
 
@@ -315,17 +312,17 @@ def run(
     # validate we have all dbs and ids in the topology
     if len(db_map) != len(db_names):
         missing_dbs = set(db_names) - set(db_map.keys())
-        print(f"Missing databases: {missing_dbs}")
-        sys.exit(1)
+        exit_with_error(f"Missing databases: {missing_dbs}")
 
     # get snapshot id where all dbs are present
     snap_ts, snap_id = _get_snapshot(src_topology, dt, set(db_map.values()))
 
     if not snap_id:
-        print(f"No snapshot found for `{dt}` containing all requested databases.")
-        sys.exit(1)
+        exit_with_error(
+            f"No snapshot found for date {dt} containing all requested databases."
+        )
 
-    print(f"Cloning databases from snapshot `{snap_id}` taken on `{snap_ts}`")
+    print(f"Cloning databases from snapshot '{snap_id}' taken on '{snap_ts}'")
     for db_name in db_names:
         print(f"{src}[{db_name}] -> {dest}[{db_name + suffix}]")
 
