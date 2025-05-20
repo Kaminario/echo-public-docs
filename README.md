@@ -540,7 +540,7 @@ Clone a database from an existing snapshot to a host.
 
 #### Endpoint
 
-`GET /flex/api/v1/db_snapshots/{db_snapshot_id}/clone`
+`POST /flex/api/v1/db_snapshots/{db_snapshot_id}/clone`
 
 #### Request Body
 
