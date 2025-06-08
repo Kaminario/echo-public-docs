@@ -254,6 +254,12 @@ Takes a snapshot of a database located on host A and creates a copy on one or mo
 
 `POST /flex/api/v1/ocie/clone`
 
+##### Validate
+The request can be validated without actually being executed,
+by calling the same request with "/__validate" at the end of the endpoint
+
+`POST /flex/api/v1/ocie/clone/__validate`
+
 #### Request Body
 
 ```json
@@ -327,6 +333,52 @@ Takes a snapshot of a database located on host A and creates a copy on one or mo
   - `result` (object): Information about the created clones.
   - `location` (string): URL to query the task state.
 
+##### Validate response
+
+All validation responses come with the identical format:
+
+```
+{
+  "valid":true/false,
+  "issues":[
+    {
+        "issue_type": "CODE OF THE ISSUE",
+        "description": "textual description",
+        "body": {} // optional. additional data in {key: value} format
+    }
+  ]
+}
+```
+
+
+###### No Issues
+
+- 200 OK
+
+  ```json
+  {
+    "valid":true,
+    "issues":[]
+  }
+  ```
+
+###### Validation Issues
+
+- 200 OK
+
+  ```json
+  {
+    "valid":false,
+    "issues":[
+      {
+        "issue_type": "DB_NAME_IS_IN_USE",
+        "description": "host_id='da39-n10li-5'. db names already in use: full_db_3",
+        "body": {}
+      }
+    ]
+  }
+  ```
+
 #### Example
 
 ```bash
@@ -352,9 +404,16 @@ curl -XPOST "http://{flex}/flex/api/v1/ocie/clone" \
 
 Delete a Cloned DB from a host and related thin volumes from the SDP.
 
+The request can be validated without actually being executed,
+by calling the same request with "/__validate" at the end of the endpoint
+
 #### Endpoint
 
 `DELETE /flex/api/v1/ocie/clone`
+
+##### Validate
+
+`DELETE /flex/api/v1/ocie/clone/__validate`
 
 #### Request Body
 
@@ -412,6 +471,10 @@ fin-db => fin-db_bkp_20250216T143521Z
 ### Endpoint:
 
 `POST /flex/api/v1/hosts/{host_id}/databases/_replace`
+
+### Validate
+
+`POST /flex/api/v1/hosts/{host_id}/databases/_replace/__validate`
 
 #### Request Body:
 
@@ -486,6 +549,12 @@ Create a snapshot of a database.
 
 `POST /flex/api/v1/db_snapshots`
 
+##### Validate
+The request can be validated without actually being executed,
+by calling the same request with "/__validate" at the end of the endpoint
+
+`POST /flex/api/v1/db_snapshots/__validate`
+
 #### Request Body
 
 ```json
@@ -541,6 +610,12 @@ Clone a database from an existing snapshot to a host.
 #### Endpoint
 
 `POST /flex/api/v1/db_snapshots/{db_snapshot_id}/clone`
+
+##### Validate
+The request can be validated without actually being executed,
+by calling the same request with "/__validate" at the end of the endpoint
+
+`POST /flex/api/v1/db_snapshots/{db_snapshot_id}/clone/__validate`
 
 #### Request Body
 
@@ -626,6 +701,12 @@ Note that this endpoint does not create a task. A successful status code indicat
 #### Endpoint
 
 `DELETE /flex/api/v1/db_snapshots/{db_snapshot_id}`
+
+##### Validate
+The request can be validated without actually being executed,
+by calling the same request with "/__validate" at the end of the endpoint
+
+`DELETE /flex/api/v1/db_snapshots/{db_snapshot_id}/__validate`
 
 #### Responses
 
