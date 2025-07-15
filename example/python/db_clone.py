@@ -7,8 +7,9 @@ import os
 import random
 import sys
 import time
+from enum import Enum
 from datetime import date, datetime, timezone
-from typing import Optional
+from typing import Optional, Any
 
 import fire
 import requests
@@ -60,7 +61,7 @@ def _tracking_id() -> str:
     )
 
 
-def _get_topology() -> dict:
+def _get_topology() -> dict[str, Any]:
     """Retrieve the full topology from the Flex API."""
     url = f"https://{FLEX_IP}/api/ocie/v1/topology"
     tracking_id = _tracking_id()
@@ -143,9 +144,7 @@ def _host_names(topology: list[dict]) -> list[str]:
     return sorted(host["host"]["name"] for host in topology)
 
 
-def _make_snapshot(
-    snapshot_id: str, dest_host_id: str, dbs: dict[str, str], suffix: str
-) -> tuple[bool, dict]:
+def _make_clone(snapshot_id: str, dest_host_id: str, dbs: dict[str, str], suffix: str):
     """Send a request to clone databases from a snapshot.
 
     Args:
@@ -233,12 +232,9 @@ def _wait_for_task(task: dict) -> tuple[bool, dict]:
         if response.status_code // 100 == 2:
             task = response.json()
 
-        if task["state"] == "running":
-            continue
-
-        print()  # Add a newline after dots
-        # task states: "completed", "failed", "aborted"
-        return task["state"] == "completed", task
+    print()  # Add a newline after dots
+    # task states: "completed", "failed", "aborted"
+    return task["state"] == "completed", task
 
 
 ############################################
@@ -266,6 +262,7 @@ def run(
        - `FLEX_IP`: Flex server IP address.
 
     python db_clone.py --snap-date "2024-12-24" --src primary --dest dev-1 --db-names sales_us,sales_eu --suffix "_backup"
+
 
     Args:
         snap_date (str): Snapshot date in "yyyy-mm-dd" format.
@@ -327,7 +324,9 @@ def run(
         print(f"{src}[{db_name}] -> {dest}[{db_name + suffix}]")
 
     _go_no_go("Proceed with cloning?")
-    _make_snapshot(snap_id, dest_host_id, db_map, suffix)
+    _make_clone(snap_id, dest_host_id, db_map, suffix)
+
+    print(f"Cloning completed successfully. Snapshot ID: {snap_id}")
 
 
 if __name__ == "__main__":

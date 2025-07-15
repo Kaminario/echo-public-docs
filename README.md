@@ -265,9 +265,6 @@ by calling the same request with "/__validate" at the end of the endpoint
 ```json
 {
   "source_host_id": "host02",
-  "database_ids": [
-    "5"
-  ],
   "destinations": [
     {
       "host_id": "host03",
@@ -279,18 +276,22 @@ by calling the same request with "/__validate" at the end of the endpoint
       "db_id": "5",
       "db_name": "employees_copy_06"
     }
-  ]
+  ],
+  "name_prefix": "snap_v10",
+  "consistency_level": "crash"
 }
 ```
 
 #### Parameters
 
 - `source_host_id` (string): The unique identifier for the source host.
-- `database_ids` (array of strings): The unique identifiers of the databases to clone.
 - `destinations` (array of objects): A list of objects detailing the destination databases:
   - `host_id` (string): The unique identifier for the destination host.
   - `db_id` (string): The unique identifier of the database to clone.
   - `db_name` (string): The name of the destination database.
+- `name_prefix` (string): The prefix of the name of the snapshot.
+- `consistency_level` (choice):  The consistency level for the snapshot.
+  Possible values: `crash`, `application`.
 
 #### Responses
 
@@ -573,7 +574,7 @@ by calling the same request with "/__validate" at the end of the endpoint
 - `source_host_id` (string): The unique identifier for the source host.
 - `database_ids` (list of strings): The unique identifiers for the databases to snapshot.
 - `name_prefix` (string): The prefix of the name of the snapshot.
-- `consistency_level` (string) : The snapshot consistency level. The options are "crash", "application"
+- `consistency_level` (choice): The consistency level for the snapshot. Possible values: "crash", "application"
 
 #### Responses
 
