@@ -1,0 +1,12 @@
+{
+  "agent": "https://storage.googleapis.com/silk-public-files/silk-agent-installer-v1.0.21.exe",
+  "svss": "https://storage.googleapis.com/silk-public-files/svss-2.0.16.exe",
+  "sdpid": "11111",
+  "hosts": [
+    "TBD",
+    "TBD"
+  ],
+  "flex_host_ip": "10.8.71.100",
+  "sqlconnection": "",
+  "mount_points_directory": "c:\\MountPoints"
+}
