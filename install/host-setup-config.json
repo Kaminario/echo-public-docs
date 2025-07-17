@@ -1,0 +1,12 @@
+{
+  "agent": "https://storage.googleapis.com/silk-public-files/silk-agent-installer-latest.exe",
+  "svss": "https://storage.googleapis.com/silk-public-files/svss-install.exe",
+  "sdpid": "da4801",
+  "hosts": [
+    "10.213.173.4",
+    "10.213.173.5",
+    "10.213.173.6"
+  ],
+  "flex_host_ip": "34.86.189.195",
+  "sqlconnection": ""
+}
