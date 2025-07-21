@@ -98,8 +98,8 @@ curl -XGET "http://{flex}/{path}" -H "hs-ref-id: Hy6f50Ki"
 
 | Method | Path                         | Description                   |
 | ------ | ---------------------------- | ----------------------------- |
-| GET    | /flex/api/v1/ocie/tasks/{id} | Retrieve task info            |
-| GET    | /flex/api/v1/ocie/tasks      | Get all registered tasks info |
+| GET    | /flex/api/v1/tasks/echo/{id} | Retrieve task info            |
+| GET    | /flex/api/v1/tasks/echo      | Get all registered tasks info |
 
 ## Host APIs
 
@@ -320,7 +320,7 @@ by calling the same request with "/__validate" at the end of the endpoint
               }
           ]
       },
-      "location": "/api/ocie/v1/tasks/Fj3U7QTsDDWL45ikk0bvk2tsanfC3H"
+      "location": "/flex/api/v1/tasks/echo/Fj3U7QTsDDWL45ikk0bvk2tsanfC3H"
   }
   ```
   - `state` (string): The task state. Possible values: `running`, `completed`, `failed`, `aborted`.
@@ -443,7 +443,7 @@ by calling the same request with "/__validate" at the end of the endpoint
     "ref_id":"592855db",
     "error":"",
     "result":null,
-    "location":"/api/ocie/v1/tasks/1GUQEnC1fk3sQCc0BHTpFseyB8PfUaS51_lD3iPaRP4"
+    "location":"/flex/api/v1/tasks/echo/1GUQEnC1fk3sQCc0BHTpFseyB8PfUaS51_lD3iPaRP4"
   }
   ```
 
@@ -536,7 +536,7 @@ Following response example has a result field. This field will have a value only
             "source_db_name": "source_db_name"
         }]
       },
-      "location": "/api/ocie/v1/tasks/Gm9X2VpqAZNY78sjl5cwRbPfKtoQ6B"
+      "location": "/flex/api/v1/tasks/echo/Gm9X2VpqAZNY78sjl5cwRbPfKtoQ6B"
   }
   ```
 
@@ -591,7 +591,7 @@ by calling the same request with "/__validate" at the end of the endpoint
       "ref_id": "ADD62kMoLB",
       "error": "",
       "result": {"db_snapshot": {"id": "primary__5__1735025906"}},
-      "location": "/api/ocie/v1/tasks/Fj3U7QTsDDWL45ikk0bvk2tsanfC3H"
+      "location": "/flex/api/v1/tasks/echo/Fj3U7QTsDDWL45ikk0bvk2tsanfC3H"
   }
   ```
 
@@ -655,7 +655,7 @@ by calling the same request with "/__validate" at the end of the endpoint
       "ref_id": "asdasda",
       "error": "",
       "result": null,
-      "location": "/api/ocie/v1/tasks/YUiQ_S3SstXXtBQhCuyYUzDws"
+      "location": "/flex/api/v1/tasks/echo/YUiQ_S3SstXXtBQhCuyYUzDws"
   }
   ```
 
@@ -681,7 +681,7 @@ by calling the same request with "/__validate" at the end of the endpoint
               }
           ]
       },
-      "location": "/api/ocie/v1/tasks/YUiQ_S3SstXXtBQhCuyYUzDws"
+      "location": "/flex/api/v1/tasks/echo/YUiQ_S3SstXXtBQhCuyYUzDws"
   }
   ```
 
@@ -727,7 +727,7 @@ Retrieve the current state of a task by ID.
 
 #### Endpoint
 
-`GET /flex/api/v1/ocie/tasks/{request_id}`
+`GET /flex/api/v1/tasks/echo/{request_id}`
 
 #### Parameters
 
@@ -748,7 +748,7 @@ Retrieve the current state of a task by ID.
       "ref_id": "bjGP9ygRMew",
       "error": "",
       "result": null,
-      "location": "/flex/api/v1/ocie/tasks/KscTYPMYiMUjCjJleHLauR0y"
+      "location": "/flex/api/v1/tasks/echo/KscTYPMYiMUjCjJleHLauR0y"
   }
   ```
 - 404 Not Found
@@ -756,7 +756,7 @@ Retrieve the current state of a task by ID.
 #### Example
 
 ```bash
-curl -XGET "http://{flex}/flex/api/v1/ocie/tasks/KscTYPMYiMUjCjJleHLauR0y"
+curl -XGET "http://{flex}/flex/api/v1/tasks/echo/KscTYPMYiMUjCjJleHLauR0y"
 ```
 
 ### List Tasks
@@ -765,7 +765,7 @@ Retrieve all tasks.
 
 #### Endpoint
 
-`GET /flex/api/v1/ocie/tasks`
+`GET /flex/api/v1/tasks/echo`
 
 #### Responses
 
@@ -794,7 +794,7 @@ Retrieve all tasks.
                   }
               ]
           },
-          "location": "/flex/api/v1/ocie/tasks/KscTYPMYiMUjCjJleHLauR0y"
+          "location": "/flex/api/v1/tasks/echo/KscTYPMYiMUjCjJleHLauR0y"
       }
   ]
   ```
