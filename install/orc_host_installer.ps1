@@ -6,7 +6,7 @@
     This PowerShell script installs the Silk Node Agent and Silk VSS Provider service on a remote Windows host.
     It connects to Silk Flex to register the host, downloads the required installers, and performs the installation
     with the provided configuration parameters.
-    
+
     The script requires administrative privileges and assumes that all necessary prerequisites are in place.
 
 .PARAMETER FlexIP
@@ -42,12 +42,12 @@
 
 .EXAMPLE
     .\orc_host_installer.ps1 -FlexIP "10.0.0.1" -FlexToken "abc123" -DBConnectionString "server=localhost;..." -SilkAgentPath "C:\Temp\SilkInstallers\agent-installer.exe" -SilkVSSPath "C:\Temp\SilkInstallers\vss-installer.exe" -SDPId "d9b601" -SDPUsername "admin" -SDPPassword "password"
-    
+
     Installs Silk Echo components with the specified parameters.
 
 .EXAMPLE
     .\orc_host_installer.ps1 -FlexIP "10.0.0.1" -FlexToken "abc123" -DBConnectionString "server=localhost;..." -SilkAgentPath "C:\Temp\SilkInstallers\agent-installer.exe" -SilkVSSPath "C:\Temp\SilkInstallers\vss-installer.exe" -SDPId "d9b601" -SDPUsername "admin" -SDPPassword "password" -DryRun
-    
+
     Performs validation and connectivity tests without installing the components.
 
 .NOTES
@@ -75,33 +75,33 @@ param (
     [Parameter(Mandatory=$true)]
     [ValidateNotNullOrEmpty()]
     [string]$FlexIP,
-    
+
     [Parameter(Mandatory=$true)]
     [ValidateNotNullOrEmpty()]
     [string]$FlexToken,
-    
+
     [Parameter(Mandatory=$true)]
     [string]$DBConnectionString,
-    
+
     [Parameter(Mandatory=$true)]
     [ValidateNotNullOrEmpty()]
     [string]$SilkAgentPath,
-    
+
     [Parameter(Mandatory=$true)]
     [ValidateNotNullOrEmpty()]
     [string]$SilkVSSPath,
-    
+
     [Parameter(Mandatory=$true)]
     [string]$SDPId,
-    
+
     [Parameter(Mandatory=$true)]
     [ValidateNotNullOrEmpty()]
     [string]$SDPUsername,
-    
+
     [Parameter(Mandatory=$true)]
     [ValidateNotNullOrEmpty()]
     [string]$SDPPassword,
-    
+
     [string]$MountPointsDirectory = "",
     [switch]$DryRun
 )
@@ -228,7 +228,7 @@ function GetMSSQLHostPorts {
         DebugMessage "No SQL Server listener found. Please ensure SQL Server is running."
         return @()
     }
-    
+
     # write all options to the log
     foreach ($item in $listener) {
         DebugMessage "Found SQL Server listener: LocalAddress=$($item.LocalAddress), LocalPort=$($item.LocalPort)"
@@ -246,29 +246,29 @@ function GetMSSQLHostPorts {
 
     # Phase 1: Filter listeners - prioritize standard ports 1433, 1434
     $standardPortListeners = $listener | Where-Object { $_.LocalPort -eq 1433 -or $_.LocalPort -eq 1434 }
-    $candidateListeners = if ($standardPortListeners) { 
+    $candidateListeners = if ($standardPortListeners) {
         InfoMessage "Found SQL Server listeners on standard ports, prioritizing them"
-        $standardPortListeners 
-    } else { 
+        $standardPortListeners
+    } else {
         InfoMessage "No standard ports found, using all available listeners"
-        $listener 
+        $listener
     }
 
     # Phase 2: Build prioritized list of all potential server addresses
     $prioritizedServers = @()
-    
+
     # Priority 1: loopback addresses
     $loopbackListeners = $candidateListeners | Where-Object { $_.LocalAddress -like "127.*" }
     foreach ($listener in $loopbackListeners) {
         $prioritizedServers += "localhost,$($listener.LocalPort)"
     }
-    
+
     # Priority 2: wildcard listeners (0.0.0.0) - use hostname
     $wildcardListeners = $candidateListeners | Where-Object { $_.LocalAddress -eq "0.0.0.0" }
     foreach ($listener in $wildcardListeners) {
         $prioritizedServers += "${hostname},$($listener.LocalPort)"
     }
-    
+
     # Priority 3: hostname IP listeners - use hostname
     if ($hostnameIP) {
         $hostnameIPListeners = $candidateListeners | Where-Object { $_.LocalAddress -eq $hostnameIP }
@@ -276,12 +276,12 @@ function GetMSSQLHostPorts {
             $prioritizedServers += "${hostname},$($listener.LocalPort)"
         }
     }
-    
+
     # Priority 4: all other listeners - use actual IP
-    $otherListeners = $candidateListeners | Where-Object { 
-        $_.LocalAddress -notlike "127.*" -and 
-        $_.LocalAddress -ne "0.0.0.0" -and 
-        $_.LocalAddress -ne $hostnameIP 
+    $otherListeners = $candidateListeners | Where-Object {
+        $_.LocalAddress -notlike "127.*" -and
+        $_.LocalAddress -ne "0.0.0.0" -and
+        $_.LocalAddress -ne $hostnameIP
     }
     foreach ($listener in $otherListeners) {
         $prioritizedServers += "$($listener.LocalAddress),$($listener.LocalPort)"
@@ -298,7 +298,7 @@ function createAndTestConnectionString {
     param (
         [string]$DBConnectionString
     )
-    
+
     # Parse input connection string
     $baseParams = @{}
     $DBConnectionString = $DBConnectionString.Trim()
@@ -317,7 +317,7 @@ function createAndTestConnectionString {
     if ($baseParams.ContainsKey('Server') -and $baseParams['Server'] -ne '') {
         $connectionStringParts = $baseParams.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }
         $connectionString = [string]::Join(';', $connectionStringParts)
-        
+
         InfoMessage "Testing provided server: $($baseParams['Server'])"
         if (TestSQLConnection -ConnectionString $connectionString) {
             InfoMessage "Successfully connected to provided server"
@@ -335,14 +335,14 @@ function createAndTestConnectionString {
     }
 
     InfoMessage "Testing $($discoveredServers.Count) discovered SQL Server endpoints..."
-    
+
     foreach ($serverEndpoint in $discoveredServers) {
         $testParams = $baseParams.Clone()
         $testParams['Server'] = $serverEndpoint
-        
+
         $connectionStringParts = $testParams.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }
         $connectionString = [string]::Join(';', $connectionStringParts)
-        
+
         InfoMessage "Testing connection to: $serverEndpoint"
         if (TestSQLConnection -ConnectionString $connectionString) {
             InfoMessage "Successfully connected to SQL Server at: $serverEndpoint"
@@ -476,7 +476,7 @@ function InstallSilkNodeAgent {
     }
 
     # error handling
-    
+
     InfoMessage "Silk Node Agent installation completed. Checking installation log at $AgentInstallationLogPath"
 
     # test log file do not contain "error"
@@ -649,7 +649,7 @@ function setup{
 
         $SDPID = $SDPInfo["id"]
         $SDPVersion = $SDPInfo["version"]
-        $SDPHost = $SDPInfo["mc_floating_ip"] 
+        $SDPHost = $SDPInfo["mc_floating_ip"]
         $SDPPort = $SDPInfo["mc_https_port"]
         InfoMessage "Successfully retrieved SDP info from Flex $SDPID ($SDPVersion) at ${SDPHost}:$SDPPort"
 
@@ -665,12 +665,12 @@ function setup{
             ErrorMessage "Failed to create and test connection string"
             return "Unable to establish connection with any available SQL Server instance. Check SQL Server availability and credentials"
         }
-        
+
         InfoMessage "Successfully established SQL Server connection"
 
         # Use local installer files that were uploaded by orchestrator
         DebugMessage "Using Silk VSS Provider installer at $SilkVSSPath"
-        
+
         if (-not (Test-Path $SilkVSSPath)) {
             ErrorMessage "Silk VSS Provider installer not found at $SilkVSSPath"
             return "Unable to find Silk VSS Provider installer at $SilkVSSPath"
@@ -728,13 +728,13 @@ function setup{
 #region SetupHost
 function SetupHost {
     InfoMessage "Starting Silk Node Agent and VSS Provider installation script..."
-    
+
     try {
         $error = setup
     } catch {
         $error = $_
     }
-    
+
     PrintAgentInstallationLog
     PrintSVSSInstallationLog
     CleanupInstallerFiles

@@ -42,7 +42,7 @@ function EnsureRequirements {
 
     # Host installer script is now extracted dynamically by GetHostInstallScript function
     DebugMessage "Host installer will be extracted dynamically from orchestrator content."
-   
+
     return $passedPreReqs
 }
 #endregion

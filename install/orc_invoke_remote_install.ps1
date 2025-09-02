@@ -187,7 +187,7 @@ function ProcessSingleJobResult {
     <#
     .SYNOPSIS
         Processes the result of a single remote installation job safely.
-    
+
     .DESCRIPTION
         This function handles all aspects of processing a completed job including:
         - Waiting for job completion
@@ -195,10 +195,10 @@ function ProcessSingleJobResult {
         - Fetching detailed job results
         - Error handling to prevent script termination
         - Cleanup of job resources
-    
+
     .PARAMETER JobInfo
         The job information object containing the job and computer name
-    
+
     .OUTPUTS
         PSCustomObject containing the processed job result
     #>
@@ -206,10 +206,10 @@ function ProcessSingleJobResult {
         [Parameter(Mandatory=$true)]
         [PSCustomObject]$JobInfo
     )
-    
+
     $computerName = $JobInfo.ComputerName
     $job = $JobInfo.Job
-    
+
     InfoMessage "Waiting for job completion on $computerName..."
     try {
         $job | Wait-Job | Out-Null
@@ -217,7 +217,7 @@ function ProcessSingleJobResult {
     } catch {
         WarningMessage "Error while waiting for job completion on $computerName`: $_"
     }
-    
+
     # read job errors if any - wrap in try-catch to prevent script termination
     $jobErrors = $null
     try {
@@ -248,7 +248,7 @@ function ProcessSingleJobResult {
             Error = @("Error fetching job result: $($_.Exception.Message)")
         }
     }
-    
+
     # add jobErrors to the result if any - ensure result.Error is an array
     if ($jobErrors) {
         if (-not $result.Error) {
@@ -256,7 +256,7 @@ function ProcessSingleJobResult {
         }
         $result.Error += $jobErrors | ForEach-Object { $_.ToString().Trim() }
     }
-    
+
     # Clean up the job
     try {
         $job | Remove-Job
@@ -264,7 +264,7 @@ function ProcessSingleJobResult {
     } catch {
         WarningMessage "Error cleaning up job for $computerName`: $_"
     }
-    
+
     return $result
 }
 #endregion ProcessSingleJobResult

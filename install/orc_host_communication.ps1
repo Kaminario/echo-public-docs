@@ -52,8 +52,8 @@ function ensureHostCredentials {
     )
 
     # Check if any hosts with credentials auth are missing username or password
-    $missingCredHosts = $hostEntries | Where-Object { 
-        $_.host_auth -eq $ENUM_CREDENTIALS -and (-not $_.host_user -or -not $_.host_pass) 
+    $missingCredHosts = $hostEntries | Where-Object {
+        $_.host_auth -eq $ENUM_CREDENTIALS -and (-not $_.host_user -or -not $_.host_pass)
     }
 
     # return if no missing
@@ -82,7 +82,7 @@ function ensureHostCredentials {
             Add-Member -InputObject $hostInfo -MemberType NoteProperty -Name "host_pass" -Value $cred.GetNetworkCredential().Password -Force
         }
     }
-    
+
     # convert all hosts with auth credentials to secured credentials
     foreach ($hostInfo in $hostEntries) {
         if ($hostInfo.host_auth -eq $ENUM_CREDENTIALS) {
@@ -101,14 +101,14 @@ function isActiveDirectoryUser {
     try {
         # Try multiple methods for cross-version compatibility
         $isDomainUser = $false
-        
+
         # Method 1: Check environment variables (works in both PS 5.1 and 7)
         $userDomain = $env:USERDOMAIN
         $computerName = $env:COMPUTERNAME
         if ($userDomain -and $userDomain -ne $computerName) {
             $isDomainUser = $true
         }
-        
+
         # Method 2: Try .NET method
         if (-not $isDomainUser) {
             try {
@@ -120,7 +120,7 @@ function isActiveDirectoryUser {
                 # Ignore errors, continue with other methods
             }
         }
-        
+
         # Method 3: Check using WMI/CIM
         if (-not $isDomainUser) {
             try {
@@ -136,7 +136,7 @@ function isActiveDirectoryUser {
                 # Ignore errors
             }
         }
-        
+
         if ($isDomainUser) {
             InfoMessage "Current user is logged in to Active Directory domain: $userDomain"
             return $true
@@ -159,14 +159,14 @@ function isHostConnectivityValid {
     )
     # Execute simple command on the host using defined authentication
     try {
-        $scriptBlock = { 
-            try { 
-                Get-Date 
-            } catch { 
-                "ERROR: $($_.Exception.Message)" 
-            } 
+        $scriptBlock = {
+            try {
+                Get-Date
+            } catch {
+                "ERROR: $($_.Exception.Message)"
+            }
         }
-        
+
         if ($HostInfo.host_auth -eq $ENUM_ACTIVE_DIRECTORY) {
             # Use current credentials for Active Directory authentication
             InfoMessage "Testing connectivity to $($HostInfo.host_addr) using $ENUM_ACTIVE_DIRECTORY authentication..."
@@ -174,7 +174,7 @@ function isHostConnectivityValid {
         } elseif ($HostInfo.host_auth -eq $ENUM_CREDENTIALS) {
             # Create credential object for explicit authentication
             $credential = New-Object System.Management.Automation.PSCredential($HostInfo.host_user, $HostInfo.host_pass)
-            
+
             # Use session options for better compatibility
             $sessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
             InfoMessage "Testing connectivity to $($HostInfo.host_addr) using $ENUM_CREDENTIALS authentication..."
@@ -187,7 +187,7 @@ function isHostConnectivityValid {
         if ($result -and $result.ToString().StartsWith("ERROR:")) {
             return $false
         }
-        
+
         return $true
     } catch {
         return $false
@@ -217,7 +217,7 @@ function EnsureHostsConnectivity {
             continue
         }
     }
-    
+
     # Handle active_directory authentication
     $adHosts = $hostEntries | Where-Object { $_.host_auth -eq $ENUM_ACTIVE_DIRECTORY }
     if ($adHosts.Count -gt 0) {
@@ -280,7 +280,7 @@ function EnsureHostsConnectivity {
     }
 
     $badHosts = $hostEntries | Where-Object { $_.host_connectivity_issue -ne ""  -and $_.host_connectivity_issue -ne "not validated" }
-   
+
     return $badHosts
 }
 #endregion EnsureHostsConnectivity

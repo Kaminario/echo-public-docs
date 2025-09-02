@@ -26,7 +26,7 @@ function getSDPCredentials {
         [string]$SDPHost,
         [string]$SDPPort
     )
-    
+
     # Use SDP credentials from common section or prompt user
     $sdp_id = $HostInfo.sdp_id
     $sdpUser = if ($HostInfo.sdp_user) { $HostInfo.sdp_user } else { $null }
@@ -35,7 +35,7 @@ function getSDPCredentials {
     # Get validated SDP credentials
     $SDPCredential = $null
     $SdpConnectionValid = $false
-    
+
     while (-not $SdpConnectionValid) {
         # Try with provided credentials first, then prompt if needed
         if ($sdpUser -and $sdpPass) {
@@ -99,7 +99,7 @@ function UpdateSDPCredentials {
         }
         Add-Member -InputObject $hostInfo -MemberType NoteProperty -Name "sdp_credential" -Value $SDPInfo[$hostInfo.sdp_id].credentials -Force
     }
-    
+
 }
 #endregion UpdateSDPCredentials
 

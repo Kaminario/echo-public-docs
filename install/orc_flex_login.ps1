@@ -39,7 +39,7 @@ function loginToFlex {
         $username = $cred.UserName
         $password = $cred.GetNetworkCredential().Password
     }
-    
+
     $body = @{
         username = $username
         password = $password
@@ -79,12 +79,12 @@ function UpdateFlexAuthToken {
 
     $flexIP = $Config.common.flex_host_ip
     $flexUser = $Config.common.flex_user
-    $flexPass = if ($Config.common.flex_pass) { 
+    $flexPass = if ($Config.common.flex_pass) {
         ConvertSecureStringToPlainText -SecureString $Config.common.flex_pass
-    } else { 
-        $null 
+    } else {
+        $null
     }
-    
+
     # Get access token from Flex
     $flexToken = $null
     while (-not $flexToken) {
@@ -100,7 +100,7 @@ function UpdateFlexAuthToken {
     foreach ($hostInfo in $Config.hosts) {
         $hostInfo | Add-Member -MemberType NoteProperty -Name "flex_access_token" -Value $flexToken -Force
     }
-    
+
     InfoMessage "Successfully obtained and assigned Flex token for $flexIP to $($Config.hosts.Count) host(s)"
     return $flexToken
 }

@@ -10,7 +10,7 @@ function EnsureLocalInstallers {
 
     $localPaths = @{}
     $requiredInstallers = @('agent', 'vss')
-    
+
     # Process all required installers
     foreach ($installerType in $requiredInstallers) {
         $installerConfig = $Config.installers.$installerType
@@ -18,7 +18,7 @@ function EnsureLocalInstallers {
             ErrorMessage "Missing required $installerType installer configuration in config.installers"
             return $null
         }
-        
+
         # If path is provided and file exists, use it directly
         if ($InstallerConfig.path) {
             if (Test-Path $InstallerConfig.path) {
@@ -44,7 +44,7 @@ function EnsureLocalInstallers {
             return $null
         }
     }
-    
+
     InfoMessage "All installers are available locally"
     return $localPaths
 }
@@ -60,7 +60,7 @@ function downloadInstaller {
         [Parameter(Mandatory=$true)]
         [string]$InstallerType
     )
-    
+
 
     if (-not $InstallerURL) {
         ErrorMessage "No URL specified for $InstallerType installer in configuration"
@@ -68,10 +68,10 @@ function downloadInstaller {
     }
 
     # If URL is provided, download to cache
-    
+
     $fileName = "$InstallerType-installer.exe"
     $localPath = Join-Path $CacheDir $fileName
-    
+
     # Check if already cached
     if (Test-Path $localPath) {
         InfoMessage "$InstallerType installer already cached at: $localPath"
@@ -108,13 +108,13 @@ function UploadInstallersToHosts {
         [Parameter(Mandatory=$false)]
         [int]$MaxConcurrency = 10
     )
-    
+
     InfoMessage "Starting parallel upload of installers to $($HostInfos.Count) host(s) with max concurrency: $MaxConcurrency..."
-    
+
     # Start upload jobs for all hosts
     $jobs = @()
     $batchCount = 0
-    
+
     foreach ($hostInfo in $HostInfos) {
         # Wait if we've reached max concurrency
         while ($jobs.Count -ge $MaxConcurrency) {
@@ -131,21 +131,21 @@ function UploadInstallersToHosts {
                 Start-Sleep -Milliseconds 100
             }
         }
-        
+
         # Start new job
         InfoMessage "Starting upload job for host: $($HostInfo.host_addr)"
         $job = Start-Job -ScriptBlock {
             param($HostInfo, $LocalPaths, $ENUM_ACTIVE_DIRECTORY, $ENUM_CREDENTIALS)
-            
+
             function DebugMessage { param($message) Write-Host "[DEBUG] $message" -ForegroundColor Gray }
             function InfoMessage { param($message) Write-Host "[INFO] $message" -ForegroundColor Green }
             function ErrorMessage { param($message) Write-Host "[ERROR] $message" -ForegroundColor Red }
-            
+
             # Simplified inline version of copyInstallersToHost
             $remoteRelDir = "Temp\silk-echo-install-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
             $remoteDir = "C:\$remoteRelDir"
             $remotePaths = @{}
-            
+
             try {
                 # Create remote directory
                 $scriptBlock = {
@@ -156,7 +156,7 @@ function UploadInstallersToHosts {
                     }
                     return $RemoteDir
                 }
-                
+
                 if ($HostInfo.host_auth -eq $ENUM_ACTIVE_DIRECTORY) {
                     $result = Invoke-Command -ComputerName $HostInfo.host_addr -ScriptBlock $scriptBlock -ArgumentList $remoteDir -ErrorAction Stop
                 } elseif ($HostInfo.host_auth -eq $ENUM_CREDENTIALS) {
@@ -164,15 +164,15 @@ function UploadInstallersToHosts {
                     $sessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
                     $result = Invoke-Command -ComputerName $HostInfo.host_addr -Credential $credential -ScriptBlock $scriptBlock -SessionOption $sessionOption -ArgumentList $remoteDir -ErrorAction Stop
                 }
-                
+
                 DebugMessage "Remote directory prepared on $($HostInfo.host_addr): $remoteDir"
-                
+
                 # Copy each installer file
                 foreach ($installerType in $LocalPaths.Keys) {
                     $localPath = $LocalPaths[$installerType]
                     $fileName = Split-Path $localPath -Leaf
-                    
-                    
+
+
 
                     DebugMessage "Copying $installerType installer to $($HostInfo.host_addr)..."
                     $remotePath = "$remoteDir\$fileName"
@@ -181,7 +181,7 @@ function UploadInstallersToHosts {
                         $remotePathUnc = "\\$($HostInfo.host_addr)\C$\$remoteRelDir\$fileName"
                         Copy-Item -Path $localPath -Destination $remotePathUnc -Force -ErrorAction Stop
                     } elseif ($HostInfo.host_auth -eq $ENUM_CREDENTIALS) {
-                        
+
                         $session = New-PSSession -ComputerName $HostInfo.host_addr -Credential $credential -SessionOption $sessionOption -ErrorAction Stop
                         Copy-Item -Path $localPath -Destination $remotePath -ToSession $session -Force -ErrorAction Stop
                         Remove-PSSession $session -ErrorAction SilentlyContinue
@@ -189,27 +189,27 @@ function UploadInstallersToHosts {
                     $remotePaths[$installerType] = $remotePath
                     DebugMessage "Copied $installerType installer to: $remotePath"
                 }
-                
+
                 InfoMessage "All installers uploaded to $($HostInfo.host_addr)"
                 return $remotePaths
-                
+
             } catch {
                 ErrorMessage "Failed to upload installers to $($HostInfo.host_addr): $_"
                 return $null
             }
         } -ArgumentList $hostInfo, $LocalPaths, $ENUM_ACTIVE_DIRECTORY, $ENUM_CREDENTIALS
-        
+
         $jobs += @{
             Job = $job
             HostInfo = $hostInfo
         }
-        
+
         $batchCount++
         if ($batchCount % $MaxConcurrency -eq 0) {
             InfoMessage "Started upload jobs for $batchCount hosts..."
         }
     }
-    
+
     # Wait for remaining jobs to complete
     InfoMessage "Waiting for remaining upload jobs to complete..."
     while ($jobs.Count -gt 0) {
@@ -226,7 +226,7 @@ function UploadInstallersToHosts {
             Start-Sleep -Milliseconds 100
         }
     }
-    
+
     InfoMessage "Completed uploading installers to all hosts successfully"
     return $true
 }
@@ -236,10 +236,10 @@ function processUploadJobResult {
         [Parameter(Mandatory=$true)]
         [PSCustomObject]$JobInfo
     )
-    
+
     $job = $JobInfo.Job
     $hostInfo = $JobInfo.HostInfo
-    
+
     if ($job.State -eq 'Completed') {
         $remoteInstallerPaths = Receive-Job -Job $job
         if ($remoteInstallerPaths) {
@@ -254,10 +254,10 @@ function processUploadJobResult {
             return $false
         }
     } else {
-        $errorMsg = if ($job.State -eq 'Failed') { 
+        $errorMsg = if ($job.State -eq 'Failed') {
             Receive-Job -Job $job -ErrorAction SilentlyContinue | Out-String
-        } else { 
-            "Job timed out or failed" 
+        } else {
+            "Job timed out or failed"
         }
         ErrorMessage "Upload job failed for $($hostInfo.host_addr): $errorMsg"
         Remove-Job -Job $job -Force
@@ -274,13 +274,13 @@ function copyInstallersToHost {
         [Parameter(Mandatory=$true)]
         [hashtable]$LocalPaths
     )
-    
+
     # Define remote directory (writable location on target host)
     $remoteDir = "C:\Temp\silk-echo-install-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-    
+
     # Create remote directory and copy files
     $remotePaths = @{}
-    
+
     try {
         # Create remote directory
         $scriptBlock = {
@@ -291,7 +291,7 @@ function copyInstallersToHost {
             }
             return $RemoteDir
         }
-        
+
         if ($HostInfo.host_auth -eq $ENUM_ACTIVE_DIRECTORY) {
             $result = Invoke-Command -ComputerName $HostInfo.host_addr -ScriptBlock $scriptBlock -ArgumentList $remoteDir -ErrorAction Stop
         } elseif ($HostInfo.host_auth -eq $ENUM_CREDENTIALS) {
@@ -299,17 +299,17 @@ function copyInstallersToHost {
             $sessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
             $result = Invoke-Command -ComputerName $HostInfo.host_addr -Credential $credential -ScriptBlock $scriptBlock -SessionOption $sessionOption -ArgumentList $remoteDir -ErrorAction Stop
         }
-        
+
         DebugMessage "Remote directory prepared on $($HostInfo.host_addr): $remoteDir"
-        
+
         # Copy each installer file
         foreach ($installerType in $LocalPaths.Keys) {
             $localPath = $LocalPaths[$installerType]
             $fileName = Split-Path $localPath -Leaf
             $remotePath = "$remoteDir\$fileName"
-            
+
             DebugMessage "Copying $installerType installer to $($HostInfo.host_addr)..."
-            
+
             if ($HostInfo.host_auth -eq $ENUM_ACTIVE_DIRECTORY) {
                 Copy-Item -Path $localPath -Destination "\\$($HostInfo.host_addr)\C$\Temp\SilkInstallers\$fileName" -Force -ErrorAction Stop
             } elseif ($HostInfo.host_auth -eq $ENUM_CREDENTIALS) {
@@ -318,14 +318,14 @@ function copyInstallersToHost {
                 Copy-Item -Path $localPath -Destination $remotePath -ToSession $session -Force -ErrorAction Stop
                 Remove-PSSession $session -ErrorAction SilentlyContinue
             }
-            
+
             $remotePaths[$installerType] = $remotePath
             DebugMessage "Copied $installerType installer to: $remotePath"
         }
-        
+
         InfoMessage "All installers uploaded to $($HostInfo.host_addr)"
         return $remotePaths
-        
+
     } catch {
         ErrorMessage "Failed to upload installers to $($HostInfo.host_addr): $_"
         return $null

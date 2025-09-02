@@ -200,7 +200,7 @@ function ReadConfigFile {
     }
 
     $config.hosts = constructHosts -CommonConfig $commonConfig -HostEntries $config.hosts
-    
+
     # convert all common.pass to ConvertTo-SecureString
     if ($commonConfig.sdp_pass) {
         $commonConfig.sdp_pass = ConvertTo-SecureString -String $commonConfig.sdp_pass -AsPlainText -Force
@@ -218,7 +218,7 @@ function ReadConfigFile {
     # Ensure installer configuration has default values
     ensureInstallerDefault -Config $config -InstallerName "agent" -DefaultUrl $SilkAgentURL
     ensureInstallerDefault -Config $config -InstallerName "vss" -DefaultUrl $SilkVSSURL
-    
+
     # the sql connection script is optional.
 
     # Validate that all hosts have unique addresses
@@ -261,7 +261,7 @@ function ensureInstallerDefault {
         [Parameter(Mandatory=$true)]
         [string]$DefaultUrl
     )
-    
+
     try {
         $url = $Config.installers.$InstallerName.url
         if (-not $url) { throw }

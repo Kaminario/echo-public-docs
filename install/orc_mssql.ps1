@@ -47,8 +47,8 @@ function UpdateHostSqlConnectionString {
     if ($commonCredentialsNeeded) {
         $commonSqlPass = if ($Config.common.sql_pass) {
             ConvertSecureStringToPlainText -SecureString $Config.common.sql_pass
-        } else { 
-            $null 
+        } else {
+            $null
         }
         $credSQL = getSqlCredentials -Username $Config.common.sql_user -Password $commonSqlPass
         if ($credSQL) {
@@ -87,7 +87,7 @@ function UpdateHostSqlConnectionString {
         # Build the connection string
         $connectionStringParts = $connectionParams.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }
         $connectionString = [string]::Join(';', $connectionStringParts)
-        
+
         # Add connection string to host object
         $hostInfo | Add-Member -MemberType NoteProperty -Name "sql_connection_string" -Value $connectionString -Force
 
@@ -102,4 +102,3 @@ function UpdateHostSqlConnectionString {
 #endregion PrepSQLStr
 
 #endregion SQL
-

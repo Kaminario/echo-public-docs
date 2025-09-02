@@ -21,11 +21,11 @@ function ConvertSecureStringToPlainText {
         [Parameter(Mandatory=$true)]
         [System.Security.SecureString]$SecureString
     )
-    
+
     if (-not $SecureString) {
         return $null
     }
-    
+
     try {
         # Create a temporary PSCredential to extract the plain text password
         $tempCred = New-Object System.Management.Automation.PSCredential("temp", $SecureString)
