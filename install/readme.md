@@ -1,56 +1,74 @@
-# Echo Installation Scripts
+# Silk Echo Installation Scripts
 
-This directory contains PowerShell scripts for installing Echo on Windows systems, supporting both single-host and multi-host deployments.
+This directory contains PowerShell scripts for installing Silk Echo components (Node Agent and VSS Provider) on Windows systems, supporting both single-host and multi-host deployments.
+
+## What This Script Does
+
+The Silk Echo installer automates the deployment of Silk's data acceleration components across Windows environments:
+
+1. **Silk Node Agent**: Provides data acceleration and caching capabilities
+2. **Silk VSS Provider**: Enables Volume Shadow Copy Service integration
+3. **Host Registration**: Registers hosts with Silk Flex management server
+4. **SQL Server Integration**: Configures database connectivity for the Node Agent
+5. **SDP Integration**: Connects to Silk Data Platform for storage services
+
+The system supports parallel installation across multiple hosts with comprehensive validation, logging, and error handling.
 
 ## Files Overview
 
 | File | Purpose |
 |------|---------|
-| `bulk-setup.ps1` | Interactive multi-host installation orchestrator |
-| `host-setup.ps1` | Standalone single-host installation script |
-| `bulk-setup-config.json` | Multi-host configuration file |
+| `orchestrator.ps1` | Multi-host installation orchestrator with parallel execution |
+| `orc_host_installer.ps1` | Host installation script (used internally by orchestrator) |
+| `config-example.json` | Configuration template for multi-host deployments |
+| `make-release.ps1` | Production build script that creates standalone installer |
 
 ## Quick Start
 
 ### Single Host Setup
-```powershell
-# Run with required parameters
-.\host-setup.ps1 -FlexIP "10.0.0.1" -FlexToken "your-token" -DBConnectionString "server=localhost;..." -SilkAgentURL "https://..." -SilkVSSURL "https://..." -SDPId "d9b601" -SDPUsername "admin" -SDPPassword "password"
-
-# Validation mode (dry run)
-.\host-setup.ps1 -FlexIP "10.0.0.1" -FlexToken "your-token" -DBConnectionString "server=localhost;..." -SilkAgentURL "https://..." -SilkVSSURL "https://..." -SDPId "d9b601" -SDPUsername "admin" -SDPPassword "password" -DryRun
-```
+For single host installations, use the orchestrator with a single-host config file:
 
 ### Multi-Host Setup
 ```powershell
 # Install across multiple hosts using config file
-.\bulk-setup.ps1 -ConfigPath "bulk-setup-config.json"
+.\orchestrator.ps1 -ConfigPath "bulk-setup-config.json"
 
 # Use custom configuration with different MaxConcurrency
-.\bulk-setup.ps1 -ConfigPath "custom-config.json" -MaxConcurrency 5
+.\orchestrator.ps1 -ConfigPath "custom-config.json" -MaxConcurrency 5
 
 # Validation mode (dry run)
-.\bulk-setup.ps1 -ConfigPath "bulk-setup-config.json" -DryRun
+.\orchestrator.ps1 -ConfigPath "bulk-setup-config.json" -DryRun
 
 # Combined options
-.\bulk-setup.ps1 -ConfigPath "config.json" -MaxConcurrency 3 -DryRun
+.\orchestrator.ps1 -ConfigPath "config.json" -MaxConcurrency 3 -DryRun
 ```
 
-## Configuration
+## Generating Production Script and config.json
 
-Edit `bulk-setup-config.json` for multi-host deployments:
+### Production Script Generation
 
-```json
-{
-  "agent": "https://storage.googleapis.com/silk-public-files/silk-agent-installer-latest.exe",
-  "svss": "https://storage.googleapis.com/silk-public-files/svss-install.exe",
-  "hosts": ["host-server01", "host-server02", "host-server03"],
-  "flex_host_ip": "192.168.1.10",
-  "sqlconnection": "",
-  "sdpid": "d9b601",
-  "mount_points_directory": "c:\\MountPoints"
-}
+To create a single, self-contained script for deployment:
+
+```powershell
+# Generate production-ready script
+.\make-release.ps1
 ```
+
+This creates `orchestrator-release.ps1` - a single file containing all dependencies that can be deployed independently.
+
+### Configuration File Generation
+
+Generate a `config.json` template for multi-host deployments:
+
+```powershell
+# Interactive template generation
+.\orchestrator.ps1 -CreateConfigTemplate
+```
+
+This will:
+1. Prompt for authentication method (Active Directory vs credentials)
+2. Generate appropriate `config.json` template
+3. Create placeholders for all required settings
 
 
 ### Configuration Notes
@@ -68,21 +86,64 @@ Edit `bulk-setup-config.json` for multi-host deployments:
 
 ## PowerShell Features
 
-Both `bulk-setup.ps1` and `host-setup.ps1` scripts support standard PowerShell features:
+The `orchestrator.ps1` script supports standard PowerShell features:
 
-- **Get-Help**: Use `Get-Help .\bulk-setup.ps1` or `Get-Help .\host-setup.ps1` to view detailed parameter information and examples
+- **Get-Help**: Use `Get-Help .\orchestrator.ps1` to view detailed parameter information and examples
 - **Verbose and Debug**: Add `-Verbose` or `-Debug` parameters to enable debug level output for detailed execution information
 
 Examples:
 ```powershell
-# Get help for single-host script
-Get-Help .\host-setup.ps1 -Full
+# Get help for orchestrator script
+Get-Help .\orchestrator.ps1 -Full
 
 # Run with debug level output
-.\bulk-setup.ps1 -ConfigPath "config.json" -Verbose
+.\orchestrator.ps1 -ConfigPath "config.json" -Verbose
+```
 
-# Run with debug level output
-.\host-setup.ps1 -FlexIP "10.0.0.1" -FlexToken "token" -DBConnectionString "..." -SilkAgentURL "..." -SilkVSSURL "..." -SDPId "d9b601" -SDPUsername "admin" -SDPPassword "password" -Debug
+## How to Run Locally
+
+### Development Setup
+
+1. **Clone the repository** and navigate to the install directory
+2. **Ensure prerequisites** are met (see Requirements section below)
+3. **Configure target environment** by editing `config-example.json` or generating new config
+
+### Local Development Workflow
+
+```powershell
+# 1. Generate configuration template
+.\orchestrator.ps1 -CreateConfigTemplate
+
+# 2. Edit the generated config.json with your environment details
+notepad config.json
+
+# 3. Validate configuration without making changes
+.\orchestrator.ps1 -ConfigPath config.json -DryRun
+
+# 4. Run installation (starts with a few hosts for testing)
+.\orchestrator.ps1 -ConfigPath config.json -MaxConcurrency 2
+
+# 5. Enable verbose output for debugging
+.\orchestrator.ps1 -ConfigPath config.json -Verbose
+```
+
+### Testing Single Host Installation
+
+For testing or single-host scenarios, create a config file with a single host and use the orchestrator:
+
+```powershell
+# Create single-host config and test installation
+.\orchestrator.ps1 -ConfigPath "single-host-config.json" -DryRun
+```
+
+### Production Deployment
+
+```powershell
+# 1. Generate production script
+.\make-release.ps1
+
+# 2. Deploy orchestrator-release.ps1 to target environment
+# 3. Run with production configuration
 ```
 
 ## Requirements
@@ -99,27 +160,13 @@ Get-Help .\host-setup.ps1 -Full
 
 ## Parameters
 
-### host-setup.ps1 Parameters
 
-| Parameter | Description | Required |
-|-----------|-------------|----------|
-| `FlexIP` | IP address of the Silk Flex server | Yes |
-| `FlexToken` | Authentication token for Flex API | Yes |
-| `DBConnectionString` | SQL Server connection string | Yes |
-| `SilkAgentURL` | Download URL for Silk Node Agent installer | Yes |
-| `SilkVSSURL` | Download URL for Silk VSS Provider installer | Yes |
-| `SDPId` | SDP (Silk Data Platform) identifier | Yes |
-| `SDPUsername` | Username for SDP authentication | Yes |
-| `SDPPassword` | Password for SDP authentication | Yes |
-| `MountPointsDirectory` | Directory for mount points | Yes |
-| `DryRun` | Validation mode without actual installation | No |
-| `Debug/Verbose` | Enable debug output | No |
-
-### bulk-setup.ps1 Parameters
+### orchestrator.ps1 Parameters
 
 | Parameter | Description | Required | Default |
 |-----------|-------------|----------|---------|
-| `ConfigPath` | Path to configuration JSON file | Yes | - |
+| `ConfigPath` | Path to configuration JSON file | No | - |
+| `CreateConfigTemplate` | Create a configuration template file | No |
 | `MaxConcurrency` | Number of hosts to install in parallel | No | 10 |
 | `DryRun` | Validation mode without actual installation | No | false |
 | `Debug/Verbose` | Enable debug output | No | false |

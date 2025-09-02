@@ -1,0 +1,36 @@
+{
+   "installers": {
+      "agent": {
+         "url": "https://example.com/agent_installer.exe",
+         "path": "C:\\Installers\\agent_installer.exe"
+      },
+      "vss": {
+         "url": "https://example.com/vss_installer.exe",
+         "path": "C:\\Installers\\vss_installer.exe"
+      }
+   },
+   "common": {
+      "sdp_id": "<sdp_id>",
+      "sdp_user": "<sdp_user>",
+      "sdp_pass": "<sdp_pass>",
+      "sql_user": "<sql_user>",
+      "sql_pass": "<sql_pass>",
+      "flex_host_ip": "10.8.71.100",
+      "flex_user": "<flex_user>",
+      "flex_pass": "<flex_pass>",
+      "host_user": "<host_user>",
+      "host_pass": "<host_pass>",
+      "host_auth": "credentials,active_directory",
+      "mount_points_directory": "E:\\MountPoints"
+   },
+   "hosts": [
+    {
+      "host_addr": "10.30.40.50",
+      "sql_user": "<sql_user_1>",
+      "sql_pass": "<sql_pass_1>",
+      "mount_points_directory": "F:\\MountPoints"
+    },
+    "10.30.40.51",
+    "10.30.40.52"
+    ]
+}
