@@ -221,6 +221,16 @@ function ReadConfigFile {
     
     # the sql connection script is optional.
 
+    # Validate that all hosts have unique addresses
+    $hostAddresses = @()
+    foreach ($hostInfo in $config.hosts) {
+        if ($hostAddresses -contains $hostInfo.host_addr) {
+            ErrorMessage "Duplicate host address found: '$($hostInfo.host_addr)'. All hosts must have unique IP addresses or hostnames."
+            return $null
+        }
+        $hostAddresses += $hostInfo.host_addr
+    }
+
     # all host must have "host_auth" and "flex_host_ip"
     foreach ($hostInfo in $config.hosts) {
         if (-not $hostInfo.host_auth) {
