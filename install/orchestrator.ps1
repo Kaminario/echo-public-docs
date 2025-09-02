@@ -68,7 +68,7 @@
     File Name      : orchestrator.ps1
     Author         : Ilya.Levin@Silk.US
     Organization   : Silk.us, Inc.
-    Version        : 0.1.1
+    Version        : {{VERSION_PLACEHOLDER}}
     Copyright      : (c) 2024 Silk.us, Inc.
     Host Types     : Valid for Windows environments
 
@@ -231,7 +231,7 @@ function MainOrchestrator {
     }
 
     $HostSetupScript = GetHostInstallScript -OrchestratorPath $PSCommandPath
-    
+
     # Process imports in development mode
     if ($IsDevelopmentMode) {
         InfoMessage "Development mode detected - expanding imports in host script..."

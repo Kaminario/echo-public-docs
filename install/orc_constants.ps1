@@ -1,5 +1,5 @@
 #region Constants
-Set-Variable -Name InstallerProduct -Value "0.0.1" -Option AllScope -Scope Script
+Set-Variable -Name InstallerProduct -Value "{{VERSION_PLACEHOLDER}}" -Option AllScope -Scope Script
 Set-Variable -Name MessageCurrentObject -Value "Silk Echo Installer" -Option AllScope -Scope Script
 
 Set-Variable -Name ENUM_ACTIVE_DIRECTORY -Value "active_directory" -Option AllScope -Scope Script
