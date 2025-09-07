@@ -40,9 +40,9 @@ function Increment-Version {
 }
 
 # Read and increment version
-$versionFile = "../installer-release/version"
+$versionFile = "../../installer-release/version"
 $orchestratorFile = "orchestrator.ps1"
-$releaseFile = "../installer-release/orchestrator.ps1"
+$releaseFile = "../../installer-release/orchestrator.ps1"
 
 $currentVersion = Get-Content -Path $versionFile -Raw
 $currentVersion = $currentVersion.Trim()
