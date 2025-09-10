@@ -312,7 +312,7 @@ function EnsureHostsConnectivity {
         }
     }
 
-    $badHosts = @($hostEntries | Where-Object { $_.host_connectivity_issue -ne ""  -and $_.host_connectivity_issue -ne "not validated" })
+    $badHosts = @($hostEntries | Where-Object { $_.host_connectivity_issue -ne "" })
 
     return $badHosts
 }

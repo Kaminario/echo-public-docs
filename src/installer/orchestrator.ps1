@@ -234,12 +234,21 @@ function MainOrchestrator {
     if ($failedHosts.Count -eq 0) {
         ImportantMessage "Hosts connectivity check succeeded."
     } else {
-        # Log errors to stderr but continue execution
-        Write-Error "Hosts connectivity check failed:" -ErrorAction Continue
+        # Log warnings but continue with valid hosts
+        WarningMessage "Hosts connectivity check failed for $($failedHosts.Count) hosts:"
         foreach ($hostInfo in $failedHosts) {
-            Write-Error " - $($hostInfo.host_addr): $($hostInfo.host_connectivity_issue)" -ErrorAction Continue
+            WarningMessage " - $($hostInfo.host_addr): $($hostInfo.host_connectivity_issue)"
         }
-        return
+
+        # Filter out failed hosts and continue with valid ones
+        $config.hosts = @($config.hosts | Where-Object { $_.host_connectivity_issue -eq "" })
+        
+        if ($config.hosts.Count -eq 0) {
+            ErrorMessage "No valid hosts remaining after connectivity validation. Cannot proceed."
+            return
+        }
+        
+        ImportantMessage "Continuing with $($config.hosts.Count) valid hosts after removing $($failedHosts.Count) failed hosts."
     }
 
     # make SQL server authentication string

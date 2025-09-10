@@ -40,7 +40,7 @@ The Silk Echo installer automates the deployment of Silk's data acceleration com
 4. **SQL Server Integration**: Configures database connectivity for the Node Agent
 5. **SDP Integration**: Connects to Silk Data Platform for storage services
 
-The system supports parallel installation across multiple hosts with comprehensive validation, logging, error handling, and automatic state tracking to prevent duplicate installations and enable safe resumption after interruption.
+The system supports parallel installation across multiple hosts with comprehensive validation, logging, fault-tolerant error handling, and automatic state tracking to prevent duplicate installations and enable safe resumption after interruption. The system gracefully continues with valid hosts when some hosts fail validation.
 
 ## Directory Structure
 
@@ -116,7 +116,8 @@ Download → Upload → Register → Install Agent → Install VSS → Validate
 
 #### 3. Error Handling Strategy
 - Comprehensive error tracking with sanitized credentials
-- Multi-level logging (DEBUG, INFO, WARN, ERROR)
+- Multi-level logging (DEBUG, INFO, WARN, ERROR)  
+- **Fault-tolerant processing**: Continue with valid hosts when some fail validation
 - Graceful degradation with detailed error reporting
 - Summary reports with success/failure analytics
 
