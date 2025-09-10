@@ -12,8 +12,8 @@ repos:
     rev: v4.4.0
     hooks:
       - id: trailing-whitespace
-        files: ^install/.*\.ps1$
+        files: ^(install/.*\.ps1|installer-release/.*\.md)$
       - id: end-of-file-fixer
-        files: ^install/.*\.ps1$
+        files: ^(install/.*\.ps1|installer-release/.*\.md)$
       - id: check-merge-conflict
         files: ^install/.*\.ps1$
