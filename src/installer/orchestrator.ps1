@@ -185,8 +185,6 @@ function MainOrchestrator {
         return
     }
     
-    # Save detailed logs to a file in $SilkEchoInstallerCacheDir
-    ensureCacheDir $SilkEchoInstallerCacheDir
 
     # Download and cache installer files locally (before asking for any credentials)
     InfoMessage "Ensuring installer files are available locally..."

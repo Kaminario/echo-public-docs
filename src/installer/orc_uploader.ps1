@@ -80,7 +80,6 @@ function downloadInstaller {
 
     InfoMessage "Downloading $InstallerType installer from: $($InstallerURL)"
     try {
-        ensureCacheDir $CacheDir
         # Use Invoke-WebRequest to download the file
         Invoke-WebRequest -Uri $InstallerURL -OutFile $localPath -UseBasicParsing
 
