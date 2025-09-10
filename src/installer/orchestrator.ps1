@@ -251,6 +251,7 @@ function MainOrchestrator {
         ImportantMessage "Continuing with $($config.hosts.Count) valid hosts after removing $($failedHosts.Count) failed hosts."
     }
 
+
     # make SQL server authentication string
     $ok = UpdateHostSqlConnectionString -Config $config
     if (-not $ok) {
@@ -286,6 +287,7 @@ function MainOrchestrator {
             WarningMessage " - $($hostInfo.host_addr): $($hostInfo.issues -join '; ')"
         }
     }
+
     
     # Only proceed with hosts that have successful uploads
     $remoteComputers = $hostsWithUploads
@@ -340,10 +342,16 @@ function MainOrchestrator {
                 $result = ProcessSingleJobResult -JobInfo $jobInfo
                 $results += $result
 
+                # Update the corresponding host's result field
+                $hostToUpdate = $hostsWithUploads | Where-Object { $_.host_addr -eq $result.HostAddress }
+                if ($hostToUpdate) {
+                    SetHostResultWithProgress -HostInfo $hostToUpdate -Result $result -AllHosts $config.hosts
+                }
+
                 if ($result.JobState -eq 'Success') {
                     $script:NumOfSuccessHosts++
                     # Mark host as completed
-                    MarkHostCompleted -CompletedHosts $completedHosts -HostAddress $result.ComputerName
+                    MarkHostCompleted -CompletedHosts $completedHosts -HostAddress $result.HostAddress
                     SaveCompletedHosts -StateFilePath $ProcessedHosts -CompletedHosts $completedHosts | Out-Null
                 } else {
                     $script:NumOfFailedHosts++
@@ -357,20 +365,18 @@ function MainOrchestrator {
 
         $logPath = Join-Path $SilkEchoInstallerCacheDir "installation_logs_$(Get-Date -Format 'yyyyMMdd_HHmmss').json"
         $results | ConvertTo-Json -Depth 4 | Out-File -FilePath $logPath
+
+        # Final checkpoint: Save complete progress summary
+        WriteHostsSummaryToFile -Hosts $config.hosts -OutputPath $SilkEchoProgressFilePath
+
+        # Display short summary to console
+        DisplayHostsSummary -Hosts $config.hosts
+        
+        InfoMessage ""
         InfoMessage "Detailed logs saved to: $logPath"
-
-        # Display summary
-        InfoMessage "*************************************************"
-        InfoMessage "Installation Summary:"
-        InfoMessage "Total Hosts: $($remoteComputers.Count)"
-        InfoMessage "Successful: $script:NumOfSuccessHosts"
-
+        
         if ($script:NumOfFailedHosts -gt 0) {
-            ErrorMessage "Failed: $script:NumOfFailedHosts"
-            foreach ($result in $results | Where-Object { $_.JobState -eq 'Failed' }) {
-                ErrorMessage "    $($result.ComputerName)"
-            }
-            ErrorMessage "Installation failed on $script:NumOfFailedHosts host(s). Check the logs for details. $logPath"
+            ErrorMessage "Installation failed on $script:NumOfFailedHosts host(s). Check the logs for details."
         } else {
             InfoMessage "Installation completed successfully on all hosts."
         }

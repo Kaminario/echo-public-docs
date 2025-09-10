@@ -235,7 +235,7 @@ function EnsureHostsConnectivity {
     # Check that all hosts have proper host_auth values
     foreach ($hostInfo in $hostEntries) {
         if ($hostInfo.host_auth -ne $ENUM_ACTIVE_DIRECTORY -and $hostInfo.host_auth -ne $ENUM_CREDENTIALS) {
-            $hostInfo.issues += "Invalid host_auth value. Must be '$ENUM_ACTIVE_DIRECTORY' or '$ENUM_CREDENTIALS'"
+            AddHostIssueWithProgress -HostInfo $hostInfo -Issue "Invalid host_auth value. Must be '$ENUM_ACTIVE_DIRECTORY' or '$ENUM_CREDENTIALS'" -AllHosts $hostEntries
             continue
         }
     }
@@ -246,7 +246,7 @@ function EnsureHostsConnectivity {
         # Ensure current user is domain user
         if (-not (isActiveDirectoryUser)) {
             foreach ($hostInfo in $adHosts) {
-                $hostInfo.issues += "Current user is not logged in to Active Directory"
+                AddHostIssueWithProgress -HostInfo $hostInfo -Issue "Current user is not logged in to Active Directory" -AllHosts $hostEntries
             }
         } else {
             foreach ($hostInfo in $adHosts) {
@@ -258,14 +258,12 @@ function EnsureHostsConnectivity {
                         $hostInfo.host_addr = $resolvedHostname
                         InfoMessage "Using resolved hostname $resolvedHostname for Active Directory authentication"
                     } else {
-                        $hostInfo.issues += "Could not resolve IP $($hostInfo.host_addr) to hostname for $ENUM_ACTIVE_DIRECTORY auth"
+                        AddHostIssueWithProgress -HostInfo $hostInfo -Issue "Could not resolve IP $($hostInfo.host_addr) to hostname for $ENUM_ACTIVE_DIRECTORY auth" -AllHosts $hostEntries
                         continue
                     }
                 }
-                # Test connectivity
-                if (-not (isHostConnectivityValid -HostInfo $hostInfo)) {
-                    $hostInfo.issues += "Failed to connect to host using $ENUM_ACTIVE_DIRECTORY authentication"
-                }
+                # Test connectivity will be done in parallel after hostname resolution
+                # Placeholder - actual connectivity test will be done later in parallel
             }
         }
     }
@@ -278,7 +276,7 @@ function EnsureHostsConnectivity {
         $isError = $false
         foreach ($hostInfo in $credHosts) {
             if (-not ($hostInfo.host_addr -as [IPAddress])) {
-                $hostInfo.issues += "Invalid host address '$($hostInfo.host_addr)'. Must be an IP address for $ENUM_CREDENTIALS authentication."
+                AddHostIssueWithProgress -HostInfo $hostInfo -Issue "Invalid host address '$($hostInfo.host_addr)'. Must be an IP address for $ENUM_CREDENTIALS authentication." -AllHosts $hostEntries
                 $isError = $true
             }
         }
@@ -295,12 +293,8 @@ function EnsureHostsConnectivity {
             Exit 1
         }
 
-        foreach ($hostInfo in $credHosts) {
-            # Test connectivity
-            if (-not (isHostConnectivityValid -HostInfo $hostInfo)) {
-                $hostInfo.issues += "Failed to connect to host using $ENUM_CREDENTIALS authentication"
-            }
-        }
+        # Connectivity testing for credential hosts will be done in parallel
+        # Placeholder - actual connectivity test will be done later in parallel
     }
 
     $badHosts = @($hostEntries | Where-Object { $_.issues.Count -gt 0 })

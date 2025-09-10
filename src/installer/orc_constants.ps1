@@ -18,6 +18,13 @@ Set-Variable -Name ProcessedHosts -Value $processedHostsFile -Option AllScope -S
 # Marker
 Set-Variable -Name HOSTSETUP_START_MARKER -Value ("MARKER: " + "HOST_INSTALLER_STARTS_HERE") -Option AllScope -Scope Script
 
+# Remote Installation Timeout (2 minutes = 120 seconds)
+Set-Variable -Name REMOTE_INSTALL_TIMEOUT_SECONDS -Value 120 -Option AllScope -Scope Script
+
+# Progress tracking file path
+$progressFilePath = Join-Path $cacheDir "installation_progress_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+Set-Variable -Name SilkEchoProgressFilePath -Value $progressFilePath -Option AllScope -Scope Script
+
 # Development mode detection - true if orchestrator contains imports (. ./orc_*.ps1)
 $orchestratorContent = Get-Content -Path $PSCommandPath -Raw -ErrorAction SilentlyContinue
 $isDevelopmentMode = $orchestratorContent -match '\. \./orc_.*\.ps1'

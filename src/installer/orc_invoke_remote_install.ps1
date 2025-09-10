@@ -22,13 +22,13 @@ function fetchStream {
 function FetchJobResult {
     param (
         [Parameter(Mandatory=$true)]
-        [string]$computerName,
+        [string]$hostAddress,
         [Parameter(Mandatory=$false)]
         [PSCustomObject]$jobResult,
         [string]$JobState
     )
     # Initialize arrays for different output types
-    InfoMessage "Fetching job result for $computerName with state $JobState"
+    InfoMessage "Fetching job result for $hostAddress with state $JobState"
     $outputLines = @()
     $errorLines = @()
 
@@ -46,12 +46,12 @@ function FetchJobResult {
         'Failed'
     }
     $result = [PSCustomObject]@{
-                ComputerName = $computerName
+                HostAddress = $hostAddress
                 JobState = $JState
                 Info = $outputLines
                 Error = $errorLines
             }
-    InfoMessage "Job result for $computerName`: $($result.JobState)"
+    InfoMessage "Job result for $hostAddress`: $($result.JobState)"
     return $result
 }
 #endregion FetchJobResult
@@ -73,8 +73,8 @@ function InstallSingleHost {
         [string]$HostSetupScript
     )
 
-    $ComputerName = $HostInfo.host_addr
-    InfoMessage "Starting installation on $ComputerName..."
+    $HostAddress = $HostInfo.host_addr
+    InfoMessage "Starting installation on $HostAddress..."
 
     $IsDebug = $DebugPreference -eq 'Continue'
     $IsDryRun = $DryRun.IsPresent
@@ -96,7 +96,7 @@ function InstallSingleHost {
         $HostInfo.mount_points_directory
     )
 
-    DebugMessage "Preparing to run installation script on $ComputerName"
+    DebugMessage "Preparing to run installation script on $HostAddress"
     DebugMessage "Using Flex IP: $($HostInfo.flex_host_ip)"
     DebugMessage "Using Flex Token: [REDACTED]"
     DebugMessage "Using SQL Connection String: [REDACTED]"
@@ -161,7 +161,7 @@ function InstallSingleHost {
 
     # Prepare invoke command parameters
     $invokeParams = @{
-        ComputerName = $ComputerName
+        HostAddress = $HostAddress
         AsJob = $true
         ScriptBlock = $scriptBlock
         ArgumentList = $ArgumentList
@@ -172,11 +172,11 @@ function InstallSingleHost {
         $credential = New-Object System.Management.Automation.PSCredential($HostInfo.host_user, $HostInfo.host_pass)
         $invokeParams['Credential'] = $credential
     }
-    InfoMessage "Invoking installation script on $ComputerName..."
+    InfoMessage "Invoking installation script on $HostAddress..."
     $job = Invoke-Command @invokeParams
-    InfoMessage "Installation script invoked on $ComputerName, job ID: $($job.Id)"
+    InfoMessage "Installation script invoked on $HostAddress, job ID: $($job.Id)"
     return [PSCustomObject]@{
-        ComputerName = $ComputerName
+        HostAddress = $HostAddress
         Job = $job
     }
 }
@@ -207,24 +207,35 @@ function ProcessSingleJobResult {
         [PSCustomObject]$JobInfo
     )
 
-    $computerName = $JobInfo.ComputerName
+    $hostAddress = $JobInfo.HostAddress
     $job = $JobInfo.Job
 
-    InfoMessage "Waiting for job completion on $computerName..."
+    InfoMessage "Waiting for job completion on $hostAddress (timeout: $REMOTE_INSTALL_TIMEOUT_SECONDS seconds)..."
     try {
-        $job | Wait-Job | Out-Null
-        InfoMessage "Job completed on $computerName."
+        $waitResult = $job | Wait-Job -Timeout $REMOTE_INSTALL_TIMEOUT_SECONDS
+        if ($waitResult) {
+            InfoMessage "Job completed on $hostAddress."
+        } else {
+            WarningMessage "Job timed out after $REMOTE_INSTALL_TIMEOUT_SECONDS seconds on $hostAddress"
+            # Stop the timed-out job gracefully to allow log collection
+            try {
+                $job | Stop-Job
+                DebugMessage "Stopped timed-out job on $hostAddress"
+            } catch {
+                WarningMessage "Failed to stop timed-out job on $hostAddress`: $_"
+            }
+        }
     } catch {
-        WarningMessage "Error while waiting for job completion on $computerName`: $_"
+        WarningMessage "Error while waiting for job completion on $hostAddress`: $_"
     }
 
     # read job errors if any - wrap in try-catch to prevent script termination
     $jobErrors = $null
     try {
         Receive-Job -Job $job -Keep -ErrorVariable jobErrors -ErrorAction SilentlyContinue
-        DebugMessage "Job state for $computerName`: $($job.State)"
+        DebugMessage "Job state for $hostAddress`: $($job.State)"
     } catch {
-        WarningMessage "Error while receiving job output from $computerName`: $_"
+        WarningMessage "Error while receiving job output from $hostAddress`: $_"
         $jobErrors = @($_.Exception.Message)
     }
 
@@ -232,17 +243,17 @@ function ProcessSingleJobResult {
     try {
         $jobResult = $job.ChildJobs[0]
     } catch {
-        WarningMessage "Error accessing child job for $computerName`: $_"
+        WarningMessage "Error accessing child job for $hostAddress`: $_"
     }
 
     # Fetch logs from the job result - wrap in try-catch
     try {
-        $result = FetchJobResult -ComputerName $computerName -jobResult $jobResult -JobState $job.State
+        $result = FetchJobResult -ComputerName $hostAddress -jobResult $jobResult -JobState $job.State
     } catch {
-        WarningMessage "Error fetching job result for $computerName`: $_"
+        WarningMessage "Error fetching job result for $hostAddress`: $_"
         # Create a fallback result object
         $result = [PSCustomObject]@{
-            ComputerName = $computerName
+            HostAddress = $hostAddress
             JobState = 'Failed'
             Info = @()
             Error = @("Error fetching job result: $($_.Exception.Message)")
@@ -260,9 +271,9 @@ function ProcessSingleJobResult {
     # Clean up the job
     try {
         $job | Remove-Job
-        DebugMessage "Cleaned up job for $computerName"
+        DebugMessage "Cleaned up job for $hostAddress"
     } catch {
-        WarningMessage "Error cleaning up job for $computerName`: $_"
+        WarningMessage "Error cleaning up job for $hostAddress`: $_"
     }
 
     return $result

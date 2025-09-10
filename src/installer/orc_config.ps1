@@ -120,17 +120,20 @@ function constructHosts {
         Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "issues" -Value @() -Force
 
         # remote_installer_paths
-        $hostInfo | Add-Member -MemberType NoteProperty -Name "remote_installer_paths" -Value @() -Force
+        Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "remote_installer_paths" -Value @() -Force
 
         # sql_connection_string
         Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "sql_connection_string" -Value $null -Force
 
-        if (-not $hostInfo.sql_user) {
-            Add-Member -InputObject $hostInfo -MemberType NoteProperty -Name "sql_user" -Value $null -Force
+        if (-not $hostObject.sql_user) {
+            Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "sql_user" -Value $null -Force
         }
-        if (-not $hostInfo.sql_pass) {
-            Add-Member -InputObject $hostInfo -MemberType NoteProperty -Name "sql_pass" -Value $null -Force
+        if (-not $hostObject.sql_pass) {
+            Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "sql_pass" -Value $null -Force
         }
+
+        # Initialize result field for storing job result after installation
+        Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "result" -Value $null -Force
 
         $processedHosts += $hostObject
     }

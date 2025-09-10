@@ -251,7 +251,7 @@ function processUploadJobResult {
             $hostInfo.remote_installer_paths = $remoteInstallerPaths
             InfoMessage "Successfully uploaded installers to $($hostInfo.host_addr)"
         } else {
-            $hostInfo.issues += "Failed to upload installers"
+            AddHostIssueWithProgress -HostInfo $hostInfo -Issue "Failed to upload installers" -AllHosts $HostInfos
             ErrorMessage "Failed to upload installers to $($hostInfo.host_addr)"
         }
     } else {
@@ -259,9 +259,9 @@ function processUploadJobResult {
         $errorMsg = if ($job.State -eq 'Failed') {
             
             # add error to issues
-            $hostInfo.issues += "Job failed" + $stdErrOut
+            AddHostIssueWithProgress -HostInfo $hostInfo -Issue ("Job failed" + $stdErrOut) -AllHosts $HostInfos
         } else {
-            $hostInfo.issues += "Job failed to complete. State: $($job.State)" + $stdErrOut
+            AddHostIssueWithProgress -HostInfo $hostInfo -Issue ("Job failed to complete. State: $($job.State)" + $stdErrOut) -AllHosts $HostInfos
         }
         ErrorMessage "Upload job failed for $($hostInfo.host_addr): $errorMsg"
 
