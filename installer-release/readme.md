@@ -50,7 +50,7 @@ Edit the generated `config.json` file with your environment-specific values:
 - **PowerShell remoting enabled** on target hosts (WinRM service running)
 - Valid credentials for:
   - Silk Flex management server
-  - SDP (Silk Data Platform) 
+  - SDP (Silk Data Platform)
   - SQL Server instances
   - Target Windows hosts (if using credential-based authentication)
 
@@ -103,7 +103,7 @@ Defines how to obtain the Silk Agent and VSS Provider installers.
       "path": "C:\\Installers\\silk-agent.exe"
     },
     "vss": {
-      "url": "https://custom-server.com/svss-install.exe", 
+      "url": "https://custom-server.com/svss-install.exe",
       "path": "C:\\Installers\\svss-install.exe"
     }
   }
@@ -126,7 +126,7 @@ Contains shared configuration inherited by all hosts unless overridden.
     "sdp_id": "your-sdp-identifier",
     "sdp_user": "sdp-username",
     "sdp_pass": "sdp-password",
-    "sql_user": "sql-username", 
+    "sql_user": "sql-username",
     "sql_pass": "sql-password",
     "flex_host_ip": "192.168.1.100",
     "flex_user": "flex-username",
@@ -134,7 +134,7 @@ Contains shared configuration inherited by all hosts unless overridden.
     "host_user": "local-admin-user",
     "host_pass": "local-admin-password",
     "host_auth": "credentials",
-    "mount_points_directory": "E:\\MountPoints"
+    "mount_points_directory": "C:\\MountPoints"
   }
 }
 ```
@@ -143,6 +143,15 @@ Contains shared configuration inherited by all hosts unless overridden.
 - `sdp_id`: SDP platform identifier
 - `flex_host_ip`: IP address of Silk Flex server (must be valid IP)
 - `mount_points_directory`: Directory for mount points (must not be empty)
+
+**Optional Fields:**
+- `sql_server`: SQL Server instance to use for all host connections. If
+  set, this server will be used in all host connection strings unless
+  overridden in the host section itself. If not set, the installer will
+  auto-discover SQL Server instances by scanning for listening SQL
+  servers on each host. Port 1433 will be prioritized, and the hostname
+  will be used instead of IP address or localhost if the server is
+  listening on 0.0.0.0.
 
 **Authentication Fields:**
 - `host_auth`: Either `"active_directory"` or `"credentials"`
@@ -192,7 +201,7 @@ Hosts inherit all settings from the `common` section:
 {
   "hosts": [
     "192.168.1.10",
-    "192.168.1.11", 
+    "192.168.1.11",
     "server03.domain.com"
   ]
 }
@@ -227,7 +236,7 @@ Uses the current domain user's credentials via Kerberos authentication.
 
 **Host Address Handling:**
 - **IP Addresses**: Automatically resolved to hostnames via reverse DNS lookup
-- **Hostnames**: Used directly  
+- **Hostnames**: Used directly
 - **Resolution Failure**: Host is skipped with error message
 
 **Configuration:**
@@ -243,7 +252,7 @@ Uses the current domain user's credentials via Kerberos authentication.
 }
 ```
 
-### Credentials Authentication  
+### Credentials Authentication
 Uses explicit username/password for each target host.
 
 **Requirements:**
@@ -259,7 +268,7 @@ Uses explicit username/password for each target host.
 {
   "common": {
     "host_auth": "credentials",
-    "host_user": "Administrator", 
+    "host_user": "Administrator",
     "host_pass": "Password123"
   },
   "hosts": [
@@ -279,22 +288,22 @@ All hosts inherit properties from the `common` section. Object-format hosts can 
   "common": {
     "sql_user": "default-sql-user",
     "sql_pass": "default-sql-password",
-    "mount_points_directory": "E:\\MountPoints"
+    "mount_points_directory": "C:\\MountPoints"
   },
   "hosts": [
     // Inherits all common properties
     "192.168.1.10",
-    
+
     // Overrides SQL credentials, inherits mount_points_directory
     {
       "host_addr": "192.168.1.11",
       "sql_user": "special-sql-user",
-      "sql_pass": "special-sql-password" 
+      "sql_pass": "special-sql-password"
     },
-    
+
     // Overrides mount point directory
     {
-      "host_addr": "192.168.1.12", 
+      "host_addr": "192.168.1.12",
       "mount_points_directory": "F:\\AlternateMountPoints"
     }
   ]
@@ -344,7 +353,7 @@ Here's a full example configuration file for Active Directory authentication wit
     "sql_user": "silk-agent",
     "sql_pass": "SqlServicePassword456!",
     "flex_host_ip": "10.10.1.100",
-    "flex_user": "flex", 
+    "flex_user": "flex",
     "flex_pass": "FlexAdminPassword789!",
     "host_auth": "active_directory",
     "mount_points_directory": "C:\\SilkMountPoints"
@@ -386,7 +395,7 @@ Here's a full example configuration file for credential-based authentication wit
   },
   "hosts": [
     "192.168.1.10",
-    "192.168.1.11", 
+    "192.168.1.11",
     "192.168.1.12"
   ]
 }
@@ -397,7 +406,7 @@ This configuration:
 - Configures credential-based authentication
 - **Omits all passwords** - the installer will prompt interactively for:
   - SDP password (`sdp_pass`)
-  - SQL Server password (`sql_pass`) 
+  - SQL Server password (`sql_pass`)
   - Flex server password (`flex_pass`)
   - Host administrator password (`host_pass`)
 - Uses IP addresses (required for credential authentication)
@@ -415,7 +424,7 @@ The installer follows this workflow:
    - Uses local paths if files exist at specified locations
    - Caches downloaded files in `SilkEchoInstallerArtifacts` directory
 4. **Connectivity Testing**: Validates PowerShell remoting to all target hosts
-5. **Authentication Setup**: 
+5. **Authentication Setup**:
    - Logs into Silk Flex server and obtains access token
    - Validates SDP credentials
    - Prepares SQL connection strings
@@ -449,7 +458,7 @@ Invoke-Command -ComputerName "server01.domain.com" -ScriptBlock { Get-Date }
 Get-WmiObject -Class Win32_ComputerSystem -ComputerName "server01.domain.com" | Select PartOfDomain, Domain
 ```
 
-**"Could not resolve IP to hostname for active_directory auth"**  
+**"Could not resolve IP to hostname for active_directory auth"**
 - The script couldn't perform reverse DNS lookup for the IP address
 - Either use hostnames directly or switch to credential authentication
 - Verify DNS configuration
@@ -461,7 +470,7 @@ Get-WmiObject -Class Win32_ComputerSystem -ComputerName "server01.domain.com" | 
 Resolve-DnsName "server01.domain.com"
 ```
 
-**"Failed to connect to host using credentials authentication"** 
+**"Failed to connect to host using credentials authentication"**
 - Verify username/password are correct for target host
 - Check that target host allows the user account to log in
 - Ensure WinRM service is running on target host
@@ -500,7 +509,7 @@ Get-Item WSMan:\localhost\Client\TrustedHosts
 # Test WinRM connectivity manually
 Test-WSMan -ComputerName "192.168.1.10"
 
-# Check TrustedHosts list  
+# Check TrustedHosts list
 Get-Item WSMan:\localhost\Client\TrustedHosts
 
 # Test PowerShell remoting

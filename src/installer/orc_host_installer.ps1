@@ -244,8 +244,8 @@ function GetMSSQLHostPorts {
         WarningMessage "Failed to resolve hostname '$hostname' to IP: $_"
     }
 
-    # Phase 1: Filter listeners - prioritize standard ports 1433, 1434
-    $standardPortListeners = $listener | Where-Object { $_.LocalPort -eq 1433 -or $_.LocalPort -eq 1434 }
+    # Phase 1: Filter listeners - prioritize standard ports 1433
+    $standardPortListeners = $listener | Where-Object { $_.LocalPort -eq 1433 }
     $candidateListeners = if ($standardPortListeners) {
         InfoMessage "Found SQL Server listeners on standard ports, prioritizing them"
         $standardPortListeners

@@ -84,6 +84,14 @@ function UpdateHostSqlConnectionString {
             'Application Name' = 'SilkAgent'
         }
 
+        # Add SQL Server parameter if specified (bypasses endpoint discovery)
+        if ($hostInfo.sql_server) {
+            $connectionParams['Server'] = $hostInfo.sql_server
+            InfoMessage "Using specified SQL Server for host $($hostInfo.host_addr): $($hostInfo.sql_server)"
+        } else {
+            InfoMessage "No SQL Server specified for host $($hostInfo.host_addr), endpoint discovery will be performed during installation"
+        }
+
         # Build the connection string
         $connectionStringParts = $connectionParams.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }
         $connectionString = [string]::Join(';', $connectionStringParts)
