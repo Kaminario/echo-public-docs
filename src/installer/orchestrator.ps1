@@ -165,6 +165,8 @@ if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
 . ./orc_host_setup_extractor.ps1
 # ExpandImportsInline
 . ./orc_import_expander.ps1
+# LoadCompletedHosts, SaveCompletedHosts, IsHostCompleted, MarkHostCompleted
+. ./orc_tracking.ps1
 
 #region MainOrchestrator
 function MainOrchestrator {
@@ -185,6 +187,39 @@ function MainOrchestrator {
         return
     }
     
+    # Load completed hosts to avoid duplicate installations  
+    $completedHosts = LoadCompletedHosts -StateFilePath $ProcessedHosts
+    
+    # Filter out already completed hosts
+    $originalHostCount = $config.hosts.Count
+    $hostsToProcess = @()
+    $skippedHosts = @()
+    
+    foreach ($hostInfo in $config.hosts) {
+        if (IsHostCompleted -CompletedHosts $completedHosts -HostAddress $hostInfo.host_addr) {
+            $skippedHosts += $hostInfo
+        } else {
+            $hostsToProcess += $hostInfo
+        }
+    }
+    
+    # Update config with hosts to process
+    $config.hosts = $hostsToProcess
+    
+    if ($skippedHosts.Count -gt 0) {
+        ImportantMessage "Skipping $($skippedHosts.Count) already completed hosts:"
+        foreach ($hostInfo in $skippedHosts) {
+            InfoMessage "  - $($hostInfo.host_addr) (completed previously)"
+        }
+    }
+    
+    if ($config.hosts.Count -eq 0) {
+        ImportantMessage "All hosts have been processed successfully. No work to do."
+        ImportantMessage "To reprocess hosts, delete or rename: $ProcessedHosts"
+        return
+    }
+    
+    ImportantMessage "Processing $($config.hosts.Count) of $originalHostCount total hosts."
 
     # Download and cache installer files locally (before asking for any credentials)
     InfoMessage "Ensuring installer files are available locally..."
@@ -283,9 +318,13 @@ function MainOrchestrator {
 
                 if ($result.JobState -eq 'Success') {
                     $script:NumOfSuccessHosts++
+                    # Mark host as completed
+                    MarkHostCompleted -CompletedHosts $completedHosts -HostAddress $result.ComputerName
+                    SaveCompletedHosts -StateFilePath $ProcessedHosts -CompletedHosts $completedHosts | Out-Null
                 } else {
                     $script:NumOfFailedHosts++
                 }
+                
                 $processedHosts++
             }
 
@@ -311,6 +350,9 @@ function MainOrchestrator {
         } else {
             InfoMessage "Installation completed successfully on all hosts."
         }
+        
+        InfoMessage "Completed hosts saved to: $ProcessedHosts"
+        InfoMessage "To reprocess all hosts, delete the completed hosts file above."
         InfoMessage "*************************************************"
     }
     catch {
