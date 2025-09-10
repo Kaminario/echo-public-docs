@@ -177,6 +177,14 @@ function MainOrchestrator {
     # this is needed for self-signed certificates of the Flex server
     SkipCertificateCheck
 
+    # Validate output directory and write permissions early
+    InfoMessage "Validating output directory and write permissions..."
+    if (-not (ensureOutputDirectory -OutputDir $SilkEchoInstallerCacheDir)) {
+        ErrorMessage "Output directory validation failed. Cannot proceed without write access to: $SilkEchoInstallerCacheDir"
+        ErrorMessage "Please ensure the directory exists and you have write permissions, or run as administrator."
+        return
+    }
+    
     # Save detailed logs to a file in $SilkEchoInstallerCacheDir
     ensureCacheDir $SilkEchoInstallerCacheDir
 
