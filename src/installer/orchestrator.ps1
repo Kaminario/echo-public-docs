@@ -237,11 +237,11 @@ function MainOrchestrator {
         # Log warnings but continue with valid hosts
         WarningMessage "Hosts connectivity check failed for $($failedHosts.Count) hosts:"
         foreach ($hostInfo in $failedHosts) {
-            WarningMessage " - $($hostInfo.host_addr): $($hostInfo.host_connectivity_issue)"
+            WarningMessage " - $($hostInfo.host_addr): $($hostInfo.issues -join '; ')"
         }
 
         # Filter out failed hosts and continue with valid ones
-        $config.hosts = @($config.hosts | Where-Object { $_.host_connectivity_issue -eq "" })
+        $config.hosts = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
         
         if ($config.hosts.Count -eq 0) {
             ErrorMessage "No valid hosts remaining after connectivity validation. Cannot proceed."
@@ -264,8 +264,8 @@ function MainOrchestrator {
     # Get and validate SDP credentials
     UpdateSDPCredentials -Config $config -flexToken $flexToken
 
-    # Add hosts to TrustedHosts if needed
-    $remoteComputers = @($config.hosts)
+    # Only process hosts without issues for installation
+    $remoteComputers = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
 
     InfoMessage "The following hosts will be configured:"
     foreach ($hostInfo in $remoteComputers) {
@@ -274,9 +274,24 @@ function MainOrchestrator {
 
     # Upload installer files to all hosts
     InfoMessage "Uploading installer files to target hosts..."
-    $uploadSuccess = UploadInstallersToHosts -HostInfos $remoteComputers -LocalPaths $localInstallerPaths -MaxConcurrency $MaxConcurrency
-    if (-not $uploadSuccess) {
-        ErrorMessage "Failed to upload installers to some hosts. Cannot proceed with installation."
+    UploadInstallersToHosts -HostInfos $remoteComputers -LocalPaths $localInstallerPaths -MaxConcurrency $MaxConcurrency
+    
+    # Check which hosts had upload failures and update remote computers list
+    $hostsWithUploads = @($remoteComputers | Where-Object { $_.remote_installer_paths })
+    $hostsWithFailedUploads = @($remoteComputers | Where-Object { -not $_.remote_installer_paths })
+    
+    if ($hostsWithFailedUploads.Count -gt 0) {
+        WarningMessage "Upload failed for $($hostsWithFailedUploads.Count) hosts:"
+        foreach ($hostInfo in $hostsWithFailedUploads) {
+            WarningMessage " - $($hostInfo.host_addr): $($hostInfo.issues -join '; ')"
+        }
+    }
+    
+    # Only proceed with hosts that have successful uploads
+    $remoteComputers = $hostsWithUploads
+    
+    if ($remoteComputers.Count -eq 0) {
+        ErrorMessage "No hosts remain after upload failures. Cannot proceed with installation."
         return
     }
 

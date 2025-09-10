@@ -119,13 +119,9 @@ function UploadInstallersToHosts {
         while ($jobs.Count -ge $MaxConcurrency) {
             $completedJob = $jobs | Where-Object { $_.Job.State -ne 'Running' } | Select-Object -First 1
             if ($completedJob) {
-                $processJobResult = processUploadJobResult -JobInfo $completedJob
+                processUploadJobResult -JobInfo $completedJob
                 $jobs = @($jobs | Where-Object { $_.Job.Id -ne $completedJob.Job.Id })
-                if (-not $processJobResult) {
-                    # Clean up remaining jobs and return failure
-                    $jobs | ForEach-Object { Remove-Job $_.Job -Force }
-                    return $false
-                }
+                # Continue processing other uploads even if this one failed
             } else {
                 Start-Sleep -Milliseconds 100
             }
@@ -188,7 +184,6 @@ function UploadInstallersToHosts {
                     $remotePaths[$installerType] = $remotePath
                     DebugMessage "Copied $installerType installer to: $remotePath"
                 }
-
                 InfoMessage "All installers uploaded to $($HostInfo.host_addr)"
                 return $remotePaths
 
@@ -214,20 +209,30 @@ function UploadInstallersToHosts {
     while ($jobs.Count -gt 0) {
         $completedJob = $jobs | Where-Object { $_.Job.State -ne 'Running' } | Select-Object -First 1
         if ($completedJob) {
-            $processJobResult = processUploadJobResult -JobInfo $completedJob
+            processUploadJobResult -JobInfo $completedJob
             $jobs = @($jobs | Where-Object { $_.Job.Id -ne $completedJob.Job.Id })
-            if (-not $processJobResult) {
-                # Clean up remaining jobs and return failure
-                $jobs | ForEach-Object { Remove-Job $_.Job -Force }
-                return $false
-            }
+            # Continue processing other uploads even if this one failed
         } else {
             Start-Sleep -Milliseconds 100
         }
     }
 
-    InfoMessage "Completed uploading installers to all hosts successfully"
-    return $true
+    # Check upload results
+    $successfulUploads = @($HostInfos | Where-Object { $_.remote_installer_paths })
+    $failedUploads = @($HostInfos | Where-Object { -not $_.remote_installer_paths })
+    
+    if ($failedUploads.Count -gt 0) {
+        WarningMessage "Upload failed for $($failedUploads.Count) hosts:"
+        foreach ($hostInfo in $failedUploads) {
+            WarningMessage " - $($hostInfo.host_addr)"
+        }
+    }
+    
+    if ($successfulUploads.Count -gt 0) {
+        InfoMessage "Successfully uploaded installers to $($successfulUploads.Count) hosts"
+    } else {
+        ErrorMessage "Failed to upload installers to any hosts"
+    }
 }
 
 function processUploadJobResult {
@@ -243,27 +248,25 @@ function processUploadJobResult {
         $remoteInstallerPaths = Receive-Job -Job $job
         if ($remoteInstallerPaths) {
             # Store remote paths in host object for use by InstallSingleHost
-            $hostInfo | Add-Member -MemberType NoteProperty -Name "remote_installer_paths" -Value $remoteInstallerPaths -Force
+            $hostInfo.remote_installer_paths = $remoteInstallerPaths
             InfoMessage "Successfully uploaded installers to $($hostInfo.host_addr)"
-            Remove-Job -Job $job -Force
-            return $true
         } else {
+            $hostInfo.issues += "Failed to upload installers"
             ErrorMessage "Failed to upload installers to $($hostInfo.host_addr)"
-            Remove-Job -Job $job -Force
-            return $false
         }
     } else {
+        $stdErrOut = Receive-Job -Job $job -ErrorAction SilentlyContinue | Out-String
         $errorMsg = if ($job.State -eq 'Failed') {
-            Receive-Job -Job $job -ErrorAction SilentlyContinue | Out-String
+            
+            # add error to issues
+            $hostInfo.issues += "Job failed" + $stdErrOut
         } else {
-            "Job timed out or failed"
+            $hostInfo.issues += "Job failed to complete. State: $($job.State)" + $stdErrOut
         }
         ErrorMessage "Upload job failed for $($hostInfo.host_addr): $errorMsg"
-        Remove-Job -Job $job -Force
-        return $false
+
     }
+    Remove-Job -Job $job -Force
 }
 #endregion UploadInstallersToHosts
-
-
 #endregion InstallerUploader

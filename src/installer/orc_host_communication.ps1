@@ -229,18 +229,13 @@ function EnsureHostsConnectivity {
         [Array]$hostEntries
     )
 
-    # Reset host_connectivity_issue to "not validated" before start processing
-    foreach ($hostInfo in $hostEntries) {
-        $hostInfo | Add-Member -NotePropertyName "host_connectivity_issue" -NotePropertyValue "not validated" -Force
-    }
-
     # Fulfill credentials for hosts
     ensureHostCredentials -hostEntries $hostEntries
 
     # Check that all hosts have proper host_auth values
     foreach ($hostInfo in $hostEntries) {
         if ($hostInfo.host_auth -ne $ENUM_ACTIVE_DIRECTORY -and $hostInfo.host_auth -ne $ENUM_CREDENTIALS) {
-            $hostInfo.host_connectivity_issue = "Invalid host_auth value. Must be '$ENUM_ACTIVE_DIRECTORY' or '$ENUM_CREDENTIALS'"
+            $hostInfo.issues += "Invalid host_auth value. Must be '$ENUM_ACTIVE_DIRECTORY' or '$ENUM_CREDENTIALS'"
             continue
         }
     }
@@ -251,7 +246,7 @@ function EnsureHostsConnectivity {
         # Ensure current user is domain user
         if (-not (isActiveDirectoryUser)) {
             foreach ($hostInfo in $adHosts) {
-                $hostInfo.host_connectivity_issue = "Current user is not logged in to Active Directory"
+                $hostInfo.issues += "Current user is not logged in to Active Directory"
             }
         } else {
             foreach ($hostInfo in $adHosts) {
@@ -263,15 +258,13 @@ function EnsureHostsConnectivity {
                         $hostInfo.host_addr = $resolvedHostname
                         InfoMessage "Using resolved hostname $resolvedHostname for Active Directory authentication"
                     } else {
-                        $hostInfo.host_connectivity_issue = "Could not resolve IP $($hostInfo.host_addr) to hostname for $ENUM_ACTIVE_DIRECTORY auth"
+                        $hostInfo.issues += "Could not resolve IP $($hostInfo.host_addr) to hostname for $ENUM_ACTIVE_DIRECTORY auth"
                         continue
                     }
                 }
                 # Test connectivity
-                if (isHostConnectivityValid -HostInfo $hostInfo) {
-                    $hostInfo.host_connectivity_issue = ""
-                } else {
-                    $hostInfo.host_connectivity_issue = "Failed to connect to host using $ENUM_ACTIVE_DIRECTORY authentication"
+                if (-not (isHostConnectivityValid -HostInfo $hostInfo)) {
+                    $hostInfo.issues += "Failed to connect to host using $ENUM_ACTIVE_DIRECTORY authentication"
                 }
             }
         }
@@ -285,12 +278,12 @@ function EnsureHostsConnectivity {
         $isError = $false
         foreach ($hostInfo in $credHosts) {
             if (-not ($hostInfo.host_addr -as [IPAddress])) {
-                $hostInfo.host_connectivity_issue = "Invalid host address '$($hostInfo.host_addr)'. Must be an IP address for $ENUM_CREDENTIALS authentication."
+                $hostInfo.issues += "Invalid host address '$($hostInfo.host_addr)'. Must be an IP address for $ENUM_CREDENTIALS authentication."
                 $isError = $true
             }
         }
         if ($isError) {
-            return $hostEntries | Where-Object { $_.host_connectivity_issue -ne ""  -and $_.host_connectivity_issue -ne "not validated" }
+            return $hostEntries | Where-Object { $_.issues.Count -gt 0 }
         }
 
         try{
@@ -304,15 +297,13 @@ function EnsureHostsConnectivity {
 
         foreach ($hostInfo in $credHosts) {
             # Test connectivity
-            if (isHostConnectivityValid -HostInfo $hostInfo) {
-                $hostInfo.host_connectivity_issue = ""
-            } else {
-                $hostInfo.host_connectivity_issue = "Failed to connect to host using $ENUM_CREDENTIALS authentication"
+            if (-not (isHostConnectivityValid -HostInfo $hostInfo)) {
+                $hostInfo.issues += "Failed to connect to host using $ENUM_CREDENTIALS authentication"
             }
         }
     }
 
-    $badHosts = @($hostEntries | Where-Object { $_.host_connectivity_issue -ne "" })
+    $badHosts = @($hostEntries | Where-Object { $_.issues.Count -gt 0 })
 
     return $badHosts
 }

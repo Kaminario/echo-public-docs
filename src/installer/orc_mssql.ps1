@@ -19,7 +19,7 @@ function getSqlCredentials {
 }
 #endregion getSqlCredentials
 
-#region PrepSQLStr
+#region UpdateHostSqlConnectionString
 function UpdateHostSqlConnectionString {
     param (
         [PSCustomObject]$Config
@@ -61,11 +61,12 @@ function UpdateHostSqlConnectionString {
          # Create connection string for each host
         foreach ($hostInfo in $Config.hosts) {
             # Use host-specific credentials if available, otherwise use default
+            # the sql_user/pass fields is always exist but may be null
             if (-not $hostInfo.sql_user) {
-                Add-Member -InputObject $hostInfo -MemberType NoteProperty -Name "sql_user" -Value $defaultSqlUser -Force
+                $hostInfo.sql_user = $defaultSqlUser
             }
             if (-not $hostInfo.sql_pass) {
-                Add-Member -InputObject $hostInfo -MemberType NoteProperty -Name "sql_pass" -Value $defaultSqlPass -Force
+                $hostInfo.sql_pass = $defaultSqlPass
             }
         }
     }
@@ -97,7 +98,7 @@ function UpdateHostSqlConnectionString {
         $connectionString = [string]::Join(';', $connectionStringParts)
 
         # Add connection string to host object
-        $hostInfo | Add-Member -MemberType NoteProperty -Name "sql_connection_string" -Value $connectionString -Force
+        $hostInfo.sql_connection_string = $connectionString
 
         # Log the connection string (with masked password)
         $LogSqlConnectionString = Sanitize $connectionString
@@ -107,6 +108,6 @@ function UpdateHostSqlConnectionString {
     ImportantMessage "Successfully prepared SQL connection strings for all hosts"
     return $true
 }
-#endregion PrepSQLStr
+#endregion UpdateHostSqlConnectionString
 
 #endregion SQL
