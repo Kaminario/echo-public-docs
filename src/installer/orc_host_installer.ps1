@@ -126,6 +126,8 @@ $ProgressPreference = 'SilentlyContinue'
 . ./orc_no_verify_cert.ps1
 # CallSelfCertEndpoint, CallSDPApi, CallFlexApi
 . ./orc_web_client.ps1
+# Constants for installer
+. ./orc_constants_installer.ps1
 
 # global variables
 # ============================================================================
@@ -515,7 +517,7 @@ function InstallSilkNodeAgent {
     )
 
     # Run installation with timeout
-    $installSuccess = StartProcessWithTimeout -FilePath $InstallerFilePath -ArgumentList $arguments -TimeoutSeconds 90 -ProcessName "Silk Node Agent"
+    $installSuccess = StartProcessWithTimeout -FilePath $InstallerFilePath -ArgumentList $arguments -TimeoutSeconds $INTERNAL_INSTALL_TIMEOUT_SECONDS -ProcessName "Silk Node Agent"
     if (-not $installSuccess) {
         return $false
     }
@@ -650,7 +652,7 @@ $ArgumentList = @(
     )
 
     # Run installation with timeout
-    $installSuccess = StartProcessWithTimeout -FilePath $InstallerFilePath -ArgumentList $ArgumentList -TimeoutSeconds 90 -ProcessName "Silk VSS Provider"
+    $installSuccess = StartProcessWithTimeout -FilePath $InstallerFilePath -ArgumentList $ArgumentList -TimeoutSeconds $INTERNAL_INSTALL_TIMEOUT_SECONDS -ProcessName "Silk VSS Provider"
     if (-not $installSuccess) {
         return $false
     }
