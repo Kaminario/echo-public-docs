@@ -7,15 +7,15 @@ function ensureOutputDirectory {
     <#
     .SYNOPSIS
         Validates output directory existence and write permissions for logs and artifacts.
-    
+
     .DESCRIPTION
         This function ensures that the output directory exists and validates that the current
         user has write permissions to create log files and store installation artifacts.
         This validation happens early in the script to prevent failures during execution.
-    
+
     .PARAMETER OutputDir
         The directory path where logs and artifacts will be stored.
-    
+
     .RETURNS
         Boolean - True if directory is valid and writable, False otherwise
     #>
@@ -23,7 +23,7 @@ function ensureOutputDirectory {
         [Parameter(Mandatory=$true)]
         [string]$OutputDir
     )
-    
+
     try {
         # Create directory if it doesn't exist
         if (-not (Test-Path $OutputDir)) {
@@ -33,15 +33,15 @@ function ensureOutputDirectory {
         } else {
             InfoMessage "Output directory exists: $OutputDir"
         }
-        
+
         # Test write permissions by creating a temporary test file
         $testFile = Join-Path $OutputDir "write_test_$(Get-Date -Format 'yyyyMMdd_HHmmss').tmp"
         InfoMessage "Testing write permissions in output directory..."
-        
+
         try {
             # Try to create and write to a test file
             "Write permission test" | Out-File -FilePath $testFile -Encoding UTF8
-            
+
             # Verify file was created
             if (Test-Path $testFile) {
                 InfoMessage "Write permissions validated successfully."
@@ -56,7 +56,7 @@ function ensureOutputDirectory {
             ErrorMessage "Write permission test failed: $_"
             return $false
         }
-        
+
     } catch {
         ErrorMessage "Failed to create or validate output directory: $_"
         return $false

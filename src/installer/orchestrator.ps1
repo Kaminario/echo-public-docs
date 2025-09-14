@@ -141,6 +141,8 @@ if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
 . ./orc_common.ps1
 # ErrorMessage, InfoMessage, ImportantMessage, DebugMessage, WarningMessage
 . ./orc_logging.ps1
+# Start-BatchJobProcessor - generic parallel job processing
+. ./orc_generic_batch_processor.ps1
 # CallSelfCertEndpoint, CallSDPApi, CallFlexApi
 . ./orc_web_client.ps1
 # UpdateFlexAuthToken
@@ -159,6 +161,8 @@ if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
 . ./orc_uploader.ps1
 # InstallSingleHost, FetchJobResult, ProcessSingleJobResult
 . ./orc_invoke_remote_install.ps1
+# StartBatchInstallation, SaveInstallationResults
+. ./orc_batch_installer.ps1
 # EnsureHostsConnectivity
 . ./orc_host_communication.ps1
 # GetHostInstallScript
@@ -186,15 +190,15 @@ function MainOrchestrator {
         ErrorMessage "Please ensure the directory exists and you have write permissions, or run as administrator."
         return
     }
-    
-    # Load completed hosts to avoid duplicate installations  
+
+    # Load completed hosts to avoid duplicate installations
     $completedHosts = LoadCompletedHosts -StateFilePath $ProcessedHosts
-    
+
     # Filter out already completed hosts
     $originalHostCount = $config.hosts.Count
     $hostsToProcess = @()
     $skippedHosts = @()
-    
+
     foreach ($hostInfo in $config.hosts) {
         if (IsHostCompleted -CompletedHosts $completedHosts -HostAddress $hostInfo.host_addr) {
             $skippedHosts += $hostInfo
@@ -202,23 +206,23 @@ function MainOrchestrator {
             $hostsToProcess += $hostInfo
         }
     }
-    
+
     # Update config with hosts to process
     $config.hosts = $hostsToProcess
-    
+
     if ($skippedHosts.Count -gt 0) {
         ImportantMessage "Skipping $($skippedHosts.Count) already completed hosts:"
         foreach ($hostInfo in $skippedHosts) {
             InfoMessage "  - $($hostInfo.host_addr) (completed previously)"
         }
     }
-    
+
     if ($config.hosts.Count -eq 0) {
         ImportantMessage "All hosts have been processed successfully. No work to do."
         ImportantMessage "To reprocess hosts, delete or rename: $ProcessedHosts"
         return
     }
-    
+
     ImportantMessage "Processing $($config.hosts.Count) of $originalHostCount total hosts."
 
     # Download and cache installer files locally (before asking for any credentials)
@@ -242,12 +246,12 @@ function MainOrchestrator {
 
         # Filter out failed hosts and continue with valid ones
         $config.hosts = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
-        
+
         if ($config.hosts.Count -eq 0) {
             ErrorMessage "No valid hosts remaining after connectivity validation. Cannot proceed."
             return
         }
-        
+
         ImportantMessage "Continuing with $($config.hosts.Count) valid hosts after removing $($failedHosts.Count) failed hosts."
     }
 
@@ -276,11 +280,11 @@ function MainOrchestrator {
     # Upload installer files to all hosts
     InfoMessage "Uploading installer files to target hosts..."
     UploadInstallersToHosts -HostInfos $remoteComputers -LocalPaths $localInstallerPaths -MaxConcurrency $MaxConcurrency
-    
+
     # Check which hosts had upload failures and update remote computers list
     $hostsWithUploads = @($remoteComputers | Where-Object { $_.remote_installer_paths })
     $hostsWithFailedUploads = @($remoteComputers | Where-Object { -not $_.remote_installer_paths })
-    
+
     if ($hostsWithFailedUploads.Count -gt 0) {
         WarningMessage "Upload failed for $($hostsWithFailedUploads.Count) hosts:"
         foreach ($hostInfo in $hostsWithFailedUploads) {
@@ -288,10 +292,10 @@ function MainOrchestrator {
         }
     }
 
-    
+
     # Only proceed with hosts that have successful uploads
     $remoteComputers = $hostsWithUploads
-    
+
     if ($remoteComputers.Count -eq 0) {
         ErrorMessage "No hosts remain after upload failures. Cannot proceed with installation."
         return
@@ -309,81 +313,12 @@ function MainOrchestrator {
         }
     }
 
-    InfoMessage "Starting remote installation on $($remoteComputers.Count) hosts in batches of $MaxConcurrency..."
+    # Start batch installation process
+    $results = StartBatchInstallation -RemoteComputers $remoteComputers -Config $config -HostsWithUploads $hostsWithUploads -CompletedHosts $completedHosts -ProcessedHostsPath $ProcessedHosts -HostSetupScript $HostSetupScript -MaxConcurrency $MaxConcurrency
+
     try {
-        $results = @()
-        $totalHosts = $remoteComputers.Count
-        $processedHosts = 0
-
-        # Process hosts in chunks
-        for ($batchStart = 0; $batchStart -lt $totalHosts; $batchStart += $MaxConcurrency) {
-            $batchEnd = [Math]::Min($batchStart + $MaxConcurrency - 1, $totalHosts - 1)
-            if ($batchStart -eq $batchEnd) {
-                $currentBatch = @($remoteComputers[$batchStart])
-            } else {
-                $currentBatch = $remoteComputers[$batchStart..$batchEnd]
-            }
-            $batchNumber = [Math]::Floor($batchStart / $MaxConcurrency) + 1
-            $totalBatches = [Math]::Ceiling($totalHosts / $MaxConcurrency)
-
-            InfoMessage "Processing batch $batchNumber of $totalBatches (hosts $($batchStart + 1)-$($batchEnd + 1) of $totalHosts)..."
-
-            # Start jobs for current batch
-            $jobs = @()
-            foreach ($hostInfo in $currentBatch) {
-                $jobInfo = InstallSingleHost -HostInfo $hostInfo -Config $config -FlexToken $hostInfo.flex_access_token -SqlConnectionString $hostInfo.sql_connection_string -SdpCredentials $hostInfo.sdp_credential -HostSetupScript $HostSetupScript
-                $jobs += $jobInfo
-            }
-
-            InfoMessage "Installation jobs started for batch $batchNumber. Waiting for completion..."
-
-            # Process each job in the current batch
-            foreach ($jobInfo in $jobs) {
-                $result = ProcessSingleJobResult -JobInfo $jobInfo
-                $results += $result
-
-                # Update the corresponding host's result field
-                $hostToUpdate = $hostsWithUploads | Where-Object { $_.host_addr -eq $result.HostAddress }
-                if ($hostToUpdate) {
-                    SetHostResultWithProgress -HostInfo $hostToUpdate -Result $result -AllHosts $config.hosts
-                }
-
-                if ($result.JobState -eq 'Success') {
-                    $script:NumOfSuccessHosts++
-                    # Mark host as completed
-                    MarkHostCompleted -CompletedHosts $completedHosts -HostAddress $result.HostAddress
-                    SaveCompletedHosts -StateFilePath $ProcessedHosts -CompletedHosts $completedHosts | Out-Null
-                } else {
-                    $script:NumOfFailedHosts++
-                }
-                
-                $processedHosts++
-            }
-
-            InfoMessage "Batch $batchNumber completed. Progress: $processedHosts/$totalHosts hosts processed."
-        }
-
-        $logPath = Join-Path $SilkEchoInstallerCacheDir "installation_logs_$(Get-Date -Format 'yyyyMMdd_HHmmss').json"
-        $results | ConvertTo-Json -Depth 4 | Out-File -FilePath $logPath
-
-        # Final checkpoint: Save complete progress summary
-        WriteHostsSummaryToFile -Hosts $config.hosts -OutputPath $SilkEchoProgressFilePath
-
-        # Display short summary to console
-        DisplayHostsSummary -Hosts $config.hosts
-        
-        InfoMessage ""
-        InfoMessage "Detailed logs saved to: $logPath"
-        
-        if ($script:NumOfFailedHosts -gt 0) {
-            ErrorMessage "Installation failed on $script:NumOfFailedHosts host(s). Check the logs for details."
-        } else {
-            InfoMessage "Installation completed successfully on all hosts."
-        }
-        
-        InfoMessage "Completed hosts saved to: $ProcessedHosts"
-        InfoMessage "To reprocess all hosts, delete the completed hosts file above."
-        InfoMessage "*************************************************"
+        # Save installation results and generate summaries
+        SaveInstallationResults -Results $results -Config $config -CacheDirectory $SilkEchoInstallerCacheDir -ProgressFilePath $SilkEchoProgressFilePath -ProcessedHostsPath $ProcessedHosts
     }
     catch {
         ErrorMessage "Error during remote installation: $_"

@@ -96,7 +96,7 @@ function WriteHostsSummaryToFile {
     param (
         [Parameter(Mandatory=$true)]
         [Array]$Hosts,
-        
+
         [Parameter(Mandatory=$true)]
         [string]$OutputPath
     )
@@ -116,12 +116,12 @@ function WriteHostsSummaryToFile {
     $outputLines += "=============== HOSTS SUMMARY ==============="
     $outputLines += "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
     $outputLines += ""
-    
+
     # Write hosts with issues first
     if ($hostsWithIssues.Count -gt 0) {
         $outputLines += "HOSTS WITH ISSUES ($($hostsWithIssues.Count)):"
         $outputLines += ""
-        
+
         foreach ($hostInfo in $hostsWithIssues) {
             $outputLines += "$($hostInfo.host_addr):"
             if ($hostInfo.issues.Count -gt 0) {
@@ -130,7 +130,7 @@ function WriteHostsSummaryToFile {
                     $outputLines += "  - $issue"
                 }
             }
-            
+
             if ($hostInfo.result) {
                 $resultJson = $hostInfo.result | ConvertTo-Json -Compress
                 $outputLines += "  result: $resultJson"
@@ -145,16 +145,16 @@ function WriteHostsSummaryToFile {
     if ($hostsWithResults.Count -gt 0) {
         $outputLines += "HOSTS WITH RESULTS ($($hostsWithResults.Count)):"
         $outputLines += ""
-        
+
         foreach ($hostInfo in $hostsWithResults) {
             # Skip hosts that were already shown in issues section
             if ($hostInfo.issues.Count -gt 0) {
                 continue
             }
-            
+
             $outputLines += "$($hostInfo.host_addr):"
             $outputLines += "  issues: none"
-            
+
             $resultJson = $hostInfo.result | ConvertTo-Json -Compress
             $outputLines += "  result: $resultJson"
             $outputLines += ""
@@ -163,7 +163,7 @@ function WriteHostsSummaryToFile {
 
     # Write to file
     $outputLines | Out-File -FilePath $OutputPath -Encoding UTF8
-    
+
     # Display only summary statistics to console (counts only, no errors)
     $totalHosts = $Hosts.Count
     $successfulHosts = @($Hosts | Where-Object { $_.result.JobState -eq 'Success' }).Count
@@ -206,7 +206,7 @@ function DisplayHostsSummary {
     InfoMessage "=============== INSTALLATION SUMMARY ==============="
     InfoMessage "Total hosts: $totalHosts"
     InfoMessage "Successful: $successfulHosts"
-    InfoMessage "Failed: $failedHosts" 
+    InfoMessage "Failed: $failedHosts"
     InfoMessage "With issues: $hostsWithIssues"
     InfoMessage "=================================================="
 }
@@ -228,14 +228,14 @@ function AddHostIssueWithProgress {
     param (
         [Parameter(Mandatory=$true)]
         [PSCustomObject]$HostInfo,
-        
+
         [Parameter(Mandatory=$true)]
         [string]$Issue,
-        
+
         [Parameter(Mandatory=$true)]
         [Array]$AllHosts
     )
-    
+
     $HostInfo.issues += $Issue
     WriteHostsSummaryToFile -Hosts $AllHosts -OutputPath $SilkEchoProgressFilePath
 }
@@ -257,14 +257,14 @@ function SetHostResultWithProgress {
     param (
         [Parameter(Mandatory=$true)]
         [PSCustomObject]$HostInfo,
-        
+
         [Parameter(Mandatory=$true)]
         [PSCustomObject]$Result,
-        
+
         [Parameter(Mandatory=$true)]
         [Array]$AllHosts
     )
-    
+
     $HostInfo.result = $Result
     WriteHostsSummaryToFile -Hosts $AllHosts -OutputPath $SilkEchoProgressFilePath
 }

@@ -446,32 +446,32 @@ function StartProcessWithTimeout {
     param (
         [Parameter(Mandatory=$true)]
         [string]$FilePath,
-        
+
         [Parameter(Mandatory=$true)]
         [array]$ArgumentList,
-        
+
         [Parameter(Mandatory=$false)]
         [int]$TimeoutSeconds = 90,
-        
+
         [Parameter(Mandatory=$true)]
         [string]$ProcessName
     )
-    
+
     try {
         # Start installation process with timeout
         $installJob = Start-Job -ScriptBlock {
             param($InstallerPath, $Args)
             Start-Process -FilePath $InstallerPath -ArgumentList $Args -Wait -NoNewWindow -PassThru
         } -ArgumentList $FilePath, $ArgumentList
-        
+
         # Wait for job completion with timeout
         $waitResult = $installJob | Wait-Job -Timeout $TimeoutSeconds
-        
+
         if ($waitResult) {
             $installProcess = Receive-Job -Job $installJob
             $exitCode = $installProcess.ExitCode
             Remove-Job -Job $installJob -Force
-            
+
             if ($exitCode -ne 0) {
                 ErrorMessage "$ProcessName installation failed with exit code $exitCode"
                 return $false

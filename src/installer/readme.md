@@ -40,7 +40,13 @@ The Silk Echo installer automates the deployment of Silk's data acceleration com
 4. **SQL Server Integration**: Configures database connectivity for the Node Agent
 5. **SDP Integration**: Connects to Silk Data Platform for storage services
 
-The system supports parallel installation across multiple hosts with comprehensive validation, logging, fault-tolerant error handling, and automatic state tracking to prevent duplicate installations and enable safe resumption after interruption. The system gracefully continues with valid hosts when some hosts fail validation.
+### Key System Features
+- **Dynamic Parallel Processing**: Smart job scheduling that starts new installations immediately when slots become available (no fixed batch waiting)
+- **Real-time Progress Tracking**: Live updates showing "X of Y jobs completed, Z running" during all operations (upload, connectivity, installation)
+- **Fault Tolerance**: Gracefully continues with valid hosts when some fail validation, upload, or installation
+- **State Persistence**: Automatic tracking in `processing.json` to prevent duplicate installations and enable safe resumption after interruption
+- **Timeout Protection**: Two-tier timeout system (110s internal job timeout, 120s orchestrator timeout) prevents hanging jobs
+- **Unified Architecture**: Consistent processing patterns across upload, connectivity testing, and installation operations
 
 ## Directory Structure
 
@@ -58,7 +64,7 @@ This installer is organized as a modular PowerShell system with the following co
 |--------|----------|-------------|
 | **orc_constants.ps1** | Global constants | Version info, authentication enums, default URLs |
 | **orc_common.ps1** | Utility functions | SecureString conversion, AD user detection |
-| **orc_logging.ps1** | Centralized logging | Multi-level logging with credential sanitization |
+| **orc_logging.ps1** | Centralized logging | Multi-level logging, credential sanitization, real-time progress tracking |
 | **orc_config.ps1** | Configuration management | JSON parsing, template generation, host inheritance |
 | **orc_requirements.ps1** | System validation | PowerShell version, admin privileges checks |
 
@@ -80,7 +86,9 @@ This installer is organized as a modular PowerShell system with the following co
 | Module | Function | Description |
 |--------|----------|-------------|
 | **orc_uploader.ps1** | File management | Installer download/caching, remote distribution |
-| **orc_invoke_remote_install.ps1** | Remote execution | Parallel job management, result collection |
+| **orc_invoke_remote_install.ps1** | Remote execution | Individual job management, timeout protection, result processing |
+| **orc_batch_installer.ps1** | Batch orchestration | Dynamic parallel installation processing, progress tracking |
+| **orc_generic_batch_processor.ps1** | Generic batch engine | Reusable dynamic parallel job processing with progress tracking |
 | **orc_tracking.ps1** | State tracking | Processing state persistence, duplicate prevention, resume capability |
 | **orc_host_setup_extractor.ps1** | Script extraction | Dynamic script generation for remote hosts |
 | **orc_import_expander.ps1** | Import processing | Inline script expansion for production builds |
@@ -115,9 +123,9 @@ Download → Upload → Register → Install Agent → Install VSS → Validate
 ```
 
 #### 3. Error Handling Strategy
-- Comprehensive error tracking with sanitized credentials
-- Multi-level logging (DEBUG, INFO, WARN, ERROR)  
-- **Fault-tolerant processing**: Continue with valid hosts when some fail validation
+- Error tracking with sanitized credentials
+- Multi-level logging (DEBUG, INFO, WARN, ERROR)
+- **Fault-tolerant processing**: Continue with valid hosts when some fail validation or file upload
 - Graceful degradation with detailed error reporting
 - Summary reports with success/failure analytics
 
@@ -132,7 +140,7 @@ The configuration system uses JSON with inheritance patterns:
   },
   "hosts": [
     {
-      "host_addr": "host1", 
+      "host_addr": "host1",
       "override_property": "host_specific_value"
     },
     "host2"  // Inherits all common properties
@@ -158,7 +166,7 @@ The configuration system uses JSON with inheritance patterns:
 **Credential Authentication:**
 ```json
 {
-  "common": { 
+  "common": {
     "host_auth": "credentials",
     "host_user": "admin",
     "host_pass": "password"
@@ -231,7 +239,7 @@ When modifying `orc_*.ps1` modules:
 
 **PowerShell Features:**
 ```powershell
-# Get comprehensive help
+# Get detailed help
 Get-Help .\orchestrator.ps1 -Full
 
 # Enable debug output
@@ -265,7 +273,7 @@ Get-Help .\orchestrator.ps1 -Full
 ### External Dependencies
 - Valid SQL Server connection strings
 - Silk Flex server access credentials
-- SDP (Silk Data Platform) credentials  
+- SDP (Silk Data Platform) credentials
 - Download URLs for Silk Agent and VSS Provider installers
 
 ## API Reference
@@ -316,9 +324,12 @@ Get-Help .\orchestrator.ps1 -Full
 ### Module Functions
 
 **Core Logging (`orc_logging.ps1`):**
-- `Log-Error`, `Log-Info`, `Log-Warn`, `Log-Debug`
-- Automatic credential sanitization
-- Timestamped output formatting
+- `ErrorMessage`, `InfoMessage`, `WarningMessage`, `DebugMessage`
+- `WriteHostsSummaryToFile` - Detailed progress file output with host status
+- `DisplayHostsSummary` - Console summary showing counts only
+- `AddHostIssueWithProgress` - Real-time progress tracking for host issues
+- `SetHostResultWithProgress` - Real-time progress tracking for installation results
+- Automatic credential sanitization and timestamped output formatting
 
 **Configuration Management (`orc_config.ps1`):**
 - `Get-ConfigFromFile` - Load and validate JSON configuration
@@ -331,6 +342,6 @@ Get-Help .\orchestrator.ps1 -Full
 
 **Installation State Tracking (`orc_tracking.ps1`):**
 - `LoadCompletedHosts` - Load simple completed hosts list from processing.json
-- `SaveCompletedHosts` - Save completed hosts list with timestamps  
+- `SaveCompletedHosts` - Save completed hosts list with timestamps
 - `IsHostCompleted` - Check if host exists in completed hosts list
 - `MarkHostCompleted` - Mark host as completed with current timestamp

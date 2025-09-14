@@ -107,7 +107,7 @@ function resolveIPToHostname {
         [Parameter(Mandatory=$true)]
         [string]$IPAddress
     )
-    
+
     try {
         $hostname = [System.Net.Dns]::GetHostEntry($IPAddress).HostName
         if ($hostname -and $hostname -ne $IPAddress) {
@@ -117,7 +117,7 @@ function resolveIPToHostname {
     } catch {
         DebugMessage "Failed to resolve IP $IPAddress to hostname: $_"
     }
-    
+
     return $null
 }
 #endregion resolveIPToHostname
@@ -262,8 +262,6 @@ function EnsureHostsConnectivity {
                         continue
                     }
                 }
-                # Test connectivity will be done in parallel after hostname resolution
-                # Placeholder - actual connectivity test will be done later in parallel
             }
         }
     }
@@ -292,9 +290,12 @@ function EnsureHostsConnectivity {
             ErrorMessage "Failed to add hosts to TrustedHosts. Cannot proceed with $ENUM_CREDENTIALS authentication."
             Exit 1
         }
+    }
 
-        # Connectivity testing for credential hosts will be done in parallel
-        # Placeholder - actual connectivity test will be done later in parallel
+    # Perform parallel connectivity testing for all hosts that passed validation
+    $hostsToTest = @($hostEntries | Where-Object { $_.issues.Count -eq 0 })
+    if ($hostsToTest.Count -gt 0) {
+        testHostsConnectivityInParallel -hostEntries $hostsToTest
     }
 
     $badHosts = @($hostEntries | Where-Object { $_.issues.Count -gt 0 })
@@ -302,3 +303,89 @@ function EnsureHostsConnectivity {
     return $badHosts
 }
 #endregion EnsureHostsConnectivity
+
+#region testHostsConnectivityInParallel
+function testHostsConnectivityInParallel {
+    param (
+        [Parameter(Mandatory=$true)]
+        [Array]$hostEntries,
+        [Parameter(Mandatory=$false)]
+        [int]$MaxConcurrency = 10
+    )
+
+    # Connectivity test job logic
+    $connectivityJobScript = {
+        param($HostInfo, $ENUM_ACTIVE_DIRECTORY, $ENUM_CREDENTIALS)
+
+        function InfoMessage { param($message) Write-Host "[INFO] $message" -ForegroundColor Green }
+
+        # Connectivity test logic (same as isHostConnectivityValid but in job)
+        try {
+            $scriptBlock = {
+                try {
+                    Get-Date
+                } catch {
+                    "ERROR: $($_.Exception.Message)"
+                }
+            }
+
+            if ($HostInfo.host_auth -eq $ENUM_ACTIVE_DIRECTORY) {
+                InfoMessage "Testing connectivity to $($HostInfo.host_addr) using $ENUM_ACTIVE_DIRECTORY authentication..."
+                $result = Invoke-Command -ComputerName $HostInfo.host_addr -ScriptBlock $scriptBlock -ErrorAction Stop
+            } elseif ($HostInfo.host_auth -eq $ENUM_CREDENTIALS) {
+                $credential = New-Object System.Management.Automation.PSCredential($HostInfo.host_user, $HostInfo.host_pass)
+                $sessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
+                InfoMessage "Testing connectivity to $($HostInfo.host_addr) using $ENUM_CREDENTIALS authentication..."
+                $result = Invoke-Command -ComputerName $HostInfo.host_addr -Credential $credential -ScriptBlock $scriptBlock -SessionOption $sessionOption -ErrorAction Stop
+            } else {
+                return @{ Success = $false; Error = "Invalid authentication method" }
+            }
+
+            InfoMessage "Successfully connected to $($HostInfo.host_addr) with result: $result"
+
+            # Check if result indicates an error
+            if ($result -and $result.ToString().StartsWith("ERROR:")) {
+                return @{ Success = $false; Error = "Remote command execution failed: $result" }
+            }
+
+            return @{ Success = $true; Error = $null }
+        } catch {
+            return @{ Success = $false; Error = $_.Exception.Message }
+        }
+    }
+
+    # Result processor
+    $resultProcessor = {
+        param($JobInfo)
+
+        $job = $JobInfo.Job
+        $hostInfo = $JobInfo.Item
+
+        if ($job.State -eq 'Completed') {
+            $testResult = Receive-Job -Job $job
+            if ($testResult -and $testResult.Success) {
+                InfoMessage "Successfully verified connectivity to $($hostInfo.host_addr)"
+            } else {
+                $errorMsg = if ($testResult.Error) { $testResult.Error } else { "Unknown connectivity error" }
+                AddHostIssueWithProgress -HostInfo $hostInfo -Issue "Failed to connect to host using $($hostInfo.host_auth) authentication: $errorMsg" -AllHosts @($hostInfo)
+            }
+        } else {
+            $stdErrOut = Receive-Job -Job $job -ErrorAction SilentlyContinue | Out-String
+            $errorMsg = "Connectivity test job failed for $($hostInfo.host_addr). State: $($job.State). $stdErrOut"
+            AddHostIssueWithProgress -HostInfo $hostInfo -Issue $errorMsg -AllHosts @($hostInfo)
+        }
+        Remove-Job -Job $job -Force
+    }
+
+    # Enhanced job script that includes constants
+    $jobScriptWithConstants = {
+        param($hostInfo)
+        $ENUM_ACTIVE_DIRECTORY = "active_directory"
+        $ENUM_CREDENTIALS = "credentials"
+        & ([ScriptBlock]::Create($using:connectivityJobScript)) $hostInfo $ENUM_ACTIVE_DIRECTORY $ENUM_CREDENTIALS
+    }
+
+    # Use generic batch processor
+    Start-BatchJobProcessor -Items $hostEntries -JobScriptBlock $jobScriptWithConstants -ResultProcessor $resultProcessor -MaxConcurrency $MaxConcurrency -JobDescription "connectivity test"
+}
+#endregion testHostsConnectivityInParallel
