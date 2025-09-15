@@ -62,7 +62,8 @@
 
 .OUTPUTS
     Installation logs and status messages.
-    Detailed logs are saved to installation_logs_<timestamp>.json file.
+    The Per host installation logs are saved in the output directory defined by $SilkEchoInstallerCacheDir variable.
+    A summary of installation results is displayed at the end of the script execution.
 
 .NOTES
     File Name      : orchestrator.ps1

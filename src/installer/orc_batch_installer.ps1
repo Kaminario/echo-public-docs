@@ -286,10 +286,6 @@ function SaveInstallationResults {
     )
 
     try {
-        # Save detailed logs
-        $logPath = Join-Path $CacheDirectory "installation_logs_$(Get-Date -Format 'yyyyMMdd_HHmmss').json"
-        $Results | ConvertTo-Json -Depth 4 | Out-File -FilePath $logPath
-
         # Final checkpoint: Save complete progress summary
         WriteHostsSummaryToFile -Hosts $Config.hosts -OutputPath $ProgressFilePath
 
@@ -297,7 +293,6 @@ function SaveInstallationResults {
         DisplayHostsSummary -Hosts $Config.hosts
 
         InfoMessage ""
-        InfoMessage "Detailed logs saved to: $logPath"
 
         if ($script:NumOfFailedHosts -gt 0) {
             ErrorMessage "Installation failed on $script:NumOfFailedHosts host(s). Check the logs for details."
