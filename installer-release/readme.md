@@ -11,7 +11,23 @@ The Silk Echo installer automates the deployment of Silk's data acceleration com
 - **Host Registration**: Registers hosts with Silk Flex management server
 - **SQL Server Integration**: Configures database connectivity for the Node Agent
 
-The installer supports parallel execution across multiple hosts with comprehensive validation, logging, and error handling.
+## Key Features
+
+### ⚡ **Dynamic Parallel Processing**
+- **Smart Job Scheduling**: Starts new installations immediately when slots become available (no fixed batch waiting)
+- **Real-time Progress**: Live updates showing "X of Y jobs completed, Z running" during all operations
+- **Maximum Efficiency**: Optimal resource utilization with dynamic concurrency management
+
+### 🛡️ **Enterprise-Grade Reliability**
+- **Fault Tolerance**: Continues with valid hosts when some fail validation, upload, or installation
+- **State Persistence**: Resume capability via automatic progress tracking in `processing.json`
+- **Timeout Protection**: Two-tier timeout system (110s internal, 120s orchestrator) prevents hanging jobs
+- **Comprehensive Logging**: Detailed timestamped logs with credential sanitization
+
+### 📊 **Advanced Monitoring**
+- **Real-time Progress Tracking**: Live status updates during upload, connectivity testing, and installation
+- **Host-by-Host Status**: Detailed progress reports and final installation summaries
+- **Immediate Result Collection**: Job results processed and logged as soon as they complete
 
 ## Quick Start
 
@@ -424,6 +440,8 @@ The installer follows this workflow:
    - Uses local paths if files exist at specified locations
    - Caches downloaded files in `SilkEchoInstallerArtifacts` directory
 4. **Connectivity Testing**: Validates PowerShell remoting to all target hosts
+   - **Fault-tolerant**: Failed hosts are logged but script continues with valid hosts
+   - Only terminates if no valid hosts remain
 5. **Authentication Setup**:
    - Logs into Silk Flex server and obtains access token
    - Validates SDP credentials
@@ -433,7 +451,7 @@ The installer follows this workflow:
    - Copies both agent and VSS installer files to each host
    - Uses PowerShell remoting for file transfer
    - Processes hosts with configured concurrency (default: 10)
-   - **Only proceeds to installation if ALL uploads succeed**
+   - **Fault-tolerant**: Failed uploads are logged but script continues with successful hosts
 7. **Installation Execution**: Runs installations across hosts with configured concurrency
    - Uses the uploaded installer files from each host's temporary directory
    - Executes installations in parallel batches
@@ -534,11 +552,43 @@ Run with `-Debug` or `-Verbose` for detailed troubleshooting information:
 
 ## Logging and Output
 
-The installer provides comprehensive logging:
+The installer provides logging and state tracking:
 
 - **Console Output**: Real-time progress and status messages
 - **Detailed Logs**: Saved to `SilkEchoInstallerArtifacts\installation_logs_<timestamp>.json`
+- **Processing State**: Saved to `SilkEchoInstallerArtifacts\processing.json` to track completed installations
 - **Credential Sanitization**: Passwords are automatically redacted from all log output
 - **Installation Summary**: Final report showing success/failure count per host
+- **Resume Capability**: Script can be safely interrupted and resumed, skipping already completed hosts
 
-The installer creates a cache directory `SilkEchoInstallerArtifacts` in the script location for temporary files and logs.
+The installer creates a cache directory `SilkEchoInstallerArtifacts` in the script location for temporary files, logs, and state tracking.
+
+## Installation State Tracking
+
+The installer automatically tracks installation progress to prevent duplicate installations and enable safe resumption:
+
+### **Processing State File**
+- **Location**: `SilkEchoInstallerArtifacts\processing.json`
+- **Purpose**: Tracks which hosts have been successfully processed
+- **Format**: Simple JSON file with completed host addresses and completion timestamps
+
+### **Simple Tracking**
+- Only successfully completed hosts are tracked
+- Each completed host has a timestamp of when it was completed
+- Failed hosts are NOT tracked (they will be retried on next run)
+- Simple format: `{"host_addr": "completion_timestamp"}`
+
+### **Resume Capability**
+- If the script is interrupted, rerun with the same configuration
+- Already completed hosts will be automatically skipped
+- Only remaining hosts will be processed
+- To reprocess all hosts, delete `processing.json` file
+
+### **State Management Commands**
+```powershell
+# View current processing state
+Get-Content "SilkEchoInstallerArtifacts\processing.json" | ConvertFrom-Json
+
+# Reset processing state (reprocess all hosts)
+Remove-Item "SilkEchoInstallerArtifacts\processing.json"
+```

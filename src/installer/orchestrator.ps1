@@ -192,7 +192,7 @@ function MainOrchestrator {
     }
 
     # Load completed hosts to avoid duplicate installations
-    $completedHosts = LoadCompletedHosts -StateFilePath $ProcessedHosts
+    $completedHosts = LoadCompletedHosts -StateFilePath $script:processedHostsFile
 
     # Filter out already completed hosts
     $originalHostCount = $config.hosts.Count
@@ -219,7 +219,7 @@ function MainOrchestrator {
 
     if ($config.hosts.Count -eq 0) {
         ImportantMessage "All hosts have been processed successfully. No work to do."
-        ImportantMessage "To reprocess hosts, delete or rename: $ProcessedHosts"
+        ImportantMessage "To reprocess hosts, delete or rename: $script:processedHostsFile"
         return
     }
 
@@ -314,11 +314,11 @@ function MainOrchestrator {
     }
 
     # Start batch installation process
-    $results = StartBatchInstallation -RemoteComputers $remoteComputers -Config $config -HostsWithUploads $hostsWithUploads -CompletedHosts $completedHosts -ProcessedHostsPath $ProcessedHosts -HostSetupScript $HostSetupScript -MaxConcurrency $MaxConcurrency
+    $results = StartBatchInstallation -RemoteComputers $remoteComputers -Config $config -HostsWithUploads $hostsWithUploads -CompletedHosts $completedHosts -ProcessedHostsPath $script:processedHostsFile -HostSetupScript $HostSetupScript -MaxConcurrency $MaxConcurrency
 
     try {
         # Save installation results and generate summaries
-        SaveInstallationResults -Results $results -Config $config -CacheDirectory $SilkEchoInstallerCacheDir -ProgressFilePath $SilkEchoProgressFilePath -ProcessedHostsPath $ProcessedHosts
+        SaveInstallationResults -Results $results -Config $config -CacheDirectory $SilkEchoInstallerCacheDir -ProgressFilePath $SilkEchoProgressFilePath -ProcessedHostsPath $script:processedHostsFile
     }
     catch {
         ErrorMessage "Error during remote installation: $_"

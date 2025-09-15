@@ -14,7 +14,7 @@ $cacheDir = Join-Path $PSScriptRoot "SilkEchoInstallerArtifacts"
 Set-Variable -Name SilkEchoInstallerCacheDir -Value $cacheDir -Option AllScope -Scope Script
 # Processed hosts file path
 $processedHostsFile = Join-Path $cacheDir "processing.json"
-Set-Variable -Name ProcessedHosts -Value $processedHostsFile -Option AllScope -Scope Script
+Set-Variable -Name processedHostsFile -Value $processedHostsFile -Option AllScope -Scope Script
 # Marker
 Set-Variable -Name HOSTSETUP_START_MARKER -Value ("MARKER: " + "HOST_INSTALLER_STARTS_HERE") -Option AllScope -Scope Script
 

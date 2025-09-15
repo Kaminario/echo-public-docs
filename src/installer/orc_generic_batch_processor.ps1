@@ -98,7 +98,6 @@ function Start-BatchJobProcessor {
             Start-Sleep -Milliseconds 100
         }
     }
-
     InfoMessage "Completed $JobDescription processing for $processedCount of $totalItems items"
 }
 #endregion Generic Batch Job Processor

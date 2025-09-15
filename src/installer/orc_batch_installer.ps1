@@ -28,7 +28,7 @@ function StartBatchInstallation {
         [Parameter(Mandatory=$true)]
         [Array]$HostsWithUploads,
         [Parameter(Mandatory=$true)]
-        [hashtable]$CompletedHosts,
+        [PSCustomObject]$CompletedHosts,
         [Parameter(Mandatory=$true)]
         [string]$ProcessedHostsPath,
         [Parameter(Mandatory=$true)]
@@ -36,6 +36,13 @@ function StartBatchInstallation {
         [Parameter(Mandatory=$false)]
         [int]$MaxConcurrency = 10
     )
+
+    # Ensure InstallSingleHost and its dependencies are available (in case running in dev mode)
+    . ./orc_logging.ps1
+    . ./orc_invoke_remote_install.ps1
+
+    # Capture the InstallSingleHost function definition so it can be defined inside job runspaces
+    $installSingleHostDef = ${function:InstallSingleHost}.ToString()
 
     # Installation job logic - starts installation on a single host
     $installationJobScript = {
