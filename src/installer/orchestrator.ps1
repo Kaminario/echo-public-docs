@@ -310,7 +310,7 @@ function MainOrchestrator {
     }
 
     # Start batch installation process
-    $results = StartBatchInstallation -RemoteComputers $remoteComputers -Config $config -HostsWithUploads $hostsWithUploads -CompletedHosts $completedHosts -ProcessedHostsPath $script:processedHostsFile -HostSetupScript $HostSetupScript -MaxConcurrency $script:MaxConcurrency
+    $results = StartBatchInstallation -RemoteComputers $remoteComputers -Config $config -CompletedHosts $completedHosts -ProcessedHostsPath $script:processedHostsFile -HostSetupScript $HostSetupScript -MaxConcurrency $script:MaxConcurrency
 
     try {
         # Save installation results and generate summaries

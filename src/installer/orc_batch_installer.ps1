@@ -26,8 +26,6 @@ function StartBatchInstallation {
         [Parameter(Mandatory=$true)]
         [PSCustomObject]$Config,
         [Parameter(Mandatory=$true)]
-        [Array]$HostsWithUploads,
-        [Parameter(Mandatory=$true)]
         [PSCustomObject]$CompletedHosts,
         [Parameter(Mandatory=$true)]
         [string]$ProcessedHostsPath,
@@ -38,73 +36,39 @@ function StartBatchInstallation {
     )
 
 
-    # Installation job logic - starts installation on a single host
+    # Installation job logic - direct remote installation (like upload/connectivity pattern)
     $installationJobScript = {
-        param($hostInfo)
-        
-        # Ensure InstallSingleHost and its dependencies are available (in case running in dev mode)
-        function DebugMessage { param($message) Write-Host "[DEBUG] $message" -ForegroundColor Gray }
-        function InfoMessage { param($message) Write-Host "[INFO] $message" -ForegroundColor Green }
-        function ErrorMessage { param($message) Write-Host "[ERROR] $message" -ForegroundColor Red }
-        function ImportantMessage { param($message) Write-Host "[IMPORTANT] $message" -ForegroundColor Yellow }
-                
-        #region InstallSingleHost
-        function InstallSingleHost {
-            param (
-                [Parameter(Mandatory=$true)]
-                [PSCustomObject]$HostInfo,
-                [Parameter(Mandatory=$true)]
-                [PSCustomObject]$Config,
-                [Parameter(Mandatory=$true)]
-                [string]$FlexToken,
-                [Parameter(Mandatory=$true)]
-                [string]$SqlConnectionString,
-                [Parameter(Mandatory=$true)]
-                [System.Management.Automation.PSCredential]$SdpCredentials,
-                [Parameter(Mandatory=$true)]
-                [string]$HostSetupScript
-            )
+        param($hostInfo, $Config, $HostSetupScript, $ENUM_ACTIVE_DIRECTORY, $DryRunFlag)
 
-            $HostAddress = $HostInfo.host_addr
+        function InfoMessage { param($message) Write-Host "[INFO] $message" -ForegroundColor Green }
+        function DebugMessage { param($message) Write-Host "[DEBUG] $message" -ForegroundColor Gray }
+        function ErrorMessage { param($message) Write-Host "[ERROR] $message" -ForegroundColor Red }
+
+        try {
+            $HostAddress = $hostInfo.host_addr
             InfoMessage "Starting installation on $HostAddress..."
 
             $IsDebug = $DebugPreference -eq 'Continue'
-            $IsDryRun = $DryRun.IsPresent
-            # Use uploaded installer paths instead of URLs
-            $agentPath = if ($HostInfo.remote_installer_paths.agent) { $HostInfo.remote_installer_paths.agent } else { $Config.agent }
-            $vssPath = if ($HostInfo.remote_installer_paths.vss) { $HostInfo.remote_installer_paths.vss } else { $Config.svss }
+            $IsDryRun = $DryRunFlag
 
-            $ArgumentList = @(
-                $HostInfo.flex_host_ip,
-                $FlexToken,
-                $SqlConnectionString,
-                $agentPath,
-                $vssPath,
-                $HostInfo.sdp_id,
-                $SdpCredentials.UserName,
-                $SdpCredentials.GetNetworkCredential().Password,
-                $IsDebug,
-                $IsDryRun,
-                $HostInfo.mount_points_directory
-            )
+            # Use uploaded installer paths instead of URLs
+            $agentPath = if ($hostInfo.remote_installer_paths.agent) { $hostInfo.remote_installer_paths.agent } else { $Config.agent }
+            $vssPath = if ($hostInfo.remote_installer_paths.vss) { $hostInfo.remote_installer_paths.vss } else { $Config.svss }
 
             DebugMessage "Preparing to run installation script on $HostAddress"
-            DebugMessage "Using Flex IP: $($HostInfo.flex_host_ip)"
+            DebugMessage "Using Flex IP: $($hostInfo.flex_host_ip)"
             DebugMessage "Using Flex Token: [REDACTED]"
             DebugMessage "Using SQL Connection String: [REDACTED]"
             DebugMessage "Using agent path: $agentPath"
             DebugMessage "Using VSS path: $vssPath"
-            DebugMessage "Using SDP ID: $($HostInfo.sdp_id)"
-            DebugMessage "Using SDP Username: $($SdpCredentials.UserName)"
+            DebugMessage "Using SDP ID: $($hostInfo.sdp_id)"
+            DebugMessage "Using SDP Username: $($hostInfo.sdp_credential.UserName)"
             DebugMessage "Using SDP Password: [REDACTED]"
-            DebugMessage "Dry Run Mode: $($IsDryRun)"
-            DebugMessage "Mount Points Directory: $($HostInfo.mount_points_directory)"
+            DebugMessage "Dry Run Mode: $IsDryRun"
+            DebugMessage "Mount Points Directory: $($hostInfo.mount_points_directory)"
 
-            # Read the script content and convert it to a scriptblock
-            $installScript = [ScriptBlock]::Create(($HostSetupScript))
-
-            # Create the remote scriptblock
-            $scriptBlock = {
+            # Create the remote scriptblock for installation
+            $remoteInstallationScript = {
                 param($FlexIP, $FlexToken, $DBConnectionString, $SilkAgentPath, $SilkVSSPath, $SDPId, $SDPUsername, $SDPPassword, $DebugMode, $DryRunMode, $MountPointsDirectory, $Script)
 
                 # Set debug preferences in the remote session based on the debug mode
@@ -136,64 +100,139 @@ function StartBatchInstallation {
                 # Add DryRun parameter if in dry run mode
                 if ($DryRunMode) {
                     $functionArgs.Add('DryRun', $true)
-                    InfoMessage "Dry run mode is enabled, no changes will be made."
+                    Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [INFO] - Dry run mode is enabled, no changes will be made."
                 }
 
                 # Execute function with prepared arguments using splatting
                 try {
-                    & $function @functionArgs
+                    $result = & $function @functionArgs
+                    return @{ Success = $true; Output = $result; Error = $null }
                 } catch {
-                    ErrorMessage "Installation script execution failed on host $env:COMPUTERNAME: $_"
-                    throw
+                    Write-Error "Installation script execution failed on host $env:COMPUTERNAME: $_"
+                    return @{ Success = $false; Output = $null; Error = $_.Exception.Message }
                 }
             }
 
-            # Add the script content to the argument list
-            $ArgumentList += @($installScript.ToString())
+            # Prepare argument list with null checks
+            $ArgumentList = @(
+                $hostInfo.flex_host_ip,
+                $hostInfo.flex_access_token,
+                $hostInfo.sql_connection_string,
+                $agentPath,
+                $vssPath,
+                $hostInfo.sdp_id,
+                $hostInfo.sdp_credential.UserName,
+                $hostInfo.sdp_credential.GetNetworkCredential().Password,
+                $IsDebug,
+                $IsDryRun,
+                $hostInfo.mount_points_directory,
+                $HostSetupScript
+            )
 
-            # Prepare invoke command parameters
+            # Validate ArgumentList for null values
+            for ($i = 0; $i -lt $ArgumentList.Count; $i++) {
+                if ($null -eq $ArgumentList[$i]) {
+                    $paramNames = @('flex_host_ip', 'flex_access_token', 'sql_connection_string', 'agentPath', 'vssPath', 'sdp_id', 'sdp_username', 'sdp_password', 'IsDebug', 'IsDryRun', 'mount_points_directory', 'HostSetupScript')
+                    ErrorMessage "Null value found in ArgumentList at index $i (parameter: $($paramNames[$i]))"
+                    return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Null parameter: $($paramNames[$i])" }
+                }
+            }
+
+            # Prepare invoke command parameters - DIRECT EXECUTION (NO -AsJob)
             $invokeParams = @{
                 ComputerName = $HostAddress
-                AsJob = $true
-                ScriptBlock = $scriptBlock
+                ScriptBlock = $remoteInstallationScript
                 ArgumentList = $ArgumentList
             }
 
             # Add credential parameter only if not using Kerberos
-            if ($HostInfo.host_auth -ne $ENUM_ACTIVE_DIRECTORY) {
-                $credential = New-Object System.Management.Automation.PSCredential($HostInfo.host_user, $HostInfo.host_pass)
+            if ($hostInfo.host_auth -ne $ENUM_ACTIVE_DIRECTORY) {
+                $credential = New-Object System.Management.Automation.PSCredential($hostInfo.host_user, $hostInfo.host_pass)
                 $invokeParams['Credential'] = $credential
             }
-            InfoMessage "Invoking installation script on $HostAddress..."
-            $job = Invoke-Command @invokeParams
-            InfoMessage "Installation script invoked on $HostAddress, job ID: $($job.Id)"
-            return [PSCustomObject]@{
-                HostAddress = $HostAddress
-                Job = $job
-            }
-        }
-        #endregion InstallSingleHost
 
-        
-        # Return the job info from InstallSingleHost directly
-        $jobInfo = InstallSingleHost -HostInfo $using:hostInfo -Config $using:Config -FlexToken $using:hostInfo.flex_access_token -SqlConnectionString $using:hostInfo.sql_connection_string -SdpCredentials $using:hostInfo.sdp_credential -HostSetupScript $using:HostSetupScript
-        return $jobInfo
+            InfoMessage "Invoking installation script on $HostAddress..."
+            $installResult = Invoke-Command @invokeParams -ErrorAction Stop
+
+            if ($installResult -and $installResult.Success) {
+                InfoMessage "Installation completed successfully on $HostAddress"
+                return @{ Success = $true; HostAddress = $HostAddress; Output = $installResult.Output; Error = $null }
+            } else {
+                $errorMsg = if ($installResult.Error) { $installResult.Error } else { "Unknown installation error" }
+                ErrorMessage "Installation failed on ${HostAddress}: $errorMsg"
+                return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = $errorMsg }
+            }
+
+        } catch {
+            ErrorMessage "Installation job failed for ${HostAddress}: $_"
+            return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = $_.Exception.Message }
+        }
     }
 
-    # Result processor - handles completed installation jobs
+    # Result processor - handles completed installation jobs (like upload/connectivity pattern)
     $installationResultProcessor = {
-        param($BatchJobInfo)
+        param($JobInfo)
 
-        $hostInfo = $BatchJobInfo.Item
-        $batchJob = $BatchJobInfo.Job
+        $job = $JobInfo.Job
+        $hostInfo = $JobInfo.Item
 
-        # Get the actual installation job info from the batch job result
-        $jobInfo = Receive-Job -Job $batchJob
-        Remove-Job -Job $batchJob -Force
+        if ($job.State -eq 'Completed') {
+            $installResult = Receive-Job -Job $job
+            if ($installResult -and $installResult.Success) {
+                InfoMessage "Installation completed successfully on $($hostInfo.host_addr)"
 
-        if ($jobInfo -and $jobInfo.Job) {
-            # Process the actual installation job result
-            $result = ProcessSingleJobResult -JobInfo $jobInfo
+                # Create result object in expected format for compatibility
+                $result = [PSCustomObject]@{
+                    HostAddress = $installResult.HostAddress
+                    JobState = 'Success'
+                    Info = @($installResult.Output)
+                    Error = @()
+                }
+                $script:results += $result
+
+                # Update the corresponding host's result field
+                $hostToUpdate = $script:remoteComputers | Where-Object { $_.host_addr -eq $result.HostAddress }
+                if ($hostToUpdate) {
+                    SetHostResultWithProgress -HostInfo $hostToUpdate -Result $result -AllHosts $script:config.hosts
+                }
+
+                $script:NumOfSuccessHosts++
+                # Mark host as completed immediately
+                MarkHostCompleted -CompletedHosts $script:completedHosts -HostAddress $result.HostAddress
+                SaveCompletedHosts -StateFilePath $script:processedHostsPath -CompletedHosts $script:completedHosts | Out-Null
+            } else {
+                $errorMsg = if ($installResult.Error) { $installResult.Error } else { "Unknown installation error" }
+                ErrorMessage "Installation failed on $($hostInfo.host_addr): $errorMsg"
+
+                # Create failure result object
+                $result = [PSCustomObject]@{
+                    HostAddress = $hostInfo.host_addr
+                    JobState = 'Failed'
+                    Info = @()
+                    Error = @($errorMsg)
+                }
+                $script:results += $result
+
+                # Update the corresponding host's result field
+                $hostToUpdate = $script:remoteComputers | Where-Object { $_.host_addr -eq $result.HostAddress }
+                if ($hostToUpdate) {
+                    SetHostResultWithProgress -HostInfo $hostToUpdate -Result $result -AllHosts $script:config.hosts
+                }
+
+                $script:NumOfFailedHosts++
+            }
+        } else {
+            $stdErrOut = Receive-Job -Job $job -ErrorAction SilentlyContinue | Out-String
+            $errorMsg = "Installation job failed for $($hostInfo.host_addr). State: $($job.State). $stdErrOut"
+            ErrorMessage $errorMsg
+
+            # Create failure result object
+            $result = [PSCustomObject]@{
+                HostAddress = $hostInfo.host_addr
+                JobState = 'Failed'
+                Info = @()
+                Error = @($errorMsg)
+            }
             $script:results += $result
 
             # Update the corresponding host's result field
@@ -202,30 +241,29 @@ function StartBatchInstallation {
                 SetHostResultWithProgress -HostInfo $hostToUpdate -Result $result -AllHosts $script:config.hosts
             }
 
-            if ($result.JobState -eq 'Success') {
-                $script:NumOfSuccessHosts++
-                # Mark host as completed immediately
-                MarkHostCompleted -CompletedHosts $script:completedHosts -HostAddress $result.HostAddress
-                SaveCompletedHosts -StateFilePath $script:processedHostsPath -CompletedHosts $script:completedHosts | Out-Null
-            } else {
-                $script:NumOfFailedHosts++
-            }
-        } else {
-            # Handle case where job creation failed
             $script:NumOfFailedHosts++
-            ErrorMessage "Failed to create installation job for host: $($hostInfo.host_addr)"
         }
+        Remove-Job -Job $job -Force
     }
 
     # Initialize script-scope variables for result processor access
     $script:results = @()
-    $script:hostsWithUploads = $HostsWithUploads
+    $script:remoteComputers = $RemoteComputers
     $script:config = $Config
     $script:completedHosts = $CompletedHosts
     $script:processedHostsPath = $ProcessedHostsPath
 
+    # Enhanced job script that includes constants (like upload/connectivity pattern)
+    $jobScriptWithConstants = {
+        param($hostInfo)
+        $ENUM_ACTIVE_DIRECTORY = "active_directory"
+        $ENUM_CREDENTIALS = "credentials"
+        $DryRunFlag = $using:DryRun.IsPresent
+        & ([ScriptBlock]::Create($using:installationJobScript)) $hostInfo $using:Config $using:HostSetupScript $ENUM_ACTIVE_DIRECTORY $DryRunFlag
+    }
+
     # Use dynamic batch processor for installations
-    Start-BatchJobProcessor -Items $RemoteComputers -JobScriptBlock $installationJobScript -ResultProcessor $installationResultProcessor -MaxConcurrency $MaxConcurrency -JobDescription "installation"
+    Start-BatchJobProcessor -Items $RemoteComputers -JobScriptBlock $jobScriptWithConstants -ResultProcessor $installationResultProcessor -MaxConcurrency $MaxConcurrency -JobDescription "installation"
 
     # Return the results
     return $script:results

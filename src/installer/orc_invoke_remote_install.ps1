@@ -100,7 +100,7 @@ function ProcessSingleJobResult {
             }
         }
     } catch {
-        WarningMessage "Error while waiting for job completion on $hostAddress`: $_"
+        ErrorMessage "Error while waiting for job completion on $hostAddress`: $_"
     }
 
     # read job errors if any - wrap in try-catch to prevent script termination
@@ -109,7 +109,7 @@ function ProcessSingleJobResult {
         Receive-Job -Job $job -Keep -ErrorVariable jobErrors -ErrorAction SilentlyContinue
         DebugMessage "Job state for $hostAddress`: $($job.State)"
     } catch {
-        WarningMessage "Error while receiving job output from $hostAddress`: $_"
+        ErrorMessage "Error while receiving job output from $hostAddress`: $_"
         $jobErrors = @($_.Exception.Message)
     }
 

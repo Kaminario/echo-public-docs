@@ -149,15 +149,15 @@ function UploadInstallersToHosts {
 
                 DebugMessage "Copying $installerType installer to $($HostInfo.host_addr)..."
                 $remotePath = "$remoteDir\$fileName"
-#UNCOMMENT
-                # if ($HostInfo.host_auth -eq $ENUM_ACTIVE_DIRECTORY) {
-                #     $remotePathUnc = "\\$($HostInfo.host_addr)\C$\$remoteRelDir\$fileName"
-                #     Copy-Item -Path $localPath -Destination $remotePathUnc -Force -ErrorAction Stop
-                # } elseif ($HostInfo.host_auth -eq $ENUM_CREDENTIALS) {
-                #     $session = New-PSSession -ComputerName $HostInfo.host_addr -Credential $credential -SessionOption $sessionOption -ErrorAction Stop
-                #     Copy-Item -Path $localPath -Destination $remotePath -ToSession $session -Force -ErrorAction Stop
-                #     Remove-PSSession $session -ErrorAction SilentlyContinue
-                # }
+
+                if ($HostInfo.host_auth -eq $ENUM_ACTIVE_DIRECTORY) {
+                    $remotePathUnc = "\\$($HostInfo.host_addr)\C$\$remoteRelDir\$fileName"
+                    Copy-Item -Path $localPath -Destination $remotePathUnc -Force -ErrorAction Stop
+                } elseif ($HostInfo.host_auth -eq $ENUM_CREDENTIALS) {
+                    $session = New-PSSession -ComputerName $HostInfo.host_addr -Credential $credential -SessionOption $sessionOption -ErrorAction Stop
+                    Copy-Item -Path $localPath -Destination $remotePath -ToSession $session -Force -ErrorAction Stop
+                    Remove-PSSession $session -ErrorAction SilentlyContinue
+                }
                 $remotePaths[$installerType] = $remotePath
                 DebugMessage "Copied $installerType installer to: $remotePath"
             }
