@@ -119,10 +119,6 @@ $ErrorActionPreference = "Stop"
 
 # ConvertTo-SecureString should be available by default in PowerShell
 
-# Make MaxConcurrency a global variable accessible from any function
-Set-Variable -Name MaxConcurrency -Value $MaxConcurrency -Option AllScope -Scope Script
-Set-Variable -Name DryRun -Value $DryRun -Option AllScope -Scope Script
-
 if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
     $DebugPreference = 'Continue'
     $VerbosePreference = 'Continue'
@@ -279,7 +275,7 @@ function MainOrchestrator {
 
     # Upload installer files to all hosts
     InfoMessage "Uploading installer files to target hosts..."
-    UploadInstallersToHosts -HostInfos $remoteComputers -LocalPaths $localInstallerPaths -MaxConcurrency $MaxConcurrency
+    UploadInstallersToHosts -HostInfos $remoteComputers -LocalPaths $localInstallerPaths -MaxConcurrency $script:MaxConcurrency
 
     # Check which hosts had upload failures and update remote computers list
     $hostsWithUploads = @($remoteComputers | Where-Object { $_.remote_installer_paths })
@@ -314,7 +310,7 @@ function MainOrchestrator {
     }
 
     # Start batch installation process
-    $results = StartBatchInstallation -RemoteComputers $remoteComputers -Config $config -HostsWithUploads $hostsWithUploads -CompletedHosts $completedHosts -ProcessedHostsPath $script:processedHostsFile -HostSetupScript $HostSetupScript -MaxConcurrency $MaxConcurrency
+    $results = StartBatchInstallation -RemoteComputers $remoteComputers -Config $config -HostsWithUploads $hostsWithUploads -CompletedHosts $completedHosts -ProcessedHostsPath $script:processedHostsFile -HostSetupScript $HostSetupScript -MaxConcurrency $script:MaxConcurrency
 
     try {
         # Save installation results and generate summaries
@@ -405,7 +401,7 @@ if(!$passedPreReqs) {
 
 InfoMessage "Script Location: $PSScriptRoot"
 InfoMessage "Configuration File: $ConfigPath"
-InfoMessage "Max Concurrency: $MaxConcurrency hosts"
+InfoMessage "Max Concurrency: $script:MaxConcurrency hosts"
 
 if ($DryRun) {
     ImportantMessage "Mode: DRY RUN (Validation Only - No Changes)"
