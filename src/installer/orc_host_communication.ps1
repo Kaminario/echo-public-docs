@@ -235,7 +235,7 @@ function EnsureHostsConnectivity {
     # Check that all hosts have proper host_auth values
     foreach ($hostInfo in $hostEntries) {
         if ($hostInfo.host_auth -ne $ENUM_ACTIVE_DIRECTORY -and $hostInfo.host_auth -ne $ENUM_CREDENTIALS) {
-            AddHostIssueWithProgress -HostInfo $hostInfo -Issue "Invalid host_auth value. Must be '$ENUM_ACTIVE_DIRECTORY' or '$ENUM_CREDENTIALS'" -AllHosts $hostEntries
+            $hostInfo.issues += "Invalid host_auth value. Must be '$ENUM_ACTIVE_DIRECTORY' or '$ENUM_CREDENTIALS'"
             continue
         }
     }
@@ -246,7 +246,7 @@ function EnsureHostsConnectivity {
         # Ensure current user is domain user
         if (-not (isActiveDirectoryUser)) {
             foreach ($hostInfo in $adHosts) {
-                AddHostIssueWithProgress -HostInfo $hostInfo -Issue "Current user is not logged in to Active Directory" -AllHosts $hostEntries
+                $hostInfo.issues += "Current user is not logged in to Active Directory"
             }
         } else {
             foreach ($hostInfo in $adHosts) {
@@ -258,7 +258,7 @@ function EnsureHostsConnectivity {
                         $hostInfo.host_addr = $resolvedHostname
                         InfoMessage "Using resolved hostname $resolvedHostname for Active Directory authentication"
                     } else {
-                        AddHostIssueWithProgress -HostInfo $hostInfo -Issue "Could not resolve IP $($hostInfo.host_addr) to hostname for $ENUM_ACTIVE_DIRECTORY auth" -AllHosts $hostEntries
+                        $hostInfo.issues += "Could not resolve IP $($hostInfo.host_addr) to hostname for $ENUM_ACTIVE_DIRECTORY auth"
                         continue
                     }
                 }
@@ -274,7 +274,7 @@ function EnsureHostsConnectivity {
         $isError = $false
         foreach ($hostInfo in $credHosts) {
             if (-not ($hostInfo.host_addr -as [IPAddress])) {
-                AddHostIssueWithProgress -HostInfo $hostInfo -Issue "Invalid host address '$($hostInfo.host_addr)'. Must be an IP address for $ENUM_CREDENTIALS authentication." -AllHosts $hostEntries
+                $hostInfo.issues += "Invalid host address '$($hostInfo.host_addr)'. Must be an IP address for $ENUM_CREDENTIALS authentication."
                 $isError = $true
             }
         }
@@ -367,12 +367,16 @@ function testHostsConnectivityInParallel {
                 InfoMessage "Successfully verified connectivity to $($hostInfo.host_addr)"
             } else {
                 $errorMsg = if ($testResult.Error) { $testResult.Error } else { "Unknown connectivity error" }
-                AddHostIssueWithProgress -HostInfo $hostInfo -Issue "Failed to connect to host using $($hostInfo.host_auth) authentication: $errorMsg" -AllHosts @($hostInfo)
+                $hostInfo.issues += "Failed to connect to host using $($hostInfo.host_auth) authentication: $errorMsg"
+                # Write progress after updating host
+                WriteHostsSummaryToFile -Hosts $hostEntries -OutputPath $SilkEchoProgressFilePath
             }
         } else {
             $stdErrOut = Receive-Job -Job $job -ErrorAction SilentlyContinue | Out-String
             $errorMsg = "Connectivity test job failed for $($hostInfo.host_addr). State: $($job.State). $stdErrOut"
-            AddHostIssueWithProgress -HostInfo $hostInfo -Issue $errorMsg -AllHosts @($hostInfo)
+            $hostInfo.issues += $errorMsg
+            # Write progress after updating host
+            WriteHostsSummaryToFile -Hosts $hostEntries -OutputPath $SilkEchoProgressFilePath
         }
         Remove-Job -Job $job -Force
     }
@@ -380,9 +384,7 @@ function testHostsConnectivityInParallel {
     # Enhanced job script that includes constants
     $jobScriptWithConstants = {
         param($hostInfo)
-        $ENUM_ACTIVE_DIRECTORY = "active_directory"
-        $ENUM_CREDENTIALS = "credentials"
-        & ([ScriptBlock]::Create($using:connectivityJobScript)) $hostInfo $ENUM_ACTIVE_DIRECTORY $ENUM_CREDENTIALS
+        & ([ScriptBlock]::Create($using:connectivityJobScript)) $hostInfo $using:ENUM_ACTIVE_DIRECTORY $using:ENUM_CREDENTIALS
     }
 
     # Use generic batch processor

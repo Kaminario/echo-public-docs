@@ -112,9 +112,7 @@ function UploadInstallersToHosts {
     $uploadJobScript = {
         param($HostInfo, $LocalPaths, $ENUM_ACTIVE_DIRECTORY, $ENUM_CREDENTIALS)
 
-        function DebugMessage { param($message) Write-Host "[DEBUG] $message" -ForegroundColor Gray }
-        function InfoMessage { param($message) Write-Host "[INFO] $message" -ForegroundColor Green }
-        function ErrorMessage { param($message) Write-Host "[ERROR] $message" -ForegroundColor Red }
+        $stdErrOut = @()
 
         # Simplified inline version of copyInstallersToHost
         $remoteRelDir = "Temp\silk-echo-install-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
@@ -131,7 +129,7 @@ function UploadInstallersToHosts {
                 }
                 return $RemoteDir
             }
-
+            $stdErrOut += "Preparing remote directory on $($HostInfo.host_addr)..."
             if ($HostInfo.host_auth -eq $ENUM_ACTIVE_DIRECTORY) {
                 $result = Invoke-Command -ComputerName $HostInfo.host_addr -ScriptBlock $scriptBlock -ArgumentList $remoteDir -ErrorAction Stop
             } elseif ($HostInfo.host_auth -eq $ENUM_CREDENTIALS) {
@@ -140,14 +138,14 @@ function UploadInstallersToHosts {
                 $result = Invoke-Command -ComputerName $HostInfo.host_addr -Credential $credential -ScriptBlock $scriptBlock -SessionOption $sessionOption -ArgumentList $remoteDir -ErrorAction Stop
             }
 
-            DebugMessage "Remote directory prepared on $($HostInfo.host_addr): $remoteDir"
+            $stdErrOut += "Remote directory prepared on $($HostInfo.host_addr): $remoteDir"
 
             # Copy each installer file
             foreach ($installerType in $LocalPaths.Keys) {
                 $localPath = $LocalPaths[$installerType]
                 $fileName = Split-Path $localPath -Leaf
 
-                DebugMessage "Copying $installerType installer to $($HostInfo.host_addr)..."
+                $stdErrOut += "Copying $installerType installer to $($HostInfo.host_addr)..."
                 $remotePath = "$remoteDir\$fileName"
 
                 if ($HostInfo.host_auth -eq $ENUM_ACTIVE_DIRECTORY) {
@@ -159,14 +157,15 @@ function UploadInstallersToHosts {
                     Remove-PSSession $session -ErrorAction SilentlyContinue
                 }
                 $remotePaths[$installerType] = $remotePath
-                DebugMessage "Copied $installerType installer to: $remotePath"
+                $stdErrOut += "Copied $installerType installer to: $remotePath"
             }
-            InfoMessage "All installers uploaded to $($HostInfo.host_addr)"
-            return $remotePaths
+            $stdErrOut += "All installers uploaded to $($HostInfo.host_addr)"
 
+            $out = $stdErrOut -join "\n"
+            return @{ Success = $true; Error = $null; RemotePaths = $remotePaths; StdErrOut = $out }
         } catch {
-            ErrorMessage "Failed to upload installers to $($HostInfo.host_addr): $_"
-            return $null
+            $out = $stdErrOut -join "\n"
+            return @{ Success = $false; Error = $_.Exception.Message; RemotePaths = $null; StdErrOut = $out }
         }
     }
 
@@ -177,25 +176,37 @@ function UploadInstallersToHosts {
         $job = $JobInfo.Job
         $hostInfo = $JobInfo.Item
 
-        if ($job.State -eq 'Completed') {
-            $remoteInstallerPaths = Receive-Job -Job $job
-            if ($remoteInstallerPaths) {
-                # Store remote paths in host object for use by InstallSingleHost
-                $hostInfo.remote_installer_paths = $remoteInstallerPaths
-                InfoMessage "Successfully uploaded installers to $($hostInfo.host_addr)"
+        try {
+            $testResult = Receive-Job -Job $job
+            #log raw $testResult as json for debugging
+            InfoMessage "Upload job result for $($hostInfo.host_addr): $(ConvertTo-Json $testResult -Depth 5)"
+
+            # write all job debug/info/error messages in to the main script log
+            
+            Write-Output $testResult.StdErrOut
+            if ($job.State -eq 'Completed') {
+                if ($testResult -and $testResult.Success) {
+                    # Store remote paths in host object for use by InstallSingleHost
+                    $hostInfo.remote_installer_paths = $testResult.RemotePaths
+                    InfoMessage "Successfully uploaded installers to $($hostInfo.host_addr)"
+                } else {
+                    $issue = if ($testResult.Error) { $testResult.Error } else { "Unknown Upload error" }
+                    $hostInfo.issues += "Failed to upload installers. $issue"
+                    ErrorMessage "Failed to upload installers to $($hostInfo.host_addr). $issue"
+                }
             } else {
-                AddHostIssueWithProgress -HostInfo $hostInfo -Issue "Failed to upload installers" -AllHosts $HostInfos
-                ErrorMessage "Failed to upload installers to $($hostInfo.host_addr)"
+                $errors = $job.ChildJobs | ForEach-Object { $_.Error } | Where-Object { $_ } | ForEach-Object { $_.ToString() }
+                $issue = "Job failed: $($errors | Out-String)"
+                $hostInfo.issues += ("Job failed to complete. State: $($job.State)" + $errors)
+                ErrorMessage "Upload job failed for $($hostInfo.host_addr): State $($job.State), $issue"
             }
-        } else {
-            $stdErrOut = Receive-Job -Job $job -ErrorAction SilentlyContinue | Out-String
-            if ($job.State -eq 'Failed') {
-                AddHostIssueWithProgress -HostInfo $hostInfo -Issue ("Job failed" + $stdErrOut) -AllHosts $HostInfos
-            } else {
-                AddHostIssueWithProgress -HostInfo $hostInfo -Issue ("Job failed to complete. State: $($job.State)" + $stdErrOut) -AllHosts $HostInfos
-            }
-            ErrorMessage "Upload job failed for $($hostInfo.host_addr): State $($job.State)"
+        } catch {
+            $hostInfo.issues += "Error while receiving job output: $(_.Exception.Message)"
+            ErrorMessage "Upload job failed for $($hostInfo.host_addr): State $($job.State), $issue"
         }
+        
+        # Write progress after updating host
+        WriteHostsSummaryToFile -Hosts $HostInfos -OutputPath $SilkEchoProgressFilePath
         Remove-Job -Job $job -Force
     }
 

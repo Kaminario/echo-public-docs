@@ -132,8 +132,27 @@ function WriteHostsSummaryToFile {
             }
 
             if ($hostInfo.result) {
-                $resultJson = $hostInfo.result | ConvertTo-Json -Compress
-                $outputLines += "  result: $resultJson"
+                $outputLines += "  result:"
+                $outputLines += "    Host Address: $($hostInfo.result.HostAddress)"
+                $outputLines += "    Job State: $($hostInfo.result.JobState)"
+
+                if ($hostInfo.result.Info -and $hostInfo.result.Info.Count -gt 0) {
+                    $outputLines += "    Info:"
+                    foreach ($info in $hostInfo.result.Info) {
+                        if ($info -and $info.PSObject.Properties.Count -gt 0) {
+                            foreach ($prop in $info.PSObject.Properties) {
+                                $outputLines += "      $($prop.Name): $($prop.Value)"
+                            }
+                        }
+                    }
+                }
+
+                if ($hostInfo.result.Error -and $hostInfo.result.Error.Count -gt 0) {
+                    $outputLines += "    Errors:"
+                    foreach ($error in $hostInfo.result.Error) {
+                        $outputLines += "      - $error"
+                    }
+                }
             } else {
                 $outputLines += "  result: null"
             }
@@ -155,8 +174,27 @@ function WriteHostsSummaryToFile {
             $outputLines += "$($hostInfo.host_addr):"
             $outputLines += "  issues: none"
 
-            $resultJson = $hostInfo.result | ConvertTo-Json -Compress
-            $outputLines += "  result: $resultJson"
+            $outputLines += "  result:"
+            $outputLines += "    Host Address: $($hostInfo.result.HostAddress)"
+            $outputLines += "    Job State: $($hostInfo.result.JobState)"
+
+            if ($hostInfo.result.Info -and $hostInfo.result.Info.Count -gt 0) {
+                $outputLines += "    Info:"
+                foreach ($info in $hostInfo.result.Info) {
+                    if ($info -and $info.PSObject.Properties.Count -gt 0) {
+                        foreach ($prop in $info.PSObject.Properties) {
+                            $outputLines += "      $($prop.Name): $($prop.Value)"
+                        }
+                    }
+                }
+            }
+
+            if ($hostInfo.result.Error -and $hostInfo.result.Error.Count -gt 0) {
+                $outputLines += "    Errors:"
+                foreach ($error in $hostInfo.result.Error) {
+                    $outputLines += "      - $error"
+                }
+            }
             $outputLines += ""
         }
     }
@@ -210,66 +248,6 @@ function DisplayHostsSummary {
     InfoMessage "With issues: $hostsWithIssues"
     InfoMessage "=================================================="
 }
-#region HostProgressTracking
-function AddHostIssueWithProgress {
-    <#
-    .SYNOPSIS
-        Adds an issue to a host and updates the progress file.
-
-    .PARAMETER HostInfo
-        The host object to add the issue to
-
-    .PARAMETER Issue
-        The issue message to add
-
-    .PARAMETER AllHosts
-        All hosts array for progress tracking
-    #>
-    param (
-        [Parameter(Mandatory=$true)]
-        [PSCustomObject]$HostInfo,
-
-        [Parameter(Mandatory=$true)]
-        [string]$Issue,
-
-        [Parameter(Mandatory=$true)]
-        [Array]$AllHosts
-    )
-
-    $HostInfo.issues += $Issue
-    WriteHostsSummaryToFile -Hosts $AllHosts -OutputPath $SilkEchoProgressFilePath
-}
-
-function SetHostResultWithProgress {
-    <#
-    .SYNOPSIS
-        Sets a result on a host and updates the progress file.
-
-    .PARAMETER HostInfo
-        The host object to set the result on
-
-    .PARAMETER Result
-        The result object to set
-
-    .PARAMETER AllHosts
-        All hosts array for progress tracking
-    #>
-    param (
-        [Parameter(Mandatory=$true)]
-        [PSCustomObject]$HostInfo,
-
-        [Parameter(Mandatory=$true)]
-        [PSCustomObject]$Result,
-
-        [Parameter(Mandatory=$true)]
-        [Array]$AllHosts
-    )
-
-    $HostInfo.result = $Result
-    WriteHostsSummaryToFile -Hosts $AllHosts -OutputPath $SilkEchoProgressFilePath
-}
-#endregion HostProgressTracking
-
 #endregion HostsSummaryReport
 
 #endregion Logging

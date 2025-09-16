@@ -311,11 +311,22 @@ function MainOrchestrator {
     }
 
     # Start batch installation process
-    $results = StartBatchInstallation -RemoteComputers $remoteComputers -Config $config -CompletedHosts $completedHosts -ProcessedHostsPath $script:processedHostsFile -HostSetupScript $HostSetupScript -MaxConcurrency $script:MaxConcurrency
+    $results = StartBatchInstallation `
+        -RemoteComputers   $remoteComputers `
+        -Config            $config `
+        -CompletedHosts    $completedHosts `
+        -ProcessedHostsPath $script:processedHostsFile `
+        -HostSetupScript   $HostSetupScript `
+        -MaxConcurrency    $script:MaxConcurrency
 
     try {
         # Save installation results and generate summaries
-        SaveInstallationResults -Results $results -Config $config -CacheDirectory $SilkEchoInstallerCacheDir -ProgressFilePath $SilkEchoProgressFilePath -ProcessedHostsPath $script:processedHostsFile
+        SaveInstallationResults `
+            -Results $results `
+            -Config $config `
+            -CacheDirectory $SilkEchoInstallerCacheDir `
+            -ProgressFilePath $SilkEchoProgressFilePath `
+            -ProcessedHostsPath $script:processedHostsFile
     }
     catch {
         ErrorMessage "Error during remote installation: $_"

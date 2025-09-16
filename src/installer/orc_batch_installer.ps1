@@ -38,7 +38,7 @@ function StartBatchInstallation {
 
     # Installation job logic - direct remote installation (like upload/connectivity pattern)
     $installationJobScript = {
-        param($hostInfo, $Config, $HostSetupScript, $ENUM_ACTIVE_DIRECTORY, $DryRunFlag)
+        param($hostInfo, $Config, $HostSetupScript, $ENUM_ACTIVE_DIRECTORY, $IsDryRun)
 
         function InfoMessage { param($message) Write-Host "[INFO] $message" -ForegroundColor Green }
         function DebugMessage { param($message) Write-Host "[DEBUG] $message" -ForegroundColor Gray }
@@ -49,7 +49,6 @@ function StartBatchInstallation {
             InfoMessage "Starting installation on $HostAddress..."
 
             $IsDebug = $DebugPreference -eq 'Continue'
-            $IsDryRun = $DryRunFlag
 
             # Use uploaded installer paths instead of URLs
             $agentPath = if ($hostInfo.remote_installer_paths.agent) { $hostInfo.remote_installer_paths.agent } else { $Config.agent }
@@ -69,7 +68,18 @@ function StartBatchInstallation {
 
             # Create the remote scriptblock for installation
             $remoteInstallationScript = {
-                param($FlexIP, $FlexToken, $DBConnectionString, $SilkAgentPath, $SilkVSSPath, $SDPId, $SDPUsername, $SDPPassword, $DebugMode, $DryRunMode, $MountPointsDirectory, $Script)
+                param($FlexIP, 
+                      $FlexToken,
+                      $DBConnectionString,
+                      $SilkAgentPath,
+                      $SilkVSSPath,
+                      $SDPId,
+                      $SDPUsername,
+                      $SDPPassword,
+                      $DebugMode,
+                      $DryRunMode,
+                      $MountPointsDirectory,
+                      $Script)
 
                 # Set debug preferences in the remote session based on the debug mode
                 if ($DebugMode) {
@@ -193,7 +203,9 @@ function StartBatchInstallation {
                 # Update the corresponding host's result field
                 $hostToUpdate = $script:remoteComputers | Where-Object { $_.host_addr -eq $result.HostAddress }
                 if ($hostToUpdate) {
-                    SetHostResultWithProgress -HostInfo $hostToUpdate -Result $result -AllHosts $script:config.hosts
+                    $hostToUpdate.result = $result
+                    # Write progress after updating host
+                    WriteHostsSummaryToFile -Hosts $script:config.hosts -OutputPath $SilkEchoProgressFilePath
                 }
 
                 $script:NumOfSuccessHosts++
@@ -216,7 +228,9 @@ function StartBatchInstallation {
                 # Update the corresponding host's result field
                 $hostToUpdate = $script:remoteComputers | Where-Object { $_.host_addr -eq $result.HostAddress }
                 if ($hostToUpdate) {
-                    SetHostResultWithProgress -HostInfo $hostToUpdate -Result $result -AllHosts $script:config.hosts
+                    $hostToUpdate.result = $result
+                    # Write progress after updating host
+                    WriteHostsSummaryToFile -Hosts $script:config.hosts -OutputPath $SilkEchoProgressFilePath
                 }
 
                 $script:NumOfFailedHosts++
@@ -238,7 +252,9 @@ function StartBatchInstallation {
             # Update the corresponding host's result field
             $hostToUpdate = $script:hostsWithUploads | Where-Object { $_.host_addr -eq $result.HostAddress }
             if ($hostToUpdate) {
-                SetHostResultWithProgress -HostInfo $hostToUpdate -Result $result -AllHosts $script:config.hosts
+                $hostToUpdate.result = $result
+                # Write progress after updating host
+                WriteHostsSummaryToFile -Hosts $script:config.hosts -OutputPath $SilkEchoProgressFilePath
             }
 
             $script:NumOfFailedHosts++
@@ -256,10 +272,12 @@ function StartBatchInstallation {
     # Enhanced job script that includes constants (like upload/connectivity pattern)
     $jobScriptWithConstants = {
         param($hostInfo)
-        $ENUM_ACTIVE_DIRECTORY = "active_directory"
-        $ENUM_CREDENTIALS = "credentials"
-        $DryRunFlag = $using:DryRun.IsPresent
-        & ([ScriptBlock]::Create($using:installationJobScript)) $hostInfo $using:Config $using:HostSetupScript $ENUM_ACTIVE_DIRECTORY $DryRunFlag
+        & ([ScriptBlock]::Create($using:installationJobScript)) `
+            $hostInfo `
+            $using:Config `
+            $using:HostSetupScript `
+            $using:ENUM_ACTIVE_DIRECTORY `
+            $using:DryRun.IsPresent
     }
 
     # Use dynamic batch processor for installations
