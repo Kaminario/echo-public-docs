@@ -25,9 +25,21 @@ Set-Variable -Name REMOTE_INSTALL_TIMEOUT_SECONDS -Value 120 -Option AllScope -S
 $progressFilePath = Join-Path $cacheDir "installation_progress_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
 Set-Variable -Name SilkEchoProgressFilePath -Value $progressFilePath -Option AllScope -Scope Script
 
-# Development mode detection - true if orchestrator contains imports (. ./orc_*.ps1)
-$orchestratorContent = Get-Content -Path $PSCommandPath -Raw -ErrorAction SilentlyContinue
-$isDevelopmentMode = $orchestratorContent -match '\. \./orc_.*\.ps1'
+# Development mode detection - true if orchestrator contains actual import lines (not comments)
+# Get the orchestrator script path from the call stack
+$orchestratorPath = (Get-PSCallStack | Where-Object { $_.ScriptName -like "*orchestrator.ps1" } | Select-Object -First 1).ScriptName
+if (-not $orchestratorPath) {
+    # Fallback: assume orchestrator.ps1 is in the same directory
+    $orchestratorPath = Join-Path $PSScriptRoot "orchestrator.ps1"
+}
+
+$orchestratorContent = Get-Content -Path $orchestratorPath -Raw -ErrorAction SilentlyContinue
+# Split into lines and check for actual import statements (not in comments)
+$lines = $orchestratorContent -split '[\r\n]+'
+$importLines = $lines | Where-Object { $_ -match '^\s*\. \./orc_.*\.ps1\s*$' }
+$isDevelopmentMode = $importLines.Count -gt 0
+
+
 Set-Variable -Name IsDevelopmentMode -Value $isDevelopmentMode -Option AllScope -Scope Script
 
 Set-Variable -Name IsDomainUser -Value $false -Option AllScope -Scope Script

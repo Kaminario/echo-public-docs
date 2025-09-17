@@ -306,7 +306,7 @@ function MainOrchestrator {
     $HostSetupScript = GetHostInstallScript -OrchestratorPath $PSCommandPath
 
     # Process imports in development mode
-    if ($IsDevelopmentMode) {
+    if ($script:IsDevelopmentMode) {
         InfoMessage "Development mode detected - expanding imports in host script..."
         $HostSetupScript = ExpandImportsInline -ScriptContent $HostSetupScript
         if ($HostSetupScript -eq $null) {
@@ -369,9 +369,11 @@ ImportantMessage "=================================================="
 
 InfoMessage "PowerShell Version is - $($PSVersionTable.PSVersion.Major)"
 InfoMessage "PowerShell Edition is - $($PSVersionTable.PSEdition)"
+if ($Script:IsDevelopmentMode){
+    ImportantMessage "IsDevelopmentMode is ON"
+}
 
 # Get current user information
-
 if ($PSVersionTable.Platform -eq "Unix") {
     $userName = $env:USER
     InfoMessage "Current User: $userName"
