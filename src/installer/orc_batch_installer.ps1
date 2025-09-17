@@ -209,9 +209,11 @@ function StartBatchInstallation {
                 }
 
                 $script:NumOfSuccessHosts++
-                # Mark host as completed immediately
-                MarkHostCompleted -CompletedHosts $script:completedHosts -HostAddress $result.HostAddress
-                SaveCompletedHosts -StateFilePath $script:processedHostsPath -CompletedHosts $script:completedHosts | Out-Null
+                # Mark host as completed immediately (only in live mode)
+                if (-not $DryRun.IsPresent) {
+                    MarkHostCompleted -CompletedHosts $script:completedHosts -HostAddress $result.HostAddress
+                    SaveCompletedHosts -StateFilePath $script:processedHostsPath -CompletedHosts $script:completedHosts | Out-Null
+                }
             } else {
                 $errorMsg = if ($installResult.Error) { $installResult.Error } else { "Unknown installation error" }
                 ErrorMessage "Installation failed on $($hostInfo.host_addr): $errorMsg"
