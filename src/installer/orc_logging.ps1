@@ -109,7 +109,7 @@ function WriteHostsSummaryToFile {
 
     # Separate hosts with issues and hosts with results
     $hostsWithIssues = @($Hosts | Where-Object { $_.issues.Count -gt 0 })
-    $hostsWithResults = @($Hosts | Where-Object { $_.result -ne $null })
+    $hostsWithResults = @($Hosts | Where-Object { $_.result -ne $null -and $_.issues.Count -eq 0 })
 
     # Create output content array
     $outputLines = @()

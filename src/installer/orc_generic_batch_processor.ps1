@@ -60,6 +60,26 @@ function Start-BatchJobProcessor {
         while ($jobs.Count -ge $MaxConcurrency) {
             $completedJob = $jobs | Where-Object { $_.Job.State -ne 'Running' } | Select-Object -First 1
             if ($completedJob) {
+                # Check for timeout before processing result
+                try {
+                    $jobResult = Receive-Job -Job $completedJob.Job -Keep -ErrorAction SilentlyContinue
+                    InfoMessage "DEBUG: Job result for $($completedJob.Item.host_addr): $($jobResult | ConvertTo-Json -Compress -Depth 3)"
+                    if ($jobResult -and $jobResult.Output -and $jobResult.Output.Reason -eq "Timeout") {
+                        InfoMessage "TIMEOUT DETECTED: Immediately updating progress file for $($completedJob.Item.host_addr)"
+                        # Find the host in config and add timeout issue
+                        if ($script:config -and $script:config.hosts) {
+                            $timeoutHost = $script:config.hosts | Where-Object { $_.host_addr -eq $completedJob.Item.host_addr }
+                            if ($timeoutHost) {
+                                $timeoutHost.issues += $jobResult.Output.Message
+                                InfoMessage "TIMEOUT: Added issue to host, calling WriteHostsSummaryToFile"
+                                WriteHostsSummaryToFile -Hosts $script:config.hosts -OutputPath $SilkEchoProgressFilePath
+                            }
+                        }
+                    }
+                } catch {
+                    # Ignore errors in timeout detection, continue with normal processing
+                }
+
                 # Process completed job immediately
                 & $ResultProcessor $completedJob
                 $jobs = @($jobs | Where-Object { $_.Job.Id -ne $completedJob.Job.Id })
@@ -99,6 +119,26 @@ function Start-BatchJobProcessor {
     while ($jobs.Count -gt 0) {
         $completedJob = $jobs | Where-Object { $_.Job.State -ne 'Running' } | Select-Object -First 1
         if ($completedJob) {
+            # Check for timeout before processing result
+            try {
+                $jobResult = Receive-Job -Job $completedJob.Job -Keep -ErrorAction SilentlyContinue
+                InfoMessage "DEBUG: Job result for $($completedJob.Item.host_addr): $($jobResult | ConvertTo-Json -Compress -Depth 3)"
+                if ($jobResult -and $jobResult.Output -and $jobResult.Output.Reason -eq "Timeout") {
+                    InfoMessage "TIMEOUT DETECTED: Immediately updating progress file for $($completedJob.Item.host_addr)"
+                    # Find the host in config and add timeout issue
+                    if ($script:config -and $script:config.hosts) {
+                        $timeoutHost = $script:config.hosts | Where-Object { $_.host_addr -eq $completedJob.Item.host_addr }
+                        if ($timeoutHost) {
+                            $timeoutHost.issues += $jobResult.Output.Message
+                            InfoMessage "TIMEOUT: Added issue to host, calling WriteHostsSummaryToFile"
+                            WriteHostsSummaryToFile -Hosts $script:config.hosts -OutputPath $SilkEchoProgressFilePath
+                        }
+                    }
+                }
+            } catch {
+                # Ignore errors in timeout detection, continue with normal processing
+            }
+
             & $ResultProcessor $completedJob
             $jobs = @($jobs | Where-Object { $_.Job.Id -ne $completedJob.Job.Id })
             $processedCount++
@@ -116,6 +156,7 @@ function Start-BatchJobProcessor {
         }
     }
     # Keep the last spinner line visible by adding a newline
+    Write-Host ""
     Write-Host ""
 
     $finalElapsed = (Get-Date) - $startTime

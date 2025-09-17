@@ -161,10 +161,10 @@ function UploadInstallersToHosts {
             }
             $stdErrOut += "All installers uploaded to $($HostInfo.host_addr)"
 
-            $out = $stdErrOut -join "\n"
+            $out = $stdErrOut -join "`n"
             return @{ Success = $true; Error = $null; RemotePaths = $remotePaths; StdErrOut = $out }
         } catch {
-            $out = $stdErrOut -join "\n"
+            $out = $stdErrOut -join "`n"
             return @{ Success = $false; Error = $_.Exception.Message; RemotePaths = $null; StdErrOut = $out }
         }
     }

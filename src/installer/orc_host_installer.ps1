@@ -465,9 +465,6 @@ function StartProcessWithTimeout {
             param($InstallerPath, $Arg0, $Arg1, $Arg2, $Arg3, $Arg4)
             $Args = @($Arg0, $Arg1, $Arg2, $Arg3, $Arg4)
             try {
-                # sleep 2 minutes to simulate long installation
-                Write-Host "Sleeping for 120 seconds to simulate long installation..."
-                Start-Sleep -Seconds 120
                 $process = Start-Process -FilePath $InstallerPath -ArgumentList $Args -Wait -NoNewWindow -PassThru
                 Write-Host "Process completed with exit code: $($process.ExitCode)"
                 return $process.ExitCode
@@ -487,17 +484,32 @@ function StartProcessWithTimeout {
             $exitCode = Receive-Job -Job $installJob
             Remove-Job -Job $installJob -Force
             InfoMessage "$ProcessName installation completed with exit code [$exitCode]"
-            return ($exitCode -eq 0)
+            return @{
+                Success = ($exitCode -eq 0)
+                Reason = "Completed"
+                ExitCode = $exitCode
+                ProcessName = $ProcessName
+            }
         } else {
             # Installation timed out
             ErrorMessage "$ProcessName installation timed out after $TimeoutSeconds seconds"
             Stop-Job -Job $installJob -ErrorAction SilentlyContinue
             Remove-Job -Job $installJob -Force -ErrorAction SilentlyContinue
-            return $false
+            return @{
+                Success = $false
+                Reason = "Timeout"
+                TimeoutSeconds = $TimeoutSeconds
+                ProcessName = $ProcessName
+            }
         }
     } catch {
         ErrorMessage "Error installing $ProcessName`: $_"
-        return $false
+        return @{
+            Success = $false
+            Reason = "Error"
+            ErrorMessage = $_.Exception.Message
+            ProcessName = $ProcessName
+        }
     }
 }
 #endregion StartProcessWithTimeout
@@ -529,14 +541,24 @@ function InstallSilkNodeAgent {
     InfoMessage "Arguments array: $($arguments -join ' ')"
 
     # Run installation with timeout
-    $installSuccess = StartProcessWithTimeout `
+    $installResult = StartProcessWithTimeout `
                         -FilePath $InstallerFilePath `
                         -ArgumentList $arguments `
                         -TimeoutSeconds $INTERNAL_INSTALL_TIMEOUT_SECONDS `
                         -ProcessName "Silk Node Agent"
 
-    if (-not $installSuccess) {
-        return $false
+    if (-not $installResult.Success) {
+        # Return detailed failure information to caller
+        return @{
+            Success = $false
+            Reason = $installResult.Reason
+            Details = $installResult
+            Message = switch ($installResult.Reason) {
+                "Timeout" { "Silk Node Agent installation timed out after $($installResult.TimeoutSeconds) seconds" }
+                "Error" { "Silk Node Agent installation failed with error: $($installResult.ErrorMessage)" }
+                default { "Silk Node Agent installation failed" }
+            }
+        }
     }
 
     # error handling
@@ -548,14 +570,29 @@ function InstallSilkNodeAgent {
         $logContent = Get-Content -Path $AgentInstallationLogPath
         if ($logContent -match "error") {
             ErrorMessage "Installation log contains errors. Please check the log file at $AgentInstallationLogPath"
-            return $false
+            return @{
+                Success = $false
+                Reason = "LogError"
+                Message = "Silk Node Agent installation log contains errors. Check $AgentInstallationLogPath"
+                LogPath = $AgentInstallationLogPath
+            }
         } else {
             DebugMessage "Silk Node Agent installed successfully."
-            return $true
+            return @{
+                Success = $true
+                Reason = "Completed"
+                Message = "Silk Node Agent installed successfully"
+                ExitCode = $installResult.ExitCode
+            }
         }
     } else {
         ErrorMessage "Installation log file not found at $AgentInstallationLogPath. Installation may have failed."
-        return $false
+        return @{
+            Success = $false
+            Reason = "LogNotFound"
+            Message = "Installation log file not found at $AgentInstallationLogPath"
+            LogPath = $AgentInstallationLogPath
+        }
     }
 }
 #endregion InstallSilkNodeAgent
@@ -671,18 +708,33 @@ function InstallSilkVSSProvider {
     DebugMessage "Silk VSS Provider installation arguments: $arguments"
 
     # Run installation with timeout
-    $installSuccess = StartProcessWithTimeout `
+    $installResult = StartProcessWithTimeout `
                         -FilePath $InstallerFilePath `
                         -ArgumentList $arguments `
                         -TimeoutSeconds $INTERNAL_INSTALL_TIMEOUT_SECONDS `
                         -ProcessName "Silk VSS"
-    if (-not $installSuccess) {
-        return $false
+    if (-not $installResult.Success) {
+        # Return detailed failure information to caller
+        return @{
+            Success = $false
+            Reason = $installResult.Reason
+            Details = $installResult
+            Message = switch ($installResult.Reason) {
+                "Timeout" { "Silk VSS Provider installation timed out after $($installResult.TimeoutSeconds) seconds" }
+                "Error" { "Silk VSS Provider installation failed with error: $($installResult.ErrorMessage)" }
+                default { "Silk VSS Provider installation failed" }
+            }
+        }
     }
 
     # error handling
     DebugMessage "Silk VSS Provider installed successfully."
-    return $true
+    return @{
+        Success = $true
+        Reason = "Completed"
+        Message = "Silk VSS Provider installed successfully"
+        ExitCode = $installResult.ExitCode
+    }
 }
 #endregion InstallSilkVSSProvider
 
@@ -755,20 +807,20 @@ function setup{
             return "Failed to register host $HostID with Flex and obtain agent token"
         }
 
-        $installed = InstallSilkNodeAgent -InstallerFilePath $SilkAgentPath `
+        $installResult = InstallSilkNodeAgent -InstallerFilePath $SilkAgentPath `
                                           -SQLConnectionString $ConnectionString `
                                           -FlexIP $FlexIP `
                                           -AgentToken $AgentToken
-        if (-not $installed) {
-            ErrorMessage "Failed to install Silk Node Agent"
-            return "Installation of Silk Node Agent failed. Check the installation log at $AgentInstallationLogPath"
+        if (-not $installResult.Success) {
+            ErrorMessage "Failed to install Silk Node Agent: $($installResult.Reason)"
+            return $installResult.Message
         }
 
         # Install Silk VSS Provider
-        $installed = InstallSilkVSSProvider -InstallerFilePath $SilkVSSPath -SDPID $SDPID -SDPHost $SDPHost -SDPPort $SDPPort -Credential $SDPCredential
-        if (-not $installed) {
-            ErrorMessage "Failed to install Silk VSS Provider"
-            return "Installation of Silk VSS Provider failed. Check the installation log at $SVSSInstallationLogPath"
+        $vssResult = InstallSilkVSSProvider -InstallerFilePath $SilkVSSPath -SDPID $SDPID -SDPHost $SDPHost -SDPPort $SDPPort -Credential $SDPCredential
+        if (-not $vssResult.Success) {
+            ErrorMessage "Failed to install Silk VSS Provider: $($vssResult.Reason)"
+            return $vssResult.Message
         }
 
 
