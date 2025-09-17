@@ -134,6 +134,11 @@ if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
 ###########################################################################
 # Constants
 . ./orc_constants.ps1
+
+# Set script-scope variables for parameter passing
+$script:MaxConcurrency = $MaxConcurrency
+$script:processedHostsFile = $processedHostsFile
+
 # ConvertSecureStringToPlainText
 . ./orc_common.ps1
 # ErrorMessage, InfoMessage, ImportantMessage, DebugMessage, WarningMessage
@@ -309,6 +314,18 @@ function MainOrchestrator {
             return
         }
     }
+
+    # log all variables before call
+    DebugMessage "Final configuration before installation:"
+    $safeConfig = @{
+        remoteComputers = $remoteComputers
+        MaxConcurrency  = $script:MaxConcurrency
+        DryRun          = $DryRun.IsPresent
+        completedHosts  = $completedHosts
+        processedHostsFile = $script:processedHostsFile
+        HostSetupScript = if ($HostSetupScript) { "Loaded $($HostSetupScript.Length) bytes" } else { "Not Loaded" }
+    }
+    DebugMessage "Configuration is: $($safeConfig | ConvertTo-Json -Depth 4)"
 
     # Start batch installation process
     $results = StartBatchInstallation `

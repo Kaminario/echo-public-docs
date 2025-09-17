@@ -30,7 +30,7 @@ function ExpandImportsInline {
         for ($iteration = 1; $iteration -le 3; $iteration++) {
             DebugMessage "Expanding imports - iteration $iteration"
             
-            $lines = $processedContent.Split([System.Environment]::NewLine)
+            $lines = $processedContent -split '[\r\n]+'
             $newLines = [System.Collections.Generic.List[string]]::new()
             $importsProcessed = 0
 
@@ -38,10 +38,23 @@ function ExpandImportsInline {
                 if ($line -match "^\s*\.\s+(\./orc_[\w-]+\.ps1)\s*$") {
                     $fileName = $matches[1]
                     $filePath = Join-Path $PSScriptRoot $fileName
-                    
+                    # remove ps1 from filename
+                    $fileName = $fileName -replace "\.ps1$",""
+                    # remove starting ./
+                    $fileName = $fileName -replace "^\./",""
+
                     if (Test-Path $filePath) {
                         $orcContent = Get-Content -Path $filePath -Raw
-                        $newLines.Add("#region $fileName`n$orcContent`n#endregion $fileName`n")
+
+                        $newLines.Add("#region $fileName")
+                        # Split the content into lines and add each line separately
+                        $contentLines = $orcContent.TrimEnd() -split '[\r\n]+'
+                        foreach ($contentLine in $contentLines) {
+                            if ($contentLine.Trim() -ne '') {
+                                $newLines.Add($contentLine)
+                            }
+                        }
+                        $newLines.Add("#endregion $fileName")
                         $importsProcessed++
                         DebugMessage "Expanded import for $fileName"
                     } else {

@@ -22,7 +22,7 @@
 function StartBatchInstallation {
     param (
         [Parameter(Mandatory=$true)]
-        [Array]$RemoteComputers,
+        [Object[]]$RemoteComputers,
         [Parameter(Mandatory=$true)]
         [PSCustomObject]$Config,
         [Parameter(Mandatory=$true)]

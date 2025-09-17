@@ -42,6 +42,10 @@ function Start-BatchJobProcessor {
         [string]$JobDescription = "job"
     )
 
+    # Animation characters for progress spinner
+    $spinnerChars = @('-', '\', '|', '/')
+    $spinnerIndex = 0
+
     InfoMessage "Starting parallel $JobDescription processing for $($Items.Count) item(s) with max concurrency: $MaxConcurrency..."
 
     # Start jobs using dynamic batch processing pattern
@@ -59,10 +63,14 @@ function Start-BatchJobProcessor {
                 & $ResultProcessor $completedJob
                 $jobs = @($jobs | Where-Object { $_.Job.Id -ne $completedJob.Job.Id })
                 $processedCount++
-                # Progress message: show completed and running counts
+                # Clear spinner line and show progress message
+                Write-Host "`r" + (" " * 50) + "`r" -NoNewline
                 $runningCount = $jobs.Count
                 InfoMessage "Progress: $processedCount of $totalItems $JobDescription jobs completed, $runningCount running"
             } else {
+                # Show spinner animation while waiting
+                Write-Host "`r$($spinnerChars[$spinnerIndex]) Waiting for available slot..." -NoNewline
+                $spinnerIndex = ($spinnerIndex + 1) % $spinnerChars.Count
                 Start-Sleep -Milliseconds 100
             }
         }
@@ -91,13 +99,19 @@ function Start-BatchJobProcessor {
             & $ResultProcessor $completedJob
             $jobs = @($jobs | Where-Object { $_.Job.Id -ne $completedJob.Job.Id })
             $processedCount++
-            # Progress message: show completed and remaining counts
+            # Clear spinner line and show progress message
+            Write-Host "`r" + (" " * 80) + "`r" -NoNewline
             $runningCount = $jobs.Count
             InfoMessage "Progress: $processedCount of $totalItems $JobDescription jobs completed, $runningCount remaining"
         } else {
+            # Show spinner animation while waiting
+            Write-Host "`r$($spinnerChars[$spinnerIndex]) Waiting for $($jobs.Count) $JobDescription jobs to complete..." -NoNewline
+            $spinnerIndex = ($spinnerIndex + 1) % $spinnerChars.Count
             Start-Sleep -Milliseconds 100
         }
     }
+    # Clear any remaining spinner line
+    Write-Host "`r" + (" " * 80) + "`r" -NoNewline
     InfoMessage "Completed $JobDescription processing for $processedCount of $totalItems items"
 }
 #endregion Generic Batch Job Processor
