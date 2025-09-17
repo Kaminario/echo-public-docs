@@ -11,7 +11,8 @@ function Sanitize {
     )
 
     # Reduct password from text, sometimes text contains connection string with password
-    $ReductedText = $Text -replace '(?i)(?<=Password=)[^;]+', '[reducted]'
+    $ReductedText = $Text -replace '(?i)(?<=Password=)[^; ]+', '[reducted]'
+    $ReductedText = $ReductedText -replace '(?i)(?<=Token=)[^; ]+', '[reducted]'
 
     # Replace the value of the $FlexToken variable with '[reducted]' only if it exists and is not empty
     if ($Global:FlexToken -and $Global:FlexToken.Length -gt 0) {
@@ -55,6 +56,13 @@ Function DebugMessage {
     }
     $msg = ArgsToSanitizedString @args
 	Write-Host "$(LogTimeStamp) - $($MessageCurrentObject) - [DEBUG] - $msg"
+}
+Function DebugMessageRaw {
+    if ($DebugPreference -ne 'Continue') {
+        return
+    }
+    $msg = [string]::Join(' ', $args)
+	Write-Host "$(LogTimeStamp) - $($MessageCurrentObject) - [DEBUG] (RAW) - $msg"
 }
 
 Function WarningMessage {

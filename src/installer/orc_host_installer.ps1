@@ -457,31 +457,42 @@ function StartProcessWithTimeout {
         [string]$ProcessName
     )
 
+    InfoMessage "Starting installation of $ProcessName from $FilePath with timeout of $TimeoutSeconds seconds"
+    DebugMessage "Full command: $FilePath $($ArgumentList -join ' ')"
     try {
         # Start installation process with timeout
         $installJob = Start-Job -ScriptBlock {
-            param($InstallerPath, $Args)
-            Start-Process -FilePath $InstallerPath -ArgumentList $Args -Wait -NoNewWindow -PassThru
-        } -ArgumentList $FilePath, $ArgumentList
+            param($InstallerPath, $Arg0, $Arg1, $Arg2, $Arg3, $Arg4)
+            $Args = @($Arg0, $Arg1, $Arg2, $Arg3, $Arg4)
+            try {
+                # sleep 2 minutes to simulate long installation
+                Write-Host "Sleeping for 120 seconds to simulate long installation..."
+                Start-Sleep -Seconds 120
+                $process = Start-Process -FilePath $InstallerPath -ArgumentList $Args -Wait -NoNewWindow -PassThru
+                Write-Host "Process completed with exit code: $($process.ExitCode)"
+                return $process.ExitCode
+            } catch {
+                Write-Error "Process failed: $_"
+                return 999
+            }
+        } -ArgumentList $FilePath, $ArgumentList[0], $ArgumentList[1], $ArgumentList[2], $ArgumentList[3], $ArgumentList[4]
+
+        DebugMessage "Started job with ID $($installJob.Id) for $ProcessName installation"
 
         # Wait for job completion with timeout
         $waitResult = $installJob | Wait-Job -Timeout $TimeoutSeconds
 
         if ($waitResult) {
-            $installProcess = Receive-Job -Job $installJob
-            $exitCode = $installProcess.ExitCode
+            # Job completed within timeout
+            $exitCode = Receive-Job -Job $installJob
             Remove-Job -Job $installJob -Force
-
-            if ($exitCode -ne 0) {
-                ErrorMessage "$ProcessName installation failed with exit code $exitCode"
-                return $false
-            }
-            return $true
+            InfoMessage "$ProcessName installation completed with exit code [$exitCode]"
+            return ($exitCode -eq 0)
         } else {
             # Installation timed out
             ErrorMessage "$ProcessName installation timed out after $TimeoutSeconds seconds"
-            $installJob | Stop-Job
-            Remove-Job -Job $installJob -Force
+            Stop-Job -Job $installJob -ErrorAction SilentlyContinue
+            Remove-Job -Job $installJob -Force -ErrorAction SilentlyContinue
             return $false
         }
     } catch {
@@ -500,14 +511,14 @@ function InstallSilkNodeAgent {
         [string]$FlexIP,
         [string]$AgentToken
     )
-    InfoMessage "Installing Silk Node Agent from $InstallerFilePath"
+    InfoMessage "InstallSilkNodeAgent: executable $InstallerFilePath"
     # execute InstallerFilePath
     if (-not (Test-Path -Path $InstallerFilePath)) {
         InfoMessage "Installer file not found at $InstallerFilePath. Exiting script."
         return $false
     }
-
     # pass argumnets as /DbConnStr='"$sqlConn"'
+    InfoMessage "Building arguments with SQLConnectionString='$SQLConnectionString', FlexIP='$FlexIP', AgentToken='[REDACTED]', MountPointsDirectory='$MountPointsDirectory'"
     $arguments = @(
         '/S', # Silent installation
         "/DbConnStr='$SQLConnectionString'",
@@ -515,9 +526,15 @@ function InstallSilkNodeAgent {
         "/Token='$AgentToken'",
         "/MountPointsDirectory='$MountPointsDirectory'"
     )
+    InfoMessage "Arguments array: $($arguments -join ' ')"
 
     # Run installation with timeout
-    $installSuccess = StartProcessWithTimeout -FilePath $InstallerFilePath -ArgumentList $arguments -TimeoutSeconds $INTERNAL_INSTALL_TIMEOUT_SECONDS -ProcessName "Silk Node Agent"
+    $installSuccess = StartProcessWithTimeout `
+                        -FilePath $InstallerFilePath `
+                        -ArgumentList $arguments `
+                        -TimeoutSeconds $INTERNAL_INSTALL_TIMEOUT_SECONDS `
+                        -ProcessName "Silk Node Agent"
+
     if (-not $installSuccess) {
         return $false
     }
@@ -636,7 +653,7 @@ function InstallSilkVSSProvider {
         return $false
     }
 
-$ArgumentList = @(
+    $arguments = @(
         '/silent',
         "/external_ip=$SDPHost",
         "/host_name=$(hostname)",
@@ -651,8 +668,14 @@ $ArgumentList = @(
         "/log=$SVSSInstallationLogPath"
     )
 
+    DebugMessage "Silk VSS Provider installation arguments: $arguments"
+
     # Run installation with timeout
-    $installSuccess = StartProcessWithTimeout -FilePath $InstallerFilePath -ArgumentList $ArgumentList -TimeoutSeconds $INTERNAL_INSTALL_TIMEOUT_SECONDS -ProcessName "Silk VSS Provider"
+    $installSuccess = StartProcessWithTimeout `
+                        -FilePath $InstallerFilePath `
+                        -ArgumentList $arguments `
+                        -TimeoutSeconds $INTERNAL_INSTALL_TIMEOUT_SECONDS `
+                        -ProcessName "Silk VSS"
     if (-not $installSuccess) {
         return $false
     }
@@ -705,25 +728,20 @@ function setup{
             return "Unable to establish connection with any available SQL Server instance. Check SQL Server availability and credentials"
         }
 
-        InfoMessage "Successfully established SQL Server connection"
-
-        # Use local installer files that were uploaded by orchestrator
-        DebugMessage "Using Silk VSS Provider installer at $SilkVSSPath"
-
-        if (-not (Test-Path $SilkVSSPath)) {
-            ErrorMessage "Silk VSS Provider installer not found at $SilkVSSPath"
-            return "Unable to find Silk VSS Provider installer at $SilkVSSPath"
-        } else {
-            InfoMessage "Silk VSS Provider installer found at $SilkVSSPath"
-        }
-
-        DebugMessage "Using Silk Node Agent installer at $SilkAgentPath"
+        InfoMessage "Successfully established SQL Server connection with connection string: $ConnectionString"
 
         if (-not (Test-Path $SilkAgentPath)) {
             ErrorMessage "Silk Node Agent installer not found at $SilkAgentPath"
             return "Unable to find Silk Node Agent installer at $SilkAgentPath"
         } else {
             InfoMessage "Silk Node Agent installer found at $SilkAgentPath"
+        }
+
+        if (-not (Test-Path $SilkVSSPath)) {
+            ErrorMessage "Silk VSS Provider installer not found at $SilkVSSPath"
+            return "Unable to find Silk VSS Provider installer at $SilkVSSPath"
+        } else {
+            InfoMessage "Silk VSS Provider installer found at $SilkVSSPath"
         }
 
         if ($IsDryRun) {
@@ -737,6 +755,15 @@ function setup{
             return "Failed to register host $HostID with Flex and obtain agent token"
         }
 
+        $installed = InstallSilkNodeAgent -InstallerFilePath $SilkAgentPath `
+                                          -SQLConnectionString $ConnectionString `
+                                          -FlexIP $FlexIP `
+                                          -AgentToken $AgentToken
+        if (-not $installed) {
+            ErrorMessage "Failed to install Silk Node Agent"
+            return "Installation of Silk Node Agent failed. Check the installation log at $AgentInstallationLogPath"
+        }
+
         # Install Silk VSS Provider
         $installed = InstallSilkVSSProvider -InstallerFilePath $SilkVSSPath -SDPID $SDPID -SDPHost $SDPHost -SDPPort $SDPPort -Credential $SDPCredential
         if (-not $installed) {
@@ -744,10 +771,7 @@ function setup{
             return "Installation of Silk VSS Provider failed. Check the installation log at $SVSSInstallationLogPath"
         }
 
-        if (-not (InstallSilkNodeAgent -InstallerFilePath $SilkAgentPath -SQLConnectionString $ConnectionString -FlexIP $FlexIP -AgentToken $AgentToken)) {
-            ErrorMessage "Failed to install Silk Node Agent"
-            return "Installation of Silk Node Agent failed. Check the installation log at $AgentInstallationLogPath"
-        }
+
 
         InfoMessage "Temporary directory: $SilkVSSDirectory"
         if ($IsDryRun) {
@@ -784,7 +808,7 @@ function SetupHost {
         ErrorMessage "Setup completed with errors. Please check the logs for details: $($error)"
         throw "Setup failed. $($error)"
     } else {
-        CleanupInstallerFiles
+        #CleanupInstallerFiles
         InfoMessage "Setup completed successfully."
     }
 }

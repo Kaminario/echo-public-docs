@@ -38,21 +38,34 @@ function StartBatchInstallation {
 
     # Installation job logic - direct remote installation (like upload/connectivity pattern)
     $installationJobScript = {
-        param($hostInfo, $Config, $HostSetupScript, $ENUM_ACTIVE_DIRECTORY, $IsDryRun)
+        param($hostInfo, $Config, $HostSetupScript, $ENUM_ACTIVE_DIRECTORY, $IsDryRun, $IsDebug)
 
-        function InfoMessage { param($message) Write-Host "[INFO] $message" -ForegroundColor Green }
-        function DebugMessage { param($message) Write-Host "[DEBUG] $message" -ForegroundColor Gray }
-        function ErrorMessage { param($message) Write-Host "[ERROR] $message" -ForegroundColor Red }
+        function InfoMessage { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [INFO] $message" -ForegroundColor Green }
+        function DebugMessage { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [DEBUG] $message" -ForegroundColor Gray }
+        function ErrorMessage { param($message) Write-Error "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [ERROR] $message" -ErrorAction Continue }
 
         try {
             $HostAddress = $hostInfo.host_addr
             InfoMessage "Starting installation on $HostAddress..."
 
-            $IsDebug = $DebugPreference -eq 'Continue'
+            # Use uploaded installer paths
+            DebugMessage "Remote installer paths: $($hostInfo.remote_installer_paths | ConvertTo-Json -Compress)"
+            $agentPath = $hostInfo.remote_installer_paths.agent
+            $vssPath = $hostInfo.remote_installer_paths.vss
+            DebugMessage "Installer paths: $($hostInfo.remote_installer_paths | ConvertTo-Json -Depth 3)"
+            # Validate that remote installer paths are not null
+            if (-not $agentPath) {
+                ErrorMessage "Agent path is null or empty. Remote installer paths may not be properly set."
+            }
+            if (-not $vssPath) {
+                ErrorMessage "VSS path is null or empty. Remote installer paths may not be properly set."
+            }
 
-            # Use uploaded installer paths instead of URLs
-            $agentPath = if ($hostInfo.remote_installer_paths.agent) { $hostInfo.remote_installer_paths.agent } else { $Config.agent }
-            $vssPath = if ($hostInfo.remote_installer_paths.vss) { $hostInfo.remote_installer_paths.vss } else { $Config.svss }
+            # do not continue if the paths are null, add issue and return
+            if (-not $agentPath -or -not $vssPath) {
+                $hostInfo.issues += "Failed to upload installers. $issue"
+                return
+            }
 
             DebugMessage "Preparing to run installation script on $HostAddress"
             DebugMessage "Using Flex IP: $($hostInfo.flex_host_ip)"
@@ -81,6 +94,9 @@ function StartBatchInstallation {
                       $MountPointsDirectory,
                       $Script)
 
+                function InfoMessage { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [INFO] $message"}
+                function DebugMessage { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [DEBUG] $message"}
+                function ErrorMessage { param($message) Write-Error "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [ERROR] $message" -ErrorAction Continue }
                 # Set debug preferences in the remote session based on the debug mode
                 if ($DebugMode) {
                     $DebugPreference = 'Continue'
@@ -92,7 +108,7 @@ function StartBatchInstallation {
 
                 # Create a new function with the script content
                 $function = [ScriptBlock]::Create($Script)
-                Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [INFO] - Running installation (Debug: $DebugMode)"
+                InfoMessage "Running installation script... (Debug: $DebugMode, DryRun: $DryRunMode)"
 
                 # Prepare base arguments
                 $functionArgs = @{
@@ -110,7 +126,7 @@ function StartBatchInstallation {
                 # Add DryRun parameter if in dry run mode
                 if ($DryRunMode) {
                     $functionArgs.Add('DryRun', $true)
-                    Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [INFO] - Dry run mode is enabled, no changes will be made."
+                    InfoMessage "Dry run mode is enabled, no changes will be made."
                 }
 
                 # Execute function with prepared arguments using splatting
@@ -118,7 +134,7 @@ function StartBatchInstallation {
                     $result = & $function @functionArgs
                     return @{ Success = $true; Output = $result; Error = $null }
                 } catch {
-                    Write-Error "Installation script execution failed on host $env:COMPUTERNAME: $_"
+                    ErrorMessage "Installation script execution failed on host $env:COMPUTERNAME: $_"
                     return @{ Success = $false; Output = $null; Error = $_.Exception.Message }
                 }
             }
@@ -279,7 +295,8 @@ function StartBatchInstallation {
             $using:Config `
             $using:HostSetupScript `
             $using:ENUM_ACTIVE_DIRECTORY `
-            $using:DryRun.IsPresent
+            $using:DryRun.IsPresent `
+            ($using:DebugPreference -eq 'Continue')
     }
 
     # Use dynamic batch processor for installations

@@ -53,6 +53,7 @@ function Start-BatchJobProcessor {
     $processedCount = 0
     $totalItems = $Items.Count
     $startedCount = 0
+    $startTime = Get-Date
 
     foreach ($item in $Items) {
         # DYNAMIC BATCHING PATTERN: Wait if we've reached max concurrency
@@ -64,12 +65,14 @@ function Start-BatchJobProcessor {
                 $jobs = @($jobs | Where-Object { $_.Job.Id -ne $completedJob.Job.Id })
                 $processedCount++
                 # Clear spinner line and show progress message
-                Write-Host "`r" + (" " * 50) + "`r" -NoNewline
+                Write-Host "`r" + (" " * 80) + "`r" -NoNewline
                 $runningCount = $jobs.Count
                 InfoMessage "Progress: $processedCount of $totalItems $JobDescription jobs completed, $runningCount running"
             } else {
                 # Show spinner animation while waiting
-                Write-Host "`r$($spinnerChars[$spinnerIndex]) Waiting for available slot..." -NoNewline
+                $elapsed = (Get-Date) - $startTime
+                $elapsedStr = "{0:mm\:ss}" -f $elapsed
+                Write-Host "`r[$elapsedStr] $($spinnerChars[$spinnerIndex]) Waiting for available slot..." -NoNewline
                 $spinnerIndex = ($spinnerIndex + 1) % $spinnerChars.Count
                 Start-Sleep -Milliseconds 100
             }
@@ -105,13 +108,18 @@ function Start-BatchJobProcessor {
             InfoMessage "Progress: $processedCount of $totalItems $JobDescription jobs completed, $runningCount remaining"
         } else {
             # Show spinner animation while waiting
-            Write-Host "`r$($spinnerChars[$spinnerIndex]) Waiting for $($jobs.Count) $JobDescription jobs to complete..." -NoNewline
+            $elapsed = (Get-Date) - $startTime
+            $elapsedStr = "{0:mm\:ss}" -f $elapsed
+            Write-Host "`r[$elapsedStr] $($spinnerChars[$spinnerIndex]) Waiting for $($jobs.Count) $JobDescription jobs to complete..." -NoNewline
             $spinnerIndex = ($spinnerIndex + 1) % $spinnerChars.Count
             Start-Sleep -Milliseconds 100
         }
     }
-    # Clear any remaining spinner line
-    Write-Host "`r" + (" " * 80) + "`r" -NoNewline
-    InfoMessage "Completed $JobDescription processing for $processedCount of $totalItems items"
+    # Keep the last spinner line visible by adding a newline
+    Write-Host ""
+
+    $finalElapsed = (Get-Date) - $startTime
+    $finalElapsedStr = "{0:mm\:ss}" -f $finalElapsed
+    InfoMessage "Completed $JobDescription processing for $processedCount of $totalItems items in $finalElapsedStr"
 }
 #endregion Generic Batch Job Processor
