@@ -9,7 +9,7 @@ function GenerateConfigTemplate {
         $UseKerberos = $false
     }
 
-    $templateConfigJson = '{"installers":{"agent":{"path": "local_path"},"vss": {"path": "local_path"}},"common":{"sdp_id":"sdp_id","sdp_user":"sdp_user","sdp_pass":"sdp_pass","sql_user":"sql_user","sql_pass":"sql_pass","flex_host_ip":"flex-ip","flex_user":"flex_user","flex_pass":"flex_pass","host_user":"host_user","host_pass":"host_pass", "host_auth": "unset", "mount_points_directory":"E:\\MountPoints"},"hosts":[{"host_addr":"host_ip","sql_user":"sql_user_1","sql_pass":"sql_pass_1","mount_points_directory":"F:\\MountPoints"},"host_ip","host_ip"]}'
+    $templateConfigJson = '{"installers":{"agent":{"path": "local_path"},"vss": {"path": "local_path"}},"common":{"sdp_id":"sdp_id","sdp_user":"sdp_user","sdp_pass":"sdp_pass","sql_user":"sql_user","sql_pass":"sql_pass","sql_server":"host,port","flex_host_ip":"flex-ip","flex_user":"flex_user","flex_pass":"flex_pass","host_user":"host_user","host_pass":"host_pass","host_auth":"unset","mount_points_directory":"C:\\MountPoints"},"hosts":[{"host_addr":"host_ip","sql_user":"sql_user_1","sql_pass":"sql_pass_1"},"host_ip","host_ip"]}'
 
     # load template as json, make chages, and dump in a pretty way
     $ConfObj = $templateConfigJson | ConvertFrom-Json
@@ -116,6 +116,28 @@ function constructHosts {
             $hostObject.flex_pass = ConvertTo-SecureString $hostObject.flex_pass -AsPlainText -Force
         }
 
+        # Initialize issues field for tracking connectivity and upload problems
+        Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "issues" -Value @() -Force
+
+        # remote_installer_paths
+        Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "remote_installer_paths" -Value @() -Force
+
+        # sql_connection_string
+        Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "sql_connection_string" -Value $null -Force
+
+        # sdp_credentials
+        Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "sdp_credential" -Value $null -Force
+
+        if (-not $hostObject.sql_user) {
+            Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "sql_user" -Value $null -Force
+        }
+        if (-not $hostObject.sql_pass) {
+            Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "sql_pass" -Value $null -Force
+        }
+
+        # Initialize result field for storing job result after installation
+        Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "result" -Value $null -Force
+
         $processedHosts += $hostObject
     }
     return $processedHosts
@@ -127,34 +149,34 @@ function ReadConfigFile {
     # {
     # "installers": {
     #     "agent": {
-    #         "url": "<remote_url>",
-    #         "path": "<local_path>"
+    #         "url": "remote_url",
+    #         "path": "local_path"
     #     },
     #     "vss": {
-    #         "url": "<remote_url>",
-    #         "path": "<local_path>"
+    #         "url": "remote_url",
+    #         "path": "local_path"
     #     }
     # },
     # "common": {
-    #     "sdp_id": "<sdp_id>",
-    #     "sdp_user": "<sdp_user>",
-    #     "sdp_pass": "<sdp_pass>",
-    #     "sql_user": "<sql_user>",
-    #     "sql_pass": "<sql_pass>",
-    #     "flex_host_ip": "10.8.71.100",
-    #     "flex_user": "<flex_user>",
-    #     "flex_pass": "<flex_pass>",
-    #     "host_user": "<host_user>",
-    #     "host_pass": "<host_pass>",
+    #     "sdp_id": "sdp_id",
+    #     "sdp_user": "sdp_user",
+    #     "sdp_pass": "sdp_pass",
+    #     "sql_user": "sql_user",
+    #     "sql_pass": "sql_pass",
+    #     "sql_server": "host,port",
+    #     "flex_host_ip": "flex_host_ip",
+    #     "flex_user": "flex_user",
+    #     "flex_pass": "flex_pass",
+    #     "host_user": "host_user",
+    #     "host_pass": "host_pass",
     #     "host_auth": "credentials",  // or "active_directory"
-    #     "mount_points_directory": "E:\\MountPoints"
+    #     "mount_points_directory": "C:\\MountPoints"
     # },
     # "hosts": [
     #     {
     #     "host_addr": "10.30.40.50",
-    #     "sql_user": "<sql_user_1>",
-    #     "sql_pass": "<sql_pass_1>",
-    #     "mount_points_directory": "F:\\MountPoints"
+    #     "sql_user": "sql_user_1",
+    #     "sql_pass": "sql_pass_1",
     #     },
     #     "10.30.40.51",
     #     "10.30.40.52"

@@ -29,33 +29,47 @@ function ExpandImportsInline {
         # Process imports up to 3 times to handle nested dependencies
         for ($iteration = 1; $iteration -le 3; $iteration++) {
             DebugMessage "Expanding imports - iteration $iteration"
-
-            # Find all orc_* files and replace the dot-sourcing lines with their content
-            $orcFiles = Get-ChildItem -Path $PSScriptRoot -Filter "orc_*.ps1"
+            
+            $lines = $processedContent -split '[\r\n]+'
+            $newLines = [System.Collections.Generic.List[string]]::new()
             $importsProcessed = 0
 
-            foreach ($orcFile in $orcFiles) {
-                $importPattern = ". ./$($orcFile.Name)"
+            foreach ($line in $lines) {
+                if ($line -match "^\s*\.\s+(\./orc_[\w-]+\.ps1)\s*$") {
+                    $fileName = $matches[1]
+                    $filePath = Join-Path $PSScriptRoot $fileName
+                    # remove ps1 from filename
+                    $fileName = $fileName -replace "\.ps1$",""
+                    # remove starting ./
+                    $fileName = $fileName -replace "^\./",""
 
-                if ($processedContent.Contains($importPattern)) {
-                    try {
-                        $orcContent = Get-Content -Path $orcFile.FullName -Raw
-                        $replacementContent = "#region $($orcFile.Name)`n$orcContent`n#endregion $($orcFile.Name)`n"
+                    if (Test-Path $filePath) {
+                        $orcContent = Get-Content -Path $filePath -Raw
 
-                        $processedContent = $processedContent.Replace($importPattern, $replacementContent)
+                        $newLines.Add("#region $fileName")
+                        # Split the content into lines and add each line separately
+                        $contentLines = $orcContent.TrimEnd() -split '[\r\n]+'
+                        foreach ($contentLine in $contentLines) {
+                            if ($contentLine.Trim() -ne '') {
+                                $newLines.Add($contentLine)
+                            }
+                        }
+                        $newLines.Add("#endregion $fileName")
                         $importsProcessed++
-
-                        DebugMessage "Replaced import for $($orcFile.Name)"
+                        DebugMessage "Expanded import for $fileName"
+                    } else {
+                        WarningMessage "Could not find import file: $fileName. Keeping original import line."
+                        $newLines.Add($line)
                     }
-                    catch {
-                        WarningMessage "Failed to process import for $($orcFile.Name): $_"
-                    }
+                } else {
+                    $newLines.Add($line)
                 }
             }
 
+            $processedContent = $newLines -join [System.Environment]::NewLine
+            
             DebugMessage "Iteration $iteration completed. Processed $importsProcessed imports."
 
-            # If no imports were processed in this iteration, we can break early
             if ($importsProcessed -eq 0) {
                 DebugMessage "No more imports to process. Breaking early."
                 break

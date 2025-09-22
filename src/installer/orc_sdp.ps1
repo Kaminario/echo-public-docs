@@ -8,7 +8,6 @@ function validateSDPConnection {
         [System.Management.Automation.PSCredential]$Credential
     )
     $ApiEndpoint = 'system/state'
-
     DebugMessage "validateSDPConnection USERNAME: $($Credential.UserName)"
     $response = CallSDPApi -SDPHost $SDPHost -SDPPort $SDPPort -ApiEndpoint $ApiEndpoint -Credential $Credential
     if (-not $response) {
@@ -71,8 +70,10 @@ function UpdateSDPCredentials {
         [string]$flexToken
     )
 
+    $goodHost = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
+
     # get all different SDPId from hosts
-    $SDPIDs = $Config.hosts | ForEach-Object { $_.sdp_id } | Sort-Object -Unique
+    $SDPIDs = $goodHost | ForEach-Object { $_.sdp_id } | Sort-Object -Unique
 
     # get sdpInfo for each SDPId (floating IP and port from Flex)
     $SDPInfo = @{}
@@ -87,7 +88,6 @@ function UpdateSDPCredentials {
     }
 
     foreach ($hostInfo in $Config.hosts) {
-        $hostInfo | Add-Member -MemberType NoteProperty -Name "sdp_credential" -Value $null -Force
         if ($SDPInfo[$hostInfo.sdp_id].credentials -eq $null) {
             # we already veryfied user and pass for that sdp
             $SDPCredential = getSDPCredentials -HostInfo $hostInfo -SDPHost $SDPInfo[$hostInfo.sdp_id].mc_floating_ip -SDPPort $SDPInfo[$hostInfo.sdp_id].mc_https_port
@@ -97,9 +97,8 @@ function UpdateSDPCredentials {
             }
             $SDPInfo[$hostInfo.sdp_id].credentials = $SDPCredential
         }
-        Add-Member -InputObject $hostInfo -MemberType NoteProperty -Name "sdp_credential" -Value $SDPInfo[$hostInfo.sdp_id].credentials -Force
+        $hostInfo.sdp_credential = $SDPInfo[$hostInfo.sdp_id].credentials
     }
-
 }
 #endregion UpdateSDPCredentials
 
