@@ -107,7 +107,7 @@ function resolveIPToHostname {
         [Parameter(Mandatory=$true)]
         [string]$IPAddress
     )
-    
+
     try {
         $hostname = [System.Net.Dns]::GetHostEntry($IPAddress).HostName
         if ($hostname -and $hostname -ne $IPAddress) {
@@ -117,7 +117,7 @@ function resolveIPToHostname {
     } catch {
         DebugMessage "Failed to resolve IP $IPAddress to hostname: $_"
     }
-    
+
     return $null
 }
 #endregion resolveIPToHostname
@@ -229,18 +229,13 @@ function EnsureHostsConnectivity {
         [Array]$hostEntries
     )
 
-    # Reset host_connectivity_issue to "not validated" before start processing
-    foreach ($hostInfo in $hostEntries) {
-        $hostInfo | Add-Member -NotePropertyName "host_connectivity_issue" -NotePropertyValue "not validated" -Force
-    }
-
     # Fulfill credentials for hosts
     ensureHostCredentials -hostEntries $hostEntries
 
     # Check that all hosts have proper host_auth values
     foreach ($hostInfo in $hostEntries) {
         if ($hostInfo.host_auth -ne $ENUM_ACTIVE_DIRECTORY -and $hostInfo.host_auth -ne $ENUM_CREDENTIALS) {
-            $hostInfo.host_connectivity_issue = "Invalid host_auth value. Must be '$ENUM_ACTIVE_DIRECTORY' or '$ENUM_CREDENTIALS'"
+            $hostInfo.issues += "Invalid host_auth value. Must be '$ENUM_ACTIVE_DIRECTORY' or '$ENUM_CREDENTIALS'"
             continue
         }
     }
@@ -251,7 +246,7 @@ function EnsureHostsConnectivity {
         # Ensure current user is domain user
         if (-not (isActiveDirectoryUser)) {
             foreach ($hostInfo in $adHosts) {
-                $hostInfo.host_connectivity_issue = "Current user is not logged in to Active Directory"
+                $hostInfo.issues += "Current user is not logged in to Active Directory"
             }
         } else {
             foreach ($hostInfo in $adHosts) {
@@ -263,15 +258,9 @@ function EnsureHostsConnectivity {
                         $hostInfo.host_addr = $resolvedHostname
                         InfoMessage "Using resolved hostname $resolvedHostname for Active Directory authentication"
                     } else {
-                        $hostInfo.host_connectivity_issue = "Could not resolve IP $($hostInfo.host_addr) to hostname for $ENUM_ACTIVE_DIRECTORY auth"
+                        $hostInfo.issues += "Could not resolve IP $($hostInfo.host_addr) to hostname for $ENUM_ACTIVE_DIRECTORY auth"
                         continue
                     }
-                }
-                # Test connectivity
-                if (isHostConnectivityValid -HostInfo $hostInfo) {
-                    $hostInfo.host_connectivity_issue = ""
-                } else {
-                    $hostInfo.host_connectivity_issue = "Failed to connect to host using $ENUM_ACTIVE_DIRECTORY authentication"
                 }
             }
         }
@@ -285,12 +274,12 @@ function EnsureHostsConnectivity {
         $isError = $false
         foreach ($hostInfo in $credHosts) {
             if (-not ($hostInfo.host_addr -as [IPAddress])) {
-                $hostInfo.host_connectivity_issue = "Invalid host address '$($hostInfo.host_addr)'. Must be an IP address for $ENUM_CREDENTIALS authentication."
+                $hostInfo.issues += "Invalid host address '$($hostInfo.host_addr)'. Must be an IP address for $ENUM_CREDENTIALS authentication."
                 $isError = $true
             }
         }
         if ($isError) {
-            return $hostEntries | Where-Object { $_.host_connectivity_issue -ne ""  -and $_.host_connectivity_issue -ne "not validated" }
+            return @($hostEntries | Where-Object { $_.issues.Count -gt 0 })
         }
 
         try{
@@ -301,19 +290,104 @@ function EnsureHostsConnectivity {
             ErrorMessage "Failed to add hosts to TrustedHosts. Cannot proceed with $ENUM_CREDENTIALS authentication."
             Exit 1
         }
-
-        foreach ($hostInfo in $credHosts) {
-            # Test connectivity
-            if (isHostConnectivityValid -HostInfo $hostInfo) {
-                $hostInfo.host_connectivity_issue = ""
-            } else {
-                $hostInfo.host_connectivity_issue = "Failed to connect to host using $ENUM_CREDENTIALS authentication"
-            }
-        }
     }
 
-    $badHosts = @($hostEntries | Where-Object { $_.host_connectivity_issue -ne ""  -and $_.host_connectivity_issue -ne "not validated" })
+    # Perform parallel connectivity testing for all hosts that passed validation
+    $hostsToTest = @($hostEntries | Where-Object { $_.issues.Count -eq 0 })
+    if ($hostsToTest.Count -gt 0) {
+        testHostsConnectivityInParallel -hostEntries $hostsToTest -MaxConcurrency $script:MaxConcurrency
+    }
+
+    $badHosts = @($hostEntries | Where-Object { $_.issues.Count -gt 0 })
 
     return $badHosts
 }
 #endregion EnsureHostsConnectivity
+
+#region testHostsConnectivityInParallel
+function testHostsConnectivityInParallel {
+    param (
+        [Parameter(Mandatory=$true)]
+        [Array]$hostEntries,
+        [Parameter(Mandatory=$false)]
+        [int]$MaxConcurrency = 10
+    )
+
+    # Connectivity test job logic
+    $connectivityJobScript = {
+        param($HostInfo, $ENUM_ACTIVE_DIRECTORY, $ENUM_CREDENTIALS)
+
+        function InfoMessageCJS { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - ConnJob - [INFO] $message"}
+
+        # Connectivity test logic (same as isHostConnectivityValid but in job)
+        try {
+            $scriptBlock = {
+                try {
+                    Get-Date
+                } catch {
+                    "ERROR: $($_.Exception.Message)"
+                }
+            }
+
+            if ($HostInfo.host_auth -eq $ENUM_ACTIVE_DIRECTORY) {
+                InfoMessageCJS "Testing connectivity to $($HostInfo.host_addr) using $ENUM_ACTIVE_DIRECTORY authentication..."
+                $result = Invoke-Command -ComputerName $HostInfo.host_addr -ScriptBlock $scriptBlock -ErrorAction Stop
+            } elseif ($HostInfo.host_auth -eq $ENUM_CREDENTIALS) {
+                $credential = New-Object System.Management.Automation.PSCredential($HostInfo.host_user, $HostInfo.host_pass)
+                $sessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
+                InfoMessageCJS "Testing connectivity to $($HostInfo.host_addr) using $ENUM_CREDENTIALS authentication..."
+                $result = Invoke-Command -ComputerName $HostInfo.host_addr -Credential $credential -ScriptBlock $scriptBlock -SessionOption $sessionOption -ErrorAction Stop
+            } else {
+                return @{ Success = $false; Error = "Invalid authentication method" }
+            }
+
+            InfoMessageCJS "Successfully connected to $($HostInfo.host_addr) with result: $result"
+
+            # Check if result indicates an error
+            if ($result -and $result.ToString().StartsWith("ERROR:")) {
+                return @{ Success = $false; Error = "Remote command execution failed: $result" }
+            }
+
+            return @{ Success = $true; Error = $null }
+        } catch {
+            return @{ Success = $false; Error = $_.Exception.Message }
+        }
+    }
+
+    # Result processor
+    $resultProcessor = {
+        param($JobInfo)
+
+        $job = $JobInfo.Job
+        $hostInfo = $JobInfo.Item
+
+        if ($job.State -eq 'Completed') {
+            $testResult = Receive-Job -Job $job
+            if ($testResult -and $testResult.Success) {
+                InfoMessage "Successfully verified connectivity to $($hostInfo.host_addr)"
+            } else {
+                $errorMsg = if ($testResult.Error) { $testResult.Error } else { "Unknown connectivity error" }
+                $hostInfo.issues += "Failed to connect to host using $($hostInfo.host_auth) authentication: $errorMsg"
+                # Write report after updating host
+                WriteHostsSummaryToFile -Hosts $hostEntries -OutputPath $SilkEchoReportFilePath
+            }
+        } else {
+            $stdErrOut = Receive-Job -Job $job -ErrorAction SilentlyContinue | Out-String
+            $errorMsg = "Connectivity test job failed for $($hostInfo.host_addr). State: $($job.State). $stdErrOut"
+            $hostInfo.issues += $errorMsg
+            # Write report after updating host
+            WriteHostsSummaryToFile -Hosts $hostEntries -OutputPath $SilkEchoReportFilePath
+        }
+        Remove-Job -Job $job -Force
+    }
+
+    # Enhanced job script that includes constants
+    $jobScriptWithConstants = {
+        param($hostInfo)
+        & ([ScriptBlock]::Create($using:connectivityJobScript)) $hostInfo $using:ENUM_ACTIVE_DIRECTORY $using:ENUM_CREDENTIALS
+    }
+
+    # Use generic batch processor
+    Start-BatchJobProcessor -Items $hostEntries -JobScriptBlock $jobScriptWithConstants -ResultProcessor $resultProcessor -MaxConcurrency $MaxConcurrency -JobDescription "ConnectivityTest"
+}
+#endregion testHostsConnectivityInParallel

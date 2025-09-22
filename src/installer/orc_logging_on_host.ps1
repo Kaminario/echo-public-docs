@@ -11,7 +11,8 @@ function Sanitize {
     )
 
     # Reduct password from text, sometimes text contains connection string with password
-    $ReductedText = $Text -replace '(?i)(?<=Password=)[^;]+', '[reducted]'
+    $ReductedText = $Text -replace '(?i)(?<=Password=)[^; ]+', '[reducted]'
+    $ReductedText = $ReductedText -replace '(?i)(?<=Token=)[^; ]+', '[reducted]'
 
     # Replace the value of the $FlexToken variable with '[reducted]' only if it exists and is not empty
     if ($Global:FlexToken -and $Global:FlexToken.Length -gt 0) {
@@ -40,13 +41,12 @@ Function ArgsToSanitizedString {
 
 Function ErrorMessage {
     $msg = ArgsToSanitizedString @args
-	Write-Host "$(LogTimeStamp) - $($MessageCurrentObject) - [ERROR] - $msg"
-    Write-Error "$(LogTimeStamp) - $($MessageCurrentObject) - [ERROR] - $msg"
+	Write-Host "$(LogTimeStamp) - Host[$env:COMPUTERNAME] - [ERROR] - $msg"
 }
 
 Function InfoMessage {
     $msg = ArgsToSanitizedString @args
-	Write-Host "$(LogTimeStamp) - $($MessageCurrentObject) - [INFO] - $msg"
+    Write-Host "$(LogTimeStamp) - Host[$env:COMPUTERNAME] - [INFO] $msg"
 }
 
 Function DebugMessage {
@@ -54,11 +54,18 @@ Function DebugMessage {
         return
     }
     $msg = ArgsToSanitizedString @args
-	Write-Host "$(LogTimeStamp) - $($MessageCurrentObject) - [DEBUG] - $msg"
+	Write-Host "$(LogTimeStamp) - Host[$env:COMPUTERNAME] - [DEBUG] - $msg"
+}
+Function DebugMessageRaw {
+    if ($DebugPreference -ne 'Continue') {
+        return
+    }
+    $msg = [string]::Join(' ', $args)
+	Write-Host "$(LogTimeStamp) - Host[$env:COMPUTERNAME] - [DEBUG] (RAW) - $msg"
 }
 
 Function WarningMessage {
     $msg = ArgsToSanitizedString @args
-	Write-Host "$(LogTimeStamp) - $($MessageCurrentObject) - [WARN] - $msg"
+	Write-Host "$(LogTimeStamp) - Host[$env:COMPUTERNAME] - [WARN] - $msg"
 }
 #endregion Logging

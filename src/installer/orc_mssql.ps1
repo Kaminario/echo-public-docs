@@ -19,7 +19,7 @@ function getSqlCredentials {
 }
 #endregion getSqlCredentials
 
-#region PrepSQLStr
+#region UpdateHostSqlConnectionString
 function UpdateHostSqlConnectionString {
     param (
         [PSCustomObject]$Config
@@ -34,8 +34,10 @@ function UpdateHostSqlConnectionString {
     $defaultSqlPass = $null
     $commonCredentialsNeeded = $false
 
+    $goodHost = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
+    
     # Check if any hosts are missing SQL credentials
-    foreach ($hostInfo in $Config.hosts) {
+    foreach ($hostInfo in $goodHost) {
         if (-not $hostInfo.sql_user -or -not $hostInfo.sql_pass) {
             $commonCredentialsNeeded = $true
             break
@@ -61,11 +63,12 @@ function UpdateHostSqlConnectionString {
          # Create connection string for each host
         foreach ($hostInfo in $Config.hosts) {
             # Use host-specific credentials if available, otherwise use default
+            # the sql_user/pass fields is always exist but may be null
             if (-not $hostInfo.sql_user) {
-                Add-Member -InputObject $hostInfo -MemberType NoteProperty -Name "sql_user" -Value $defaultSqlUser -Force
+                $hostInfo.sql_user = $defaultSqlUser
             }
             if (-not $hostInfo.sql_pass) {
-                Add-Member -InputObject $hostInfo -MemberType NoteProperty -Name "sql_pass" -Value $defaultSqlPass -Force
+                $hostInfo.sql_pass = $defaultSqlPass
             }
         }
     }
@@ -84,12 +87,20 @@ function UpdateHostSqlConnectionString {
             'Application Name' = 'SilkAgent'
         }
 
+        # Add SQL Server parameter if specified (bypasses endpoint discovery)
+        if ($hostInfo.sql_server) {
+            $connectionParams['Server'] = $hostInfo.sql_server
+            InfoMessage "Using specified SQL Server for host $($hostInfo.host_addr): $($hostInfo.sql_server)"
+        } else {
+            InfoMessage "No SQL Server specified for host $($hostInfo.host_addr), endpoint discovery will be performed during installation"
+        }
+
         # Build the connection string
         $connectionStringParts = $connectionParams.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }
         $connectionString = [string]::Join(';', $connectionStringParts)
 
         # Add connection string to host object
-        $hostInfo | Add-Member -MemberType NoteProperty -Name "sql_connection_string" -Value $connectionString -Force
+        $hostInfo.sql_connection_string = $connectionString
 
         # Log the connection string (with masked password)
         $LogSqlConnectionString = Sanitize $connectionString
@@ -99,6 +110,6 @@ function UpdateHostSqlConnectionString {
     ImportantMessage "Successfully prepared SQL connection strings for all hosts"
     return $true
 }
-#endregion PrepSQLStr
+#endregion UpdateHostSqlConnectionString
 
 #endregion SQL
