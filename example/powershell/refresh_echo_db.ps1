@@ -34,9 +34,6 @@
 .PARAMETER TimeoutMinutes
     The maximum time in minutes to wait for a task to complete. Defaults to 60.
 
-.PARAMETER ValidateOnly
-    If set, the script validates the refresh operation without performing it.
-
 .PARAMETER Quiet
     If set, suppresses all non-essential output.
 
@@ -81,8 +78,6 @@ param (
 
     [ValidateRange(1, 240)]
     [int]$TimeoutMinutes = 60,
-
-    [switch]$ValidateOnly,
 
     [switch]$Quiet
 )
@@ -460,41 +455,24 @@ if (-not $newSnapshotId) {
 Write-Info "Successfully created new snapshot with ID: $newSnapshotId"
 
 # 4. Replace (Refresh) the Echo Database(s)
-if ($ValidateOnly.IsPresent) {
-    Write-Info "Validating refresh of Echo DB(s) '$cloneListDisplay' with snapshot $newSnapshotId..."
-}
-else {
-    Write-Info "Refreshing Echo DB(s) '$cloneListDisplay' with the new snapshot..."
-}
+Write-Info "Refreshing Echo DB(s) '$cloneListDisplay' with the new snapshot..."
 $replaceBody = @{
     snapshot_id = $newSnapshotId
     db_names    = $EchoDbNames
     keep_backup = $false
 }
 
-$replaceEndpoint = if ($ValidateOnly.IsPresent) {
-    "/flex/api/v1/hosts/$($echoHost.host.id)/databases/_replace/__validate"
-} else {
-    "/flex/api/v1/hosts/$($echoHost.host.id)/databases/_replace"
-}
+$replaceEndpoint = "/flex/api/v1/hosts/$($echoHost.host.id)/databases/_replace"
 
 $replaceTask = Invoke-FlexApi -Uri $replaceEndpoint -Method "POST" -Body $replaceBody
-$actionVerb = if ($ValidateOnly.IsPresent) { "validated" } else { "refreshed" }
 $replaceTaskId = if ($replaceTask.PSObject.Properties.Name -contains 'request_id') { $replaceTask.request_id } else { $null }
 Write-Verbose "Replace task request id: $replaceTaskId"
 $completedReplaceTask = Wait-For-Task -Task $replaceTask
 
-Write-Info "Successfully $actionVerb Echo DB(s) '$cloneListDisplay' on host '$EchoDbHostName'."
+Write-Info "Successfully refreshed Echo DB(s) '$cloneListDisplay' on host '$EchoDbHostName'."
 Write-Info "Refresh complete."
 
-if ($ValidateOnly.IsPresent) {
-    Write-Info "Validate-only run; no changes were applied to clones: $cloneListDisplay."
-}
-
-$cleanupResult = $null
-if (-not $ValidateOnly.IsPresent) {
-    $cleanupResult = Remove-StaleSnapshots -SourceHostId $sourceHostId -SourceDbId $sourceDbId -SnapshotToKeep $newSnapshotId
-}
+$cleanupResult = Remove-StaleSnapshots -SourceHostId $sourceHostId -SourceDbId $sourceDbId -SnapshotToKeep $newSnapshotId
 
 $removedSnapshotCount = if ($cleanupResult) { $cleanupResult.Deleted } else { 0 }
 $remainingSnapshotIds = if ($cleanupResult) { @($cleanupResult.Remaining) } else { @() }
@@ -509,7 +487,6 @@ $durationSeconds = [Math]::Round(((Get-Date) - $scriptStart).TotalSeconds, 2)
     Host               = $EchoDbHostName
     SourceDatabase     = $sourceDbName
     Consistency        = $ConsistencyLevel
-    ValidationOnly     = $ValidateOnly.IsPresent
     PollSeconds        = $script:PollSeconds
     TimeoutMinutes     = $script:TimeoutMinutes
     DurationSeconds    = $durationSeconds
