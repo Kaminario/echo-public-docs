@@ -1,128 +1,100 @@
-<#
+﻿<#
 .SYNOPSIS
     Silk Echo Installer PowerShell Script - Install Silk Echo on multiple remote hosts using PowerShell.
-
 .DESCRIPTION
     This script installs Silk Echo on multiple remote Windows hosts using PowerShell remoting.
     It reads configuration from a JSON file and performs remote installation on specified hosts.
-
     The script requires PowerShell version 5 or higher and must be run with administrator privileges.
     It uses an external script 'orc_host_installer.ps1' to perform the actual installation on each host.
-
 .PARAMETER ConfigPath
     Full or relative path to the configuration file in JSON format.
     The configuration file must contain hosts, flex_host_ip, and sdpid fields.
-
 .PARAMETER MaxConcurrency
     Number of hosts to install in parallel. Default value is 10.
     This helps manage resource usage and provides better progress tracking for large deployments.
-
 .PARAMETER DryRun
     Perform validation of connectivity before running actual installation.
     It will validate connectivity from this host to the hosts defined in configuration file.
     After we have all the hosts validated, it will validate connectivity from each host to flex_host_ip and SDP.
     Default value is false.
-
 .PARAMETER CreateConfigTemplate
     Generate a config.json template file based on config-example.json structure.
     When this parameter is used, the script will only create the template file and exit.
-
+.PARAMETER Force
+    Force reprocessing of all hosts, ignoring the completed hosts tracking file (processing.json).
+    When this parameter is used, all hosts in the configuration will be processed regardless of their previous completion status.
+    This is useful for troubleshooting or when you want to reinstall on all hosts.
 .EXAMPLE
     .\orchestrator.ps1 -ConfigPath ".\config.json"
-
     Installs Silk Echo on hosts specified in the configuration file using default MaxConcurrency of 10.
-
 .EXAMPLE
     .\orchestrator.ps1 -ConfigPath "config.json" -MaxConcurrency 5
-
     Installs Silk Echo on hosts in batches of 5 at a time.
-
 .EXAMPLE
     .\orchestrator.ps1 -ConfigPath "config.json" -MaxConcurrency 5 -DryRun
-
     Performs a dry run validation on hosts in batches of 5 at a time without making any changes.
-
 .EXAMPLE
     .\orchestrator.ps1 -ConfigPath "config.json" -Debug
-
     Runs the installation with debug output enabled.
-
 .EXAMPLE
     Get-Help .\orchestrator.ps1 -Detailed
-
     Shows detailed help information for this script.
-
 .EXAMPLE
     .\orchestrator.ps1 -CreateConfigTemplate
-
     Generates a config.json template file based on config-example.json structure.
-
+.EXAMPLE
+    .\orchestrator.ps1 -ConfigPath "config.json" -Force
+    Processes all hosts in configuration, ignoring any previously completed installations.
 .INPUTS
     JSON configuration file with the following structure like generated with parameter -CreateConfigTemplate
-
 .OUTPUTS
     Installation logs and status messages.
-    Detailed logs are saved to installation_logs_<timestamp>.json file.
-
+    The Per host installation logs are saved in the output directory defined by $SilkEchoInstallerCacheDir variable.
+    A summary of installation results is displayed at the end of the script execution.
 .NOTES
     File Name      : orchestrator.ps1
     Author         : Ilya.Levin@Silk.US
     Organization   : Silk.us, Inc.
-    Version        : 0.1.3
+    Version        : 0.1.4
     Copyright      : (c) 2024 Silk.us, Inc.
     Host Types     : Valid for Windows environments
-
     Prerequisites:
     - PowerShell version 5 or higher
     - Administrator privileges
     - Network access to target hosts
-
     The WinRemoting feature must be enabled on the target hosts.
     Ensure that the WinRM service is running and properly configured on each host.
-
     You can use the following command to check the WinRM service status:
     ```powershell
     Get-Service WinRM
     Enable-PSRemoting
     ```
-
     The WinRm is listening by default to 5985(http) and 5986(https) ports.
     Run to confirm on your target host:
     ```powershell
     WinRM enumerate winrm/config/listener
     ```
-
 .LINK
     https://github.com/silk-us/echo-public-docs
-
 .FUNCTIONALITY
     Remote installation, System administration, Silk Echo deployment
 #>
-
 #region Script Definitions
 param (
     [Parameter(Mandatory=$false, HelpMessage="Full or relative path to the configuration file in JSON format")]
     [string]$ConfigPath,
-
     [Parameter(Mandatory=$false, HelpMessage="Number of hosts to install in parallel")]
     [int]$MaxConcurrency = 10,
-
     [Parameter(Mandatory=$false, HelpMessage="Perform dry run to validate connectivity before actual installation")]
     [switch]$DryRun,
-
     [Parameter(Mandatory=$false, HelpMessage="Generate a config.json template file and exit")]
-    [switch]$CreateConfigTemplate
+    [switch]$CreateConfigTemplate,
+    [Parameter(Mandatory=$false, HelpMessage="Force reprocessing of all hosts, ignoring completed hosts tracking")]
+    [switch]$Force
 )
-
 # Set error action preference to stop on any error
 $ErrorActionPreference = "Stop"
-
 # ConvertTo-SecureString should be available by default in PowerShell
-
-# Make MaxConcurrency a global variable accessible from any function
-Set-Variable -Name MaxConcurrency -Value $MaxConcurrency -Option AllScope -Scope Script
-Set-Variable -Name DryRun -Value $DryRun -Option AllScope -Scope Script
-
 if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
     $DebugPreference = 'Continue'
     $VerbosePreference = 'Continue'
@@ -131,69 +103,116 @@ if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
     $VerbosePreference = 'SilentlyContinue'
 }
 #endregion
-
 ###########################################################################
 # Load external scripts first
 ###########################################################################
 # Constants
-#region orc_constants.ps1
+#region orc_constants
 #region Constants
-Set-Variable -Name InstallerProduct -Value "0.1.3" -Option AllScope -Scope Script
+Set-Variable -Name InstallerProduct -Value "0.1.4" -Option AllScope -Scope Script
 Set-Variable -Name MessageCurrentObject -Value "Silk Echo Installer" -Option AllScope -Scope Script
-
 Set-Variable -Name ENUM_ACTIVE_DIRECTORY -Value "active_directory" -Option AllScope -Scope Script
 Set-Variable -Name ENUM_CREDENTIALS -Value "credentials" -Option AllScope -Scope Script
-
 # Installer URLs
 Set-Variable -Name SilkAgentURL -Value 'https://storage.googleapis.com/silk-public-files/silk-agent-installer-latest.exe' -Option AllScope -Scope Script
 Set-Variable -Name SilkVSSURL -Value 'https://storage.googleapis.com/silk-public-files/svss-install.exe' -Option AllScope -Scope Script
-
 # Installer Script Artifacts Directory
 $cacheDir = Join-Path $PSScriptRoot "SilkEchoInstallerArtifacts"
 Set-Variable -Name SilkEchoInstallerCacheDir -Value $cacheDir -Option AllScope -Scope Script
+# Processed hosts file path
+$processedHostsFile = Join-Path $cacheDir "processing.json"
+Set-Variable -Name processedHostsFile -Value $processedHostsFile -Option AllScope -Scope Script
 # Marker
 Set-Variable -Name HOSTSETUP_START_MARKER -Value ("MARKER: " + "HOST_INSTALLER_STARTS_HERE") -Option AllScope -Scope Script
-
-# Development mode detection - true if orchestrator contains imports (. ./orc_*.ps1)
-$orchestratorContent = Get-Content -Path $PSCommandPath -Raw -ErrorAction SilentlyContinue
-$isDevelopmentMode = $orchestratorContent -match '\. \./orc_.*\.ps1'
+# Remote Installation Timeout (2 minutes = 120 seconds)
+Set-Variable -Name REMOTE_INSTALL_TIMEOUT_SECONDS -Value 120 -Option AllScope -Scope Script
+# Installation report file path
+$reportFilePath = Join-Path $cacheDir "installation_report_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+Set-Variable -Name SilkEchoReportFilePath -Value $reportFilePath -Option AllScope -Scope Script
+# Full execution log file path
+$fullLogPath = Join-Path $cacheDir "orchestrator_full_log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+Set-Variable -Name SilkEchoFullLogPath -Value $fullLogPath -Option AllScope -Scope Script
+# Development mode detection - true if orchestrator contains actual import lines (not comments)
+# Get the orchestrator script path from the call stack
+$orchestratorPath = (Get-PSCallStack | Where-Object { $_.ScriptName -like "*orchestrator.ps1" } | Select-Object -First 1).ScriptName
+if (-not $orchestratorPath) {
+    # Fallback: assume orchestrator.ps1 is in the same directory
+    $orchestratorPath = Join-Path $PSScriptRoot "orchestrator.ps1"
+}
+$orchestratorContent = Get-Content -Path $orchestratorPath -Raw -ErrorAction SilentlyContinue
+# Split into lines and check for actual import statements (not in comments)
+$lines = $orchestratorContent -split '[\r\n]+'
+$importLines = $lines | Where-Object { $_ -match '^\s*\. \./orc_.*\.ps1\s*$' }
+$isDevelopmentMode = $importLines.Count -gt 0
 Set-Variable -Name IsDevelopmentMode -Value $isDevelopmentMode -Option AllScope -Scope Script
-
 Set-Variable -Name IsDomainUser -Value $false -Option AllScope -Scope Script
 #endregion Constants
-
-#endregion orc_constants.ps1
-
-# ConvertSecureStringToPlainText
-#region orc_common.ps1
+#endregion orc_constants
+# ConvertSecureStringToPlainText, EnsureOutputDirectory
+#region orc_common
 #region Common Utility Functions
-
-
-#region ensureCacheDir
-function ensureCacheDir {
+#region EnsureOutputDirectory
+function EnsureOutputDirectory {
+    <#
+    .SYNOPSIS
+        Validates output directory existence and write permissions for logs and artifacts.
+    .DESCRIPTION
+        This function ensures that the output directory exists and validates that the current
+        user has write permissions to create log files and store installation artifacts.
+        This validation happens early in the script to prevent failures during execution.
+    .PARAMETER OutputDir
+        The directory path where logs and artifacts will be stored.
+    .RETURNS
+        Boolean - True if directory is valid and writable, False otherwise
+    #>
     param (
-        [string]$CacheDir = $null
+        [Parameter(Mandatory=$true)]
+        [string]$OutputDir
     )
-    # Ensure the cache directory exists
-    if (-not (Test-Path $CacheDir)) {
-        New-Item -ItemType Directory -Path $CacheDir -Force | Out-Null
-        InfoMessage "Created installer cache directory: $CacheDir"
+    try {
+        # Create directory if it doesn't exist
+        if (-not (Test-Path $OutputDir)) {
+            InfoMessage "Creating output directory: $OutputDir"
+            New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
+            InfoMessage "Output directory created successfully."
+        } else {
+            InfoMessage "Output directory exists: $OutputDir"
+        }
+        # Test write permissions by creating a temporary test file
+        $testFile = Join-Path $OutputDir "write_test_$(Get-Date -Format 'yyyyMMdd_HHmmss').tmp"
+        InfoMessage "Testing write permissions in output directory..."
+        try {
+            # Try to create and write to a test file
+            "Write permission test" | Out-File -FilePath $testFile -Encoding UTF8
+            # Verify file was created
+            if (Test-Path $testFile) {
+                InfoMessage "Write permissions validated successfully."
+                # Clean up test file
+                Remove-Item $testFile -Force
+                return $true
+            } else {
+                ErrorMessage "Failed to verify test file creation in output directory."
+                return $false
+            }
+        } catch {
+            ErrorMessage "Write permission test failed: $_"
+            return $false
+        }
+    } catch {
+        ErrorMessage "Failed to create or validate output directory: $_"
+        return $false
     }
 }
-#endregion ensureCacheDir
-
-
+#endregion EnsureOutputDirectory
 #region ConvertSecureStringToPlainText
 function ConvertSecureStringToPlainText {
     param (
         [Parameter(Mandatory=$true)]
         [System.Security.SecureString]$SecureString
     )
-
     if (-not $SecureString) {
         return $null
     }
-
     try {
         # Create a temporary PSCredential to extract the plain text password
         $tempCred = New-Object System.Management.Automation.PSCredential("temp", $SecureString)
@@ -204,41 +223,31 @@ function ConvertSecureStringToPlainText {
     }
 }
 #endregion ConvertSecureStringToPlainText
-
 #endregion Common Utility Functions
-
-#endregion orc_common.ps1
-
+#endregion orc_common
 # ErrorMessage, InfoMessage, ImportantMessage, DebugMessage, WarningMessage
-#region orc_logging.ps1
-
+#region orc_logging
 #region Logging
 Function LogTimeStamp {
     # returns formatted timestamp
 	return Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'
 }
-
 function Sanitize {
     param (
         [string]$Text
     )
-
     # Reduct password from text, sometimes text contains connection string with password
     $ReductedText = $Text -replace '(?i)(?<=Password=)[^;]+', '[reducted]'
-
     # Replace the value of the $FlexToken variable with '[reducted]' only if it exists and is not empty
     if ($Global:FlexToken -and $Global:FlexToken.Length -gt 0) {
         $ReductedText = $ReductedText -replace [regex]::Escape($Global:FlexToken), '[reducted]'
     }
-
     # Replace the value of the $SDPPassword variable with '[reducted]' only if it exists and is not empty
     if ($Global:SDPPassword -and $Global:SDPPassword.Length -gt 0) {
         $ReductedText = $ReductedText -replace [regex]::Escape($Global:SDPPassword), '[reducted]'
     }
-
     return $ReductedText
 }
-
 Function ArgsToSanitizedString {
     $sanitizedArgs = @()
     foreach ($arg in $args) {
@@ -250,43 +259,333 @@ Function ArgsToSanitizedString {
     }
     return [string]::Join(' ', $sanitizedArgs)
 }
-
 Function ErrorMessage {
     $msg = ArgsToSanitizedString @args
-	Write-Host "$(LogTimeStamp) - $($MessageCurrentObject) - [ERROR] - $msg" -ForegroundColor Red
-    Write-Error "$(LogTimeStamp) - $($MessageCurrentObject) - [ERROR] - $msg" -ErrorAction Continue
+    Write-Host "$(LogTimeStamp) - Host[$env:COMPUTERNAME] - $MessageCurrentObject - [ERROR] $msg" -ForegroundColor Red
+    Write-Error "$(LogTimeStamp) - Host[$env:COMPUTERNAME] - $MessageCurrentObject - [ERROR] - $msg" -ErrorAction Continue
 }
-
 Function ImportantMessage {
     $msg = ArgsToSanitizedString @args
-    Write-Host "$(LogTimeStamp) - $($MessageCurrentObject) - [INFO] - $msg" -ForegroundColor Green
+    Write-Host "$(LogTimeStamp) - Host[$env:COMPUTERNAME] - $MessageCurrentObject - [INFO] $msg" -ForegroundColor Green
 }
-
 Function InfoMessage {
     $msg = ArgsToSanitizedString @args
-	Write-Host "$(LogTimeStamp) - $($MessageCurrentObject) - [INFO] - $msg"
+	Write-Host "$(LogTimeStamp) - Host[$env:COMPUTERNAME] - $MessageCurrentObject - [INFO] $msg"
 }
-
 Function DebugMessage {
     if ($DebugPreference -ne 'Continue') {
         return
     }
     $msg = ArgsToSanitizedString @args
-	Write-Host "$(LogTimeStamp) - $($MessageCurrentObject) - [DEBUG] - $msg"
+	Write-Host "$(LogTimeStamp) - Host[$env:COMPUTERNAME] - $MessageCurrentObject - [DEBUG] $msg"
 }
-
 Function WarningMessage {
     $msg = ArgsToSanitizedString @args
-	Write-Host "$(LogTimeStamp) - $($MessageCurrentObject) - [WARN] - $msg" -ForegroundColor Yellow
+	Write-Host "$(LogTimeStamp) - Host[$env:COMPUTERNAME] - $MessageCurrentObject - [WARN] $msg" -ForegroundColor Yellow
 }
+#region HostsSummaryReport
+function WriteHostsSummaryToFile {
+    <#
+    .SYNOPSIS
+        Writes a summary of all hosts with their issues and results to a file.
+    .DESCRIPTION
+        This function writes hosts summary to a file in a structured format:
+        1. First shows all hosts with issues
+        2. Then shows all hosts with results
+        Format for each host:
+        hostname:
+          issues:
+          - issue1
+          - issue2
+          result: {json object}
+    .PARAMETER Hosts
+        Array of host objects to write
+    .PARAMETER OutputPath
+        Path to the output file where summary will be written
+    .PARAMETER Stdout
+        If specified, prints the report to console instead of writing to file
+    .EXAMPLE
+        WriteHostsSummaryToFile -Hosts $config.hosts -OutputPath "hosts_summary.txt"
+    #>
+    param (
+        [Parameter(Mandatory=$true)]
+        [Array]$Hosts,
+        [Parameter(Mandatory=$true)]
+        [string]$OutputPath,
+        [Parameter(Mandatory=$false)]
+        [switch]$Stdout = $false
+    )
+    if ($Hosts.Count -eq 0) {
+        if ($Stdout) {
+            Write-Host "No hosts to display"
+        } else {
+            "No hosts to display" | Out-File -FilePath $OutputPath -Encoding UTF8
+            InfoMessage "Hosts summary written to: $OutputPath"
+        }
+        return
+    }
+    # Separate hosts with issues and hosts with results
+    $hostsWithIssues = @($Hosts | Where-Object { $_.issues.Count -gt 0 })
+    $hostsWithResults = @($Hosts | Where-Object { $_.result -ne $null -and $_.issues.Count -eq 0 })
+    # Create output content array
+    $outputLines = @()
+    $outputLines += "=============== HOSTS SUMMARY ==============="
+    $outputLines += "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    $outputLines += ""
+    # Write hosts with issues first
+    if ($hostsWithIssues.Count -gt 0) {
+        $outputLines += "HOSTS WITH ISSUES ($($hostsWithIssues.Count)):"
+        $outputLines += ""
+        foreach ($hostInfo in $hostsWithIssues) {
+            $outputLines += "$($hostInfo.host_addr):"
+            if ($hostInfo.issues.Count -gt 0) {
+                $outputLines += "  issues:"
+                foreach ($issue in $hostInfo.issues) {
+                    $outputLines += "  - $issue"
+                }
+            }
+            if ($hostInfo.result) {
+                $outputLines += "  result:"
+                $outputLines += "    Host Address: $($hostInfo.result.HostAddress)"
+                $outputLines += "    Job State: $($hostInfo.result.JobState)"
+                if ($hostInfo.result.Info -and $hostInfo.result.Info.Count -gt 0) {
+                    $outputLines += "    Info:"
+                    foreach ($info in $hostInfo.result.Info) {
+                        if ($info -and $info.PSObject.Properties.Count -gt 0) {
+                            foreach ($prop in $info.PSObject.Properties) {
+                                $outputLines += "      $($prop.Name): $($prop.Value)"
+                            }
+                        }
+                    }
+                }
+                if ($hostInfo.result.Error -and $hostInfo.result.Error.Count -gt 0) {
+                    $outputLines += "    Errors:"
+                    foreach ($error in $hostInfo.result.Error) {
+                        $outputLines += "      - $error"
+                    }
+                }
+            } else {
+                $outputLines += "  result: null"
+            }
+            $outputLines += ""
+        }
+    }
+    # Write hosts with results
+    if ($hostsWithResults.Count -gt 0) {
+        $outputLines += "HOSTS WITH RESULTS ($($hostsWithResults.Count)):"
+        $outputLines += ""
+        foreach ($hostInfo in $hostsWithResults) {
+            # Skip hosts that were already shown in issues section
+            if ($hostInfo.issues.Count -gt 0) {
+                continue
+            }
+            $outputLines += "$($hostInfo.host_addr):"
+            $outputLines += "  issues: none"
+            $outputLines += "  result:"
+            $outputLines += "    Host Address: $($hostInfo.result.HostAddress)"
+            $outputLines += "    Job State: $($hostInfo.result.JobState)"
+            if ($hostInfo.result.Info -and $hostInfo.result.Info.Count -gt 0) {
+                $outputLines += "    Info:"
+                foreach ($info in $hostInfo.result.Info) {
+                    if ($info -and $info.PSObject.Properties.Count -gt 0) {
+                        foreach ($prop in $info.PSObject.Properties) {
+                            $outputLines += "      $($prop.Name): $($prop.Value)"
+                        }
+                    }
+                }
+            }
+            if ($hostInfo.result.Error -and $hostInfo.result.Error.Count -gt 0) {
+                $outputLines += "    Errors:"
+                foreach ($error in $hostInfo.result.Error) {
+                    $outputLines += "      - $error"
+                }
+            }
+            $outputLines += ""
+        }
+    }
+    # Output to console or file
+    if ($Stdout) {
+        # Print to console
+        foreach ($line in $outputLines) {
+            Write-Host $line
+        }
+    } else {
+        # Write to file
+        $outputLines | Out-File -FilePath $OutputPath -Encoding UTF8
+        InfoMessage "Hosts report written to: $OutputPath"
+    }
+}
+function DisplayInstallationSummary {
+    <#
+    .SYNOPSIS
+        Displays a short summary of installation results to console.
+    .DESCRIPTION
+        Shows only the counts - how many hosts succeeded, failed, etc.
+        For detailed information, use WriteHostsSummaryToFile.
+    .PARAMETER Hosts
+        Array of host objects to summarize
+    .EXAMPLE
+        DisplayInstallationSummary -Hosts $config.hosts
+    #>
+    param (
+        [Parameter(Mandatory=$true)]
+        [Array]$Hosts
+    )
+    if ($Hosts.Count -eq 0) {
+        InfoMessage "No hosts processed"
+        return
+    }
+    $totalHosts = $Hosts.Count
+    $successfulHosts = @($Hosts | Where-Object { $_.result.JobState -eq 'Success' }).Count
+    $failedHosts = @($Hosts | Where-Object { $_.result.JobState -eq 'Failed' }).Count
+    $hostsWithIssues = @($Hosts | Where-Object { $_.issues.Count -gt 0 }).Count
+    InfoMessage "=============== INSTALLATION SUMMARY ==============="
+    InfoMessage "Total hosts: $totalHosts"
+    InfoMessage "Successful: $successfulHosts"
+    InfoMessage "Failed: $failedHosts"
+    InfoMessage "With issues: $hostsWithIssues"
+    InfoMessage "=================================================="
+}
+#endregion HostsSummaryReport
 #endregion Logging
-
-#endregion orc_logging.ps1
-
+#endregion orc_logging
+# Validate output directory and write permissions early
+InfoMessage "Validating output directory and write permissions..."
+if (-not (EnsureOutputDirectory -OutputDir $SilkEchoInstallerCacheDir)) {
+    ErrorMessage "Output directory validation failed. Cannot proceed without write access to: $SilkEchoInstallerCacheDir"
+    ErrorMessage "Please ensure the directory exists and you have write permissions, or run as administrator."
+    return
+}
+# Start transcript logging to capture all output
+try {
+    # Ensure cache directory exists
+    Start-Transcript -Path $script:SilkEchoFullLogPath -Append
+    Write-Host "Full execution log will be saved to: $script:SilkEchoFullLogPath" -ForegroundColor Green
+    # Add trap to ensure transcript is stopped on script termination
+    trap {
+        try {
+            WriteHostsSummaryToFile -Hosts $config.hosts -OutputPath $script:SilkEchoFullLogPath -Stdout
+            Stop-Transcript
+        } catch { }
+        break
+    }
+} catch {
+    Write-Warning "Could not start transcript logging: $_"
+}
+# Set script-scope variables for parameter passing
+$script:MaxConcurrency = $MaxConcurrency
+$script:processedHostsFile = $processedHostsFile
+# Start-BatchJobProcessor - generic parallel job processing
+#region orc_generic_batch_processor
+#region Generic Batch Job Processor
+<#
+.SYNOPSIS
+    Generic reusable batch job processor with dynamic concurrency control.
+.DESCRIPTION
+    Processes jobs in parallel batches with dynamic concurrency management.
+    Used by upload, connectivity testing, and installation procedures.
+    Implements the core pattern: start jobs when slots open, process results immediately.
+.PARAMETER Items
+    Array of items to process (hosts, files, etc.)
+.PARAMETER JobScriptBlock
+    ScriptBlock to execute for each item as a background job
+.PARAMETER ResultProcessor
+    ScriptBlock to process completed job results
+.PARAMETER MaxConcurrency
+    Maximum number of concurrent jobs (default: 10)
+.PARAMETER JobDescription
+    Description for logging (e.g., "upload", "connectivity test", "installation")
+#>
+function Start-BatchJobProcessor {
+    param (
+        [Parameter(Mandatory=$true)]
+        [Array]$Items,
+        [Parameter(Mandatory=$true)]
+        [ScriptBlock]$JobScriptBlock,
+        [Parameter(Mandatory=$true)]
+        [ScriptBlock]$ResultProcessor,
+        [Parameter(Mandatory=$false)]
+        [int]$MaxConcurrency = 10,
+        [Parameter(Mandatory=$false)]
+        [string]$JobDescription = "job"
+    )
+    # Animation characters for progress spinner
+    $spinnerChars = @('-', '\', '|', '/')
+    $spinnerIndex = 0
+    InfoMessage "Starting $JobDescription processing for $($Items.Count) item(s) with max concurrency: $MaxConcurrency..."
+    # Start jobs using dynamic batch processing pattern
+    $jobs = @()
+    $processedCount = 0
+    $totalItems = $Items.Count
+    $startedCount = 0
+    $startTime = Get-Date
+    foreach ($item in $Items) {
+        # DYNAMIC BATCHING PATTERN: Wait if we've reached max concurrency
+        while ($jobs.Count -ge $MaxConcurrency) {
+            $completedJob = $jobs | Where-Object { $_.Job.State -ne 'Running' } | Select-Object -First 1
+            if ($completedJob) {
+                # Process completed job immediately
+                & $ResultProcessor $completedJob
+                $jobs = @($jobs | Where-Object { $_.Job.Id -ne $completedJob.Job.Id })
+                $processedCount++
+                # Clear spinner line and show progress message
+                Write-Host "`r" + (" " * 80) + "`r" -NoNewline
+                $runningCount = $jobs.Count
+                InfoMessage "Completed: $processedCount of $totalItems $JobDescription jobs completed, $runningCount running"
+            } else {
+                # Show spinner animation while waiting
+                $elapsed = (Get-Date) - $startTime
+                $elapsedStr = "{0:mm\:ss}" -f $elapsed
+                Write-Host "`r[$elapsedStr] - $($spinnerChars[$spinnerIndex]) $JobDescription in progress. Completed $processedCount of $totalItems" -NoNewline
+                $spinnerIndex = ($spinnerIndex + 1) % $spinnerChars.Count
+                Start-Sleep -Seconds 1
+            }
+        }
+        # Start new job when slot is available
+        DebugMessage "Starting $JobDescription job for item: $($item | ConvertTo-Json -Compress)"
+        $job = Start-Job -ScriptBlock $JobScriptBlock -ArgumentList $item
+        $startedCount++
+        $jobs += @{
+            Job = $job
+            Item = $item
+        }
+        # Progress message when starting jobs
+        if ($startedCount % 5 -eq 0 -or $startedCount -eq $totalItems) {
+            InfoMessage "Progress: Started $startedCount of [$processedCount/$totalItems] $JobDescription jobs, $($jobs.Count) running"
+        }
+    }
+    # DYNAMIC COMPLETION PATTERN: Wait for remaining jobs to complete
+    InfoMessage "Waiting for remaining $JobDescription jobs to complete..."
+    while ($jobs.Count -gt 0) {
+        $completedJob = $jobs | Where-Object { $_.Job.State -ne 'Running' } | Select-Object -First 1
+        if ($completedJob) {
+            & $ResultProcessor $completedJob
+            $jobs = @($jobs | Where-Object { $_.Job.Id -ne $completedJob.Job.Id })
+            $processedCount++
+            # Clear spinner line and show progress message
+            Write-Host "`r" + (" " * 80) + "`r" -NoNewline
+            $runningCount = $jobs.Count
+            InfoMessage "Progress: $processedCount of $totalItems $JobDescription jobs completed, $runningCount remaining"
+        } else {
+            # Show spinner animation while waiting
+            $elapsed = (Get-Date) - $startTime
+            $elapsedStr = "{0:mm\:ss}" -f $elapsed
+            Write-Host "`r[$elapsedStr] - $($spinnerChars[$spinnerIndex]) $JobDescription in progress. Completed $processedCount of $totalItems" -NoNewline
+            $spinnerIndex = ($spinnerIndex + 1) % $spinnerChars.Count
+            Start-Sleep -Seconds 1
+        }
+    }
+    # Keep the last spinner line visible by adding a newline
+    Write-Host "`n"
+    $finalElapsed = (Get-Date) - $startTime
+    $finalElapsedStr = "{0:mm\:ss}" -f $finalElapsed
+    InfoMessage "Completed $JobDescription processing for $processedCount of $totalItems items in $finalElapsedStr"
+}
+#endregion Generic Batch Job Processor
+#endregion orc_generic_batch_processor
 # CallSelfCertEndpoint, CallSDPApi, CallFlexApi
-#region orc_web_client.ps1
+#region orc_web_client
 #region NETWORK
-
 #region CallSelfCertEndpoint
 function CallSelfCertEndpoint {
     param (
@@ -295,7 +594,6 @@ function CallSelfCertEndpoint {
         [object]$RequestBody,
         [hashtable]$Headers
     )
-
     DebugMessage "Calling [$HttpMethod]$URL"
     # capitalize the first letter of HttpMethod
     $HttpMethod = $HttpMethod.Substring(0,1).ToUpper() + $HttpMethod.Substring(1).ToLower()
@@ -317,7 +615,6 @@ function CallSelfCertEndpoint {
     return $response
 }
 #endregion CallSelfCertEndpoint
-
 #region CallSDPApi
 function CallSDPApi {
     param (
@@ -326,17 +623,13 @@ function CallSDPApi {
         [string]$ApiEndpoint,
         [System.Management.Automation.PSCredential]$Credential
     )
-
     $url = "https://${SDPHost}:${SDPPort}/api/v2/$ApiEndpoint"
-
     DebugMessage "Call SDPApi USERNAME: $($Credential.UserName)"
     $BasicAuthString = "$($Credential.UserName):$($Credential.GetNetworkCredential().Password)"
-
     $BasicAuth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($BasicAuthString))
     $_headers = @{
         "Authorization" = "Basic $BasicAuth"
     }
-
     try {
         $response = CallSelfCertEndpoint -URL $url -HttpMethod "GET" -RequestBody $null -Headers $_headers
         if ($response.StatusCode -ne 200) {
@@ -351,7 +644,6 @@ function CallSDPApi {
     }
 }
 #endregion CallSDPApi
-
 #region CallFlexApi
 function CallFlexApi {
         param (
@@ -361,10 +653,8 @@ function CallFlexApi {
         [string]$HttpMethod,
         [string]$RequestBody
     )
-
     $flexApiUrl = "https://$FlexIP$ApiEndpoint"
     $headers = @{ "Authorization" = "Bearer $FlexToken" }
-
     DebugMessage "Calling Flex API at $flexApiUrl with method $HttpMethod"
     try {
         $response = CallSelfCertEndpoint -URL $flexApiUrl -HttpMethod $HttpMethod -RequestBody $RequestBody -Headers $headers
@@ -374,18 +664,13 @@ function CallFlexApi {
         ErrorMessage "Error calling Flex API: $_"
         return $null
     }
-
 }
 #endregion CallFlexApi
-
 #endregion NETWORK
-
-#endregion orc_web_client.ps1
-
+#endregion orc_web_client
 # UpdateFlexAuthToken
-#region orc_flex_login.ps1
+#region orc_flex_login
 #region FlexLogin
-
 #region getFlexCredentials
 function getFlexCredentials {
     WarningMessage "Please provide Silk Flex credentials."
@@ -397,7 +682,6 @@ function getFlexCredentials {
     return $cred
 }
 #endregion getFlexCredentials
-
 #region loginToFlex
 function loginToFlex {
     param (
@@ -406,7 +690,6 @@ function loginToFlex {
         [string]$FlexUser,
         [string]$FlexPass
     )
-
     <#
         curl 'https://52.151.194.250/api/v1/auth/local/login' \
         -X POST \
@@ -415,7 +698,6 @@ function loginToFlex {
         --data-raw 'password=*****&username=kaminario'
         response = {"access_token":"******","expiresIn":604800,"expiresOn":"2025-07-08 14:32:43"}
     #>
-
     # Use provided credentials or ask user for them
     if ($FlexUser -and $FlexPass) {
         $username = $FlexUser
@@ -425,18 +707,15 @@ function loginToFlex {
         $username = $cred.UserName
         $password = $cred.GetNetworkCredential().Password
     }
-
     $body = @{
         username = $username
         password = $password
     }
-
     $url = "https://$FlexIP/api/v1/auth/local/login"
     $headers = @{
         'Accept' = 'application/json'
         'Content-Type' = 'application/x-www-form-urlencoded'
     }
-
     try {
         $response = CallSelfCertEndpoint -URL $url -HttpMethod 'POST' -RequestBody $body -Headers $headers
         if ($response.StatusCode -eq 200) {
@@ -452,7 +731,6 @@ function loginToFlex {
         ErrorMessage "Error during login to Silk Flex: $_"
         return ""
     }
-
 }
 #endregion UpdateFlexAuthToken
 function UpdateFlexAuthToken {
@@ -460,9 +738,7 @@ function UpdateFlexAuthToken {
         [Parameter(Mandatory=$true)]
         [PSCustomObject]$Config
     )
-
     # Use flex credentials from common section or prompt user
-
     $flexIP = $Config.common.flex_host_ip
     $flexUser = $Config.common.flex_user
     $flexPass = if ($Config.common.flex_pass) {
@@ -470,7 +746,6 @@ function UpdateFlexAuthToken {
     } else {
         $null
     }
-
     # Get access token from Flex
     $flexToken = $null
     while (-not $flexToken) {
@@ -481,21 +756,17 @@ function UpdateFlexAuthToken {
             $flexPass = $null
         }
     }
-
     # Apply the access token to all hosts
     foreach ($hostInfo in $Config.hosts) {
         $hostInfo | Add-Member -MemberType NoteProperty -Name "flex_access_token" -Value $flexToken -Force
     }
-
     InfoMessage "Successfully obtained and assigned Flex token for $flexIP to $($Config.hosts.Count) host(s)"
     return $flexToken
 }
 #endregion UpdateFlexAuthToken
-
-#endregion orc_flex_login.ps1
-
+#endregion orc_flex_login
 # SkipCertificateCheck
-#region orc_no_verify_cert.ps1
+#region orc_no_verify_cert
 #region SkipCertificateCheck
 function SkipCertificateCheck {
     $IsPowerShell7 = $PSVersionTable.PSVersion.Major -ge 7
@@ -503,7 +774,6 @@ function SkipCertificateCheck {
         # if Powershell version is 7 or higher, set SkipCertificateCheck
         return
     }
-
     # set policy only once per powershell sessions
     $currentPolicy = [System.Net.ServicePointManager]::CertificatePolicy
     if ($currentPolicy -eq $null -or ($currentPolicy.GetType().FullName -ne "TrustAllCertsPolicy")) {
@@ -524,27 +794,20 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
     }
 }
 #endregion SkipCertificateCheck
-
-#endregion orc_no_verify_cert.ps1
-
+#endregion orc_no_verify_cert
 # ReadConfigFile, GenerateConfigTemplate
-#region orc_config.ps1
+#region orc_config
 #region ConfigFile
-
 function GenerateConfigTemplate {
-
     $useKerberos = Read-Host "Would you like to use Active Directory authentication for the hosts? (Y/n)"
     if ($useKerberos -eq 'Y' -or $useKerberos -eq 'y' -or $useKerberos -eq '') {
         $UseKerberos = $true
     } else {
         $UseKerberos = $false
     }
-
-    $templateConfigJson = '{"installers":{"agent":{"path": "local_path"},"vss": {"path": "local_path"}},"common":{"sdp_id":"sdp_id","sdp_user":"sdp_user","sdp_pass":"sdp_pass","sql_user":"sql_user","sql_pass":"sql_pass","flex_host_ip":"flex-ip","flex_user":"flex_user","flex_pass":"flex_pass","host_user":"host_user","host_pass":"host_pass", "host_auth": "unset", "mount_points_directory":"E:\\MountPoints"},"hosts":[{"host_addr":"host_ip","sql_user":"sql_user_1","sql_pass":"sql_pass_1","mount_points_directory":"F:\\MountPoints"},"host_ip","host_ip"]}'
-
+    $templateConfigJson = '{"installers":{"agent":{"path": "local_path"},"vss": {"path": "local_path"}},"common":{"sdp_id":"sdp_id","sdp_user":"sdp_user","sdp_pass":"sdp_pass","sql_user":"sql_user","sql_pass":"sql_pass","sql_server":"host,port","flex_host_ip":"flex-ip","flex_user":"flex_user","flex_pass":"flex_pass","host_user":"host_user","host_pass":"host_pass","host_auth":"unset","mount_points_directory":"C:\\MountPoints"},"hosts":[{"host_addr":"host_ip","sql_user":"sql_user_1","sql_pass":"sql_pass_1"},"host_ip","host_ip"]}'
     # load template as json, make chages, and dump in a pretty way
     $ConfObj = $templateConfigJson | ConvertFrom-Json
-
     if ($UseKerberos) {
         $ConfObj.common.host_auth = $ENUM_ACTIVE_DIRECTORY
         if ($ConfObj.common.PSObject.Properties['host_user']) {
@@ -567,16 +830,13 @@ function GenerateConfigTemplate {
                 if ($hostEntry.PSObject.Properties['host_pass']) {
                     $hostEntry.PSObject.Properties.Remove('host_pass')
                 }
-
                 $hostEntry.host_addr = "hostname"
             }
         }
     } else {
         $ConfObj.common.host_auth = $ENUM_CREDENTIALS
     }
-
     $configPath = Join-Path $PSScriptRoot "config.json"
-
     # Check if config.json already exists and ask for confirmation
     if (Test-Path -Path $configPath) {
         WarningMessage "Configuration file already exists: $configPath"
@@ -586,10 +846,8 @@ function GenerateConfigTemplate {
             Exit 0
         }
     }
-
     try {
         $formattedJson = $ConfObj | ConvertTo-Json -Depth 4
-
         $formattedJson | Out-File -FilePath $configPath -Encoding UTF8
         Write-Host "Configuration template created successfully: $configPath" -ForegroundColor Green
         Write-Host ""
@@ -603,26 +861,21 @@ function GenerateConfigTemplate {
     }
     Exit 0
 }
-
 function constructHosts {
     param (
         [Parameter(Mandatory=$true)]
         [PSObject]$CommonConfig,
-
         [Parameter(Mandatory=$true)]
         [Array]$HostEntries
     )
-
     # for each host in a list create an object that contains all common properties
     $processedHosts = @()
     foreach ($hostEntry in $HostEntries) {
         $hostObject = New-Object -TypeName PSObject
-
         # Add all common properties to the new object
         foreach ($property in $CommonConfig.PSObject.Properties) {
             Add-Member -InputObject $hostObject -MemberType NoteProperty -Name $property.Name -Value $property.Value
         }
-
         if ($hostEntry -is [string]) {
             # If the host is just a string (IP or hostname)
             Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "host_addr" -Value $hostEntry -Force
@@ -632,7 +885,6 @@ function constructHosts {
                 Add-Member -InputObject $hostObject -MemberType NoteProperty -Name $property.Name -Value $property.Value -Force
             }
         }
-
         # convert host_pass to secure string
         if ($hostObject.host_pass) {
             $hostObject.host_pass = ConvertTo-SecureString $hostObject.host_pass -AsPlainText -Force
@@ -646,52 +898,65 @@ function constructHosts {
         if ($hostObject.flex_pass) {
             $hostObject.flex_pass = ConvertTo-SecureString $hostObject.flex_pass -AsPlainText -Force
         }
-
+        # Initialize issues field for tracking connectivity and upload problems
+        Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "issues" -Value @() -Force
+        # remote_installer_paths
+        Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "remote_installer_paths" -Value @() -Force
+        # sql_connection_string
+        Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "sql_connection_string" -Value $null -Force
+        # sdp_credentials
+        Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "sdp_credential" -Value $null -Force
+        if (-not $hostObject.sql_user) {
+            Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "sql_user" -Value $null -Force
+        }
+        if (-not $hostObject.sql_pass) {
+            Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "sql_pass" -Value $null -Force
+        }
+        # Initialize result field for storing job result after installation
+        Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "result" -Value $null -Force
         $processedHosts += $hostObject
     }
     return $processedHosts
 }
-
 function ReadConfigFile {
     # read the configuration file passed as parameter to this scipt "-Config"
     # ConfigFile can be a full or relative path to the JSON file
     # {
     # "installers": {
     #     "agent": {
-    #         "url": "<remote_url>",
-    #         "path": "<local_path>"
+    #         "url": "remote_url",
+    #         "path": "local_path"
     #     },
     #     "vss": {
-    #         "url": "<remote_url>",
-    #         "path": "<local_path>"
+    #         "url": "remote_url",
+    #         "path": "local_path"
     #     }
     # },
     # "common": {
-    #     "sdp_id": "<sdp_id>",
-    #     "sdp_user": "<sdp_user>",
-    #     "sdp_pass": "<sdp_pass>",
-    #     "sql_user": "<sql_user>",
-    #     "sql_pass": "<sql_pass>",
-    #     "flex_host_ip": "10.8.71.100",
-    #     "flex_user": "<flex_user>",
-    #     "flex_pass": "<flex_pass>",
-    #     "host_user": "<host_user>",
-    #     "host_pass": "<host_pass>",
+    #     "sdp_id": "sdp_id",
+    #     "sdp_user": "sdp_user",
+    #     "sdp_pass": "sdp_pass",
+    #     "sql_user": "sql_user",
+    #     "sql_pass": "sql_pass",
+    #     "sql_server": "host,port",
+    #     "flex_host_ip": "flex_host_ip",
+    #     "flex_user": "flex_user",
+    #     "flex_pass": "flex_pass",
+    #     "host_user": "host_user",
+    #     "host_pass": "host_pass",
     #     "host_auth": "credentials",  // or "active_directory"
-    #     "mount_points_directory": "E:\\MountPoints"
+    #     "mount_points_directory": "C:\\MountPoints"
     # },
     # "hosts": [
     #     {
     #     "host_addr": "10.30.40.50",
-    #     "sql_user": "<sql_user_1>",
-    #     "sql_pass": "<sql_pass_1>",
-    #     "mount_points_directory": "F:\\MountPoints"
+    #     "sql_user": "sql_user_1",
+    #     "sql_pass": "sql_pass_1",
     #     },
     #     "10.30.40.51",
     #     "10.30.40.52"
     #     ]
     # }
-
     param (
         [Parameter(Mandatory=$true)]
         [string]$ConfigFile
@@ -705,7 +970,6 @@ function ReadConfigFile {
     } catch {
         return $null
     }
-
     # Get the common configuration
     $commonConfig = $config.common
     if (-not ($config.hosts -and
@@ -713,25 +977,20 @@ function ReadConfigFile {
           $commonConfig.sdp_id -and
           $commonConfig.mount_points_directory -and
           $commonConfig.mount_points_directory -ne "")) {
-
         ErrorMessage "Configuration file must contain 'hosts', 'flex_host_ip', 'sdp_id', and 'mount_points_directory' fields"
         return $null
     }
-
     # Validate hosts array is not empty
     if ($config.hosts.Count -eq 0) {
         ErrorMessage "Configuration file must contain at least one host"
         return $null
     }
-
     # Validate flex_host_ip is a valid IP address
     if (-not ($commonConfig.flex_host_ip -as [IPAddress])) {
         ErrorMessage "flex_host_ip must be a valid IP address"
         return $null
     }
-
     $config.hosts = constructHosts -CommonConfig $commonConfig -HostEntries $config.hosts
-
     # convert all common.pass to ConvertTo-SecureString
     if ($commonConfig.sdp_pass) {
         $commonConfig.sdp_pass = ConvertTo-SecureString -String $commonConfig.sdp_pass -AsPlainText -Force
@@ -745,13 +1004,10 @@ function ReadConfigFile {
     if ($commonConfig.host_pass) {
         $commonConfig.host_pass = ConvertTo-SecureString -String $commonConfig.host_pass -AsPlainText -Force
     }
-
     # Ensure installer configuration has default values
     ensureInstallerDefault -Config $config -InstallerName "agent" -DefaultUrl $SilkAgentURL
     ensureInstallerDefault -Config $config -InstallerName "vss" -DefaultUrl $SilkVSSURL
-
     # the sql connection script is optional.
-
     # Validate that all hosts have unique addresses
     $hostAddresses = @()
     foreach ($hostInfo in $config.hosts) {
@@ -761,7 +1017,6 @@ function ReadConfigFile {
         }
         $hostAddresses += $hostInfo.host_addr
     }
-
     # all host must have "host_auth" and "flex_host_ip"
     foreach ($hostInfo in $config.hosts) {
         if (-not $hostInfo.host_auth) {
@@ -778,10 +1033,8 @@ function ReadConfigFile {
             return $null
         }
     }
-
     return $config
 }
-
 #region ensureInstallerDefault
 function ensureInstallerDefault {
     param (
@@ -792,7 +1045,6 @@ function ensureInstallerDefault {
         [Parameter(Mandatory=$true)]
         [string]$DefaultUrl
     )
-
     try {
         $url = $Config.installers.$InstallerName.url
         if (-not $url) { throw }
@@ -803,16 +1055,11 @@ function ensureInstallerDefault {
         $Config.installers.$InstallerName | Add-Member -NotePropertyName "url" -NotePropertyValue $DefaultUrl -Force
     }
 }
-
 #endregion ensureInstallerDefault
-
 #endregion ConfigFile
-
-#endregion orc_config.ps1
-
+#endregion orc_config
 # EnsureRequirements
-#region orc_requirements.ps1
-
+#region orc_requirements
 #region checkAdminPrivileges
 function checkAdminPrivileges {
     # CheckAdminPrivileges Function - Checking the current user in Windows and Linux environment. You must run as administrator (Windows)
@@ -824,13 +1071,11 @@ function checkAdminPrivileges {
     }
 }
 #endregion checkAdminPrivileges
-
 #region EnsureRequirements
 function EnsureRequirements {
     $PSVersion = $PSVersionTable.PSVersion.Major
     $ShellEdition = $PSVersionTable.PSEdition
     $passedPreReqs = $true
-
     # Check if running on Linux platform - not supported for this Windows-based installation
     if ($PSVersionTable.Platform -eq "Unix") {
         ErrorMessage "This installer is designed for Windows environments only."
@@ -838,7 +1083,6 @@ function EnsureRequirements {
         ErrorMessage "Please run this script from a Windows machine with PowerShell 5.1 or 7.x."
         passedPreReqs = $false
     }
-
     if ($PSVersion -lt 5) {
         WarningMessage "PowerShell version is $PSVersion, but version 5 or higher is required."
         $passedPreReqs = $false
@@ -847,26 +1091,20 @@ function EnsureRequirements {
         WarningMessage "PowerShell edition is $ShellEdition, but only Core or Desktop editions are supported."
         $passedPreReqs = $false
     }
-
     InfoMessage "Checking if the script is running with elevated privileges..."
     if (-not (CheckAdminPrivileges)) {
         WarningMessage "The script is not running with elevated privileges. Please run the script as an administrator."
         $passedPreReqs = $false
     }
-
     # Host installer script is now extracted dynamically by GetHostInstallScript function
     DebugMessage "Host installer will be extracted dynamically from orchestrator content."
-
     return $passedPreReqs
 }
 #endregion
-
-#endregion orc_requirements.ps1
-
+#endregion orc_requirements
 # UpdateHostSqlConnectionString
-#region orc_mssql.ps1
+#region orc_mssql
 #region SQL
-
 #region getSqlCredentials
 function getSqlCredentials {
     param (
@@ -885,30 +1123,26 @@ function getSqlCredentials {
     }
 }
 #endregion getSqlCredentials
-
-#region PrepSQLStr
+#region UpdateHostSqlConnectionString
 function UpdateHostSqlConnectionString {
     param (
         [PSCustomObject]$Config
     )
-
     # each host in $config.hosts can contain "sql_user", and "sql_pass"
     # if missing ask for credentials and use it for all hosts without credentials
     # create a connectrion string for each host and update $config.hosts with "sql_connection_string"
     DebugMessage "Checking SQL credentials for each host..."
-
     $defaultSqlUser = $null
     $defaultSqlPass = $null
     $commonCredentialsNeeded = $false
-
+    $goodHost = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
     # Check if any hosts are missing SQL credentials
-    foreach ($hostInfo in $Config.hosts) {
+    foreach ($hostInfo in $goodHost) {
         if (-not $hostInfo.sql_user -or -not $hostInfo.sql_pass) {
             $commonCredentialsNeeded = $true
             break
         }
     }
-
     DebugMessage "Common SQL credentials needed: $commonCredentialsNeeded"
     # If any hosts are missing credentials, ask for default credentials to use
     if ($commonCredentialsNeeded) {
@@ -928,15 +1162,15 @@ function UpdateHostSqlConnectionString {
          # Create connection string for each host
         foreach ($hostInfo in $Config.hosts) {
             # Use host-specific credentials if available, otherwise use default
+            # the sql_user/pass fields is always exist but may be null
             if (-not $hostInfo.sql_user) {
-                Add-Member -InputObject $hostInfo -MemberType NoteProperty -Name "sql_user" -Value $defaultSqlUser -Force
+                $hostInfo.sql_user = $defaultSqlUser
             }
             if (-not $hostInfo.sql_pass) {
-                Add-Member -InputObject $hostInfo -MemberType NoteProperty -Name "sql_pass" -Value $defaultSqlPass -Force
+                $hostInfo.sql_pass = $defaultSqlPass
             }
         }
     }
-
     foreach ($hostInfo in $Config.hosts) {
         # Build connection string parameters
         $hostSqlPass = if ($hostInfo.sql_pass -is [System.Security.SecureString]) {
@@ -950,32 +1184,31 @@ function UpdateHostSqlConnectionString {
             'Password' = $hostSqlPass
             'Application Name' = 'SilkAgent'
         }
-
+        # Add SQL Server parameter if specified (bypasses endpoint discovery)
+        if ($hostInfo.sql_server) {
+            $connectionParams['Server'] = $hostInfo.sql_server
+            InfoMessage "Using specified SQL Server for host $($hostInfo.host_addr): $($hostInfo.sql_server)"
+        } else {
+            InfoMessage "No SQL Server specified for host $($hostInfo.host_addr), endpoint discovery will be performed during installation"
+        }
         # Build the connection string
         $connectionStringParts = $connectionParams.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }
         $connectionString = [string]::Join(';', $connectionStringParts)
-
         # Add connection string to host object
-        $hostInfo | Add-Member -MemberType NoteProperty -Name "sql_connection_string" -Value $connectionString -Force
-
+        $hostInfo.sql_connection_string = $connectionString
         # Log the connection string (with masked password)
         $LogSqlConnectionString = Sanitize $connectionString
         DebugMessage "Prepared SQL connection string for host $($hostInfo.host_addr): $LogSqlConnectionString"
     }
-
     ImportantMessage "Successfully prepared SQL connection strings for all hosts"
     return $true
 }
-#endregion PrepSQLStr
-
+#endregion UpdateHostSqlConnectionString
 #endregion SQL
-
-#endregion orc_mssql.ps1
-
+#endregion orc_mssql
 # UpdateSDPCredentials, GetSDPInfo
-#region orc_sdp.ps1
+#region orc_sdp
 #region SDP
-
 #region validateSDPConnection
 function validateSDPConnection {
     param (
@@ -984,7 +1217,6 @@ function validateSDPConnection {
         [System.Management.Automation.PSCredential]$Credential
     )
     $ApiEndpoint = 'system/state'
-
     DebugMessage "validateSDPConnection USERNAME: $($Credential.UserName)"
     $response = CallSDPApi -SDPHost $SDPHost -SDPPort $SDPPort -ApiEndpoint $ApiEndpoint -Credential $Credential
     if (-not $response) {
@@ -994,7 +1226,6 @@ function validateSDPConnection {
     return $true
 }
 #endregion validateSDPConnection
-
 #region getSDPCredentials
 function getSDPCredentials {
     param (
@@ -1002,16 +1233,13 @@ function getSDPCredentials {
         [string]$SDPHost,
         [string]$SDPPort
     )
-
     # Use SDP credentials from common section or prompt user
     $sdp_id = $HostInfo.sdp_id
     $sdpUser = if ($HostInfo.sdp_user) { $HostInfo.sdp_user } else { $null }
     $sdpPass = if ($HostInfo.sdp_pass) { $HostInfo.sdp_pass } else { $null }
-
     # Get validated SDP credentials
     $SDPCredential = $null
     $SdpConnectionValid = $false
-
     while (-not $SdpConnectionValid) {
         # Try with provided credentials first, then prompt if needed
         if ($sdpUser -and $sdpPass) {
@@ -1031,13 +1259,10 @@ function getSDPCredentials {
             $sdpPass = $null
         }
     }
-
     InfoMessage "SDP credentials retrieved successfully."
     return $SDPCredential
-
 }
 #endregion getSDPCredentials
-
 #region UpdateSDPCredentials
 function UpdateSDPCredentials {
     param (
@@ -1046,10 +1271,9 @@ function UpdateSDPCredentials {
         [Parameter(Mandatory=$true)]
         [string]$flexToken
     )
-
+    $goodHost = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
     # get all different SDPId from hosts
-    $SDPIDs = $Config.hosts | ForEach-Object { $_.sdp_id } | Sort-Object -Unique
-
+    $SDPIDs = $goodHost | ForEach-Object { $_.sdp_id } | Sort-Object -Unique
     # get sdpInfo for each SDPId (floating IP and port from Flex)
     $SDPInfo = @{}
     foreach ($SDPID in $SDPIDs) {
@@ -1061,9 +1285,7 @@ function UpdateSDPCredentials {
         $SDPInfo[$SDPID] = $sdp
         InfoMessage "SDP ID: $($sdp.id), Version: $($sdp.version), Floating IP: $($sdp.mc_floating_ip), HTTPS Port: $($sdp.mc_https_port)"
     }
-
     foreach ($hostInfo in $Config.hosts) {
-        $hostInfo | Add-Member -MemberType NoteProperty -Name "sdp_credential" -Value $null -Force
         if ($SDPInfo[$hostInfo.sdp_id].credentials -eq $null) {
             # we already veryfied user and pass for that sdp
             $SDPCredential = getSDPCredentials -HostInfo $hostInfo -SDPHost $SDPInfo[$hostInfo.sdp_id].mc_floating_ip -SDPPort $SDPInfo[$hostInfo.sdp_id].mc_https_port
@@ -1073,12 +1295,10 @@ function UpdateSDPCredentials {
             }
             $SDPInfo[$hostInfo.sdp_id].credentials = $SDPCredential
         }
-        Add-Member -InputObject $hostInfo -MemberType NoteProperty -Name "sdp_credential" -Value $SDPInfo[$hostInfo.sdp_id].credentials -Force
+        $hostInfo.sdp_credential = $SDPInfo[$hostInfo.sdp_id].credentials
     }
-
 }
 #endregion UpdateSDPCredentials
-
 #region GetSDPInfo
 function GetSDPInfo {
     # we should have sdp floating ip, username and password for vss provider
@@ -1094,19 +1314,16 @@ function GetSDPInfo {
             ErrorMessage "Failed to get SDP info from Flex. Status code: $($response.StatusCode)"
             return $null
         }
-
         $responseContent = $response.Content | ConvertFrom-Json
         if (-not $responseContent.k2xs) {
             ErrorMessage "No k2xs found in the response from Flex."
             return $null
         }
-
         if (-not $SDPID) {
             # if SDPID not provided, take the first k2x id
             $SDPID = $responseContent.k2xs[0].id
             InfoMessage "No SDP ID provided. Using first k2x ID: $SDPID"
         }
-
         # case insensitive search for k2x with given SDPID
         $SDPID = $SDPID.ToLower()
         DebugMessage "Searching for k2x with ID: $SDPID"
@@ -1115,14 +1332,12 @@ function GetSDPInfo {
             ErrorMessage "No k2x found with ID $SDPID in the response from Flex."
             return $null
         }
-
         $sdpInfo = @{
             "id" = $k2x.id
             "version" = $k2x.version
             "mc_floating_ip" = $k2x.mc_floating_ip
             "mc_https_port" = $k2x.mc_https_port
         }
-
         InfoMessage "Found k2x with ID $($sdpInfo.id) and version $($sdpInfo.version)"
         return $sdpInfo
     } catch {
@@ -1131,15 +1346,11 @@ function GetSDPInfo {
     }
 }
 #endregion GetSDPInfo
-
 #endregion SDP
-
-#endregion orc_sdp.ps1
-
+#endregion orc_sdp
 # EnsureLocalInstallers, UploadInstallersToHosts
-#region orc_uploader.ps1
+#region orc_uploader
 #region InstallerUploader
-
 #region EnsureLocalInstallers
 function EnsureLocalInstallers {
     param (
@@ -1147,10 +1358,8 @@ function EnsureLocalInstallers {
         [PSCustomObject]$Config
     )
     # Ensure installers present in local directory
-
     $localPaths = @{}
     $requiredInstallers = @('agent', 'vss')
-
     # Process all required installers
     foreach ($installerType in $requiredInstallers) {
         $installerConfig = $Config.installers.$installerType
@@ -1158,7 +1367,6 @@ function EnsureLocalInstallers {
             ErrorMessage "Missing required $installerType installer configuration in config.installers"
             return $null
         }
-
         # If path is provided and file exists, use it directly
         if ($InstallerConfig.path) {
             if (Test-Path $InstallerConfig.path) {
@@ -1176,7 +1384,6 @@ function EnsureLocalInstallers {
             }
             $installerPath = downloadInstaller -InstallerURL $InstallerConfig.url -CacheDir $SilkEchoInstallerCacheDir -InstallerType $installerType
         }
-
         if ($installerPath) {
             $localPaths[$installerType] = $installerPath
         } else {
@@ -1184,12 +1391,10 @@ function EnsureLocalInstallers {
             return $null
         }
     }
-
     InfoMessage "All installers are available locally"
     return $localPaths
 }
 #endregion EnsureLocalInstallers
-
 #region downloadInstaller
 function downloadInstaller {
     param (
@@ -1200,30 +1405,22 @@ function downloadInstaller {
         [Parameter(Mandatory=$true)]
         [string]$InstallerType
     )
-
-
     if (-not $InstallerURL) {
         ErrorMessage "No URL specified for $InstallerType installer in configuration"
         return $null
     }
-
     # If URL is provided, download to cache
-
     $fileName = "$InstallerType-installer.exe"
     $localPath = Join-Path $CacheDir $fileName
-
     # Check if already cached
     if (Test-Path $localPath) {
         InfoMessage "$InstallerType installer already cached at: $localPath"
         return $localPath
     }
-
     InfoMessage "Downloading $InstallerType installer from: $($InstallerURL)"
     try {
-        ensureCacheDir $CacheDir
         # Use Invoke-WebRequest to download the file
         Invoke-WebRequest -Uri $InstallerURL -OutFile $localPath -UseBasicParsing
-
         if (Test-Path $localPath) {
             $fileSize = (Get-Item $localPath).Length
             InfoMessage "Downloaded $InstallerType installer ($fileSize bytes) to: $localPath"
@@ -1237,7 +1434,6 @@ function downloadInstaller {
     return $null
 }
 #endregion downloadInstaller
-
 #region UploadInstallersToHosts
 function UploadInstallersToHosts {
     param (
@@ -1248,173 +1444,122 @@ function UploadInstallersToHosts {
         [Parameter(Mandatory=$false)]
         [int]$MaxConcurrency = 10
     )
-
-    InfoMessage "Starting parallel upload of installers to $($HostInfos.Count) host(s) with max concurrency: $MaxConcurrency..."
-
-    # Start upload jobs for all hosts
-    $jobs = @()
-    $batchCount = 0
-
-    foreach ($hostInfo in $HostInfos) {
-        # Wait if we've reached max concurrency
-        while ($jobs.Count -ge $MaxConcurrency) {
-            $completedJob = $jobs | Where-Object { $_.Job.State -ne 'Running' } | Select-Object -First 1
-            if ($completedJob) {
-                $processJobResult = processUploadJobResult -JobInfo $completedJob
-                $jobs = @($jobs | Where-Object { $_.Job.Id -ne $completedJob.Job.Id })
-                if (-not $processJobResult) {
-                    # Clean up remaining jobs and return failure
-                    $jobs | ForEach-Object { Remove-Job $_.Job -Force }
-                    return $false
+    # Upload job logic
+    $uploadJobScript = {
+        param($HostInfo, $LocalPaths, $ENUM_ACTIVE_DIRECTORY, $ENUM_CREDENTIALS)
+        $stdErrOut = @()
+        # Simplified inline version of copyInstallersToHost
+        $remoteRelDir = "Temp\silk-echo-install-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        $remoteDir = "C:\$remoteRelDir"
+        $remotePaths = @{}
+        try {
+            # Create remote directory
+            $scriptBlock = {
+                param($RemoteDir)
+                if (-not (Test-Path $RemoteDir)) {
+                    New-Item -ItemType Directory -Path $RemoteDir -Force | Out-Null
+                    Write-Output "Created remote directory: $RemoteDir"
+                }
+                return $RemoteDir
+            }
+            $stdErrOut += "Preparing remote directory on $($HostInfo.host_addr)..."
+            if ($HostInfo.host_auth -eq $ENUM_ACTIVE_DIRECTORY) {
+                $result = Invoke-Command -ComputerName $HostInfo.host_addr -ScriptBlock $scriptBlock -ArgumentList $remoteDir -ErrorAction Stop
+            } elseif ($HostInfo.host_auth -eq $ENUM_CREDENTIALS) {
+                $credential = New-Object System.Management.Automation.PSCredential($HostInfo.host_user, $HostInfo.host_pass)
+                $sessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
+                $result = Invoke-Command -ComputerName $HostInfo.host_addr -Credential $credential -ScriptBlock $scriptBlock -SessionOption $sessionOption -ArgumentList $remoteDir -ErrorAction Stop
+            }
+            $stdErrOut += "Remote directory prepared on $($HostInfo.host_addr): $remoteDir"
+            # Copy each installer file
+            foreach ($installerType in $LocalPaths.Keys) {
+                $localPath = $LocalPaths[$installerType]
+                $fileName = Split-Path $localPath -Leaf
+                $stdErrOut += "Copying $installerType installer to $($HostInfo.host_addr)..."
+                $remotePath = "$remoteDir\$fileName"
+                if ($HostInfo.host_auth -eq $ENUM_ACTIVE_DIRECTORY) {
+                    $remotePathUnc = "\\$($HostInfo.host_addr)\C$\$remoteRelDir\$fileName"
+                    Copy-Item -Path $localPath -Destination $remotePathUnc -Force -ErrorAction Stop
+                } elseif ($HostInfo.host_auth -eq $ENUM_CREDENTIALS) {
+                    $session = New-PSSession -ComputerName $HostInfo.host_addr -Credential $credential -SessionOption $sessionOption -ErrorAction Stop
+                    Copy-Item -Path $localPath -Destination $remotePath -ToSession $session -Force -ErrorAction Stop
+                    Remove-PSSession $session -ErrorAction SilentlyContinue
+                }
+                $remotePaths[$installerType] = $remotePath
+                $stdErrOut += "Copied $installerType installer to: $remotePath"
+            }
+            $stdErrOut += "All installers uploaded to $($HostInfo.host_addr)"
+            $out = $stdErrOut -join "`n"
+            return @{ Success = $true; Error = $null; RemotePaths = $remotePaths; StdErrOut = $out }
+        } catch {
+            $out = $stdErrOut -join "`n"
+            return @{ Success = $false; Error = $_.Exception.Message; RemotePaths = $null; StdErrOut = $out }
+        }
+    }
+    # Result processor
+    $resultProcessor = {
+        param($JobInfo)
+        $job = $JobInfo.Job
+        $hostInfo = $JobInfo.Item
+        try {
+            $testResult = Receive-Job -Job $job
+            # write all job debug/info/error messages in to the main script log
+            Write-Output $testResult.StdErrOut
+            if ($job.State -eq 'Completed') {
+                if ($testResult -and $testResult.Success) {
+                    # Store remote paths in host object for use by InstallSingleHost
+                    $hostInfo.remote_installer_paths = $testResult.RemotePaths
+                    InfoMessage "Successfully uploaded installers to $($hostInfo.host_addr)"
+                } else {
+                    $issue = if ($testResult.Error) { $testResult.Error } else { "Unknown Upload error" }
+                    $hostInfo.issues += "Failed to upload installers. $issue"
+                    ErrorMessage "Failed to upload installers to $($hostInfo.host_addr). $issue"
                 }
             } else {
-                Start-Sleep -Milliseconds 100
+                $errors = $job.ChildJobs | ForEach-Object { $_.Error } | Where-Object { $_ } | ForEach-Object { $_.ToString() }
+                $issue = "Job failed: $($errors | Out-String)"
+                $hostInfo.issues += ("Job failed to complete. State: $($job.State)" + $errors)
+                ErrorMessage "Upload job failed for $($hostInfo.host_addr): State $($job.State), $issue"
             }
+        } catch {
+            $hostInfo.issues += "Error while receiving job output: $(_.Exception.Message)"
+            ErrorMessage "Upload job failed for $($hostInfo.host_addr): State $($job.State), $issue"
         }
-
-        # Start new job
-        InfoMessage "Starting upload job for host: $($HostInfo.host_addr)"
-        $job = Start-Job -ScriptBlock {
-            param($HostInfo, $LocalPaths, $ENUM_ACTIVE_DIRECTORY, $ENUM_CREDENTIALS)
-
-            function DebugMessage { param($message) Write-Host "[DEBUG] $message" -ForegroundColor Gray }
-            function InfoMessage { param($message) Write-Host "[INFO] $message" -ForegroundColor Green }
-            function ErrorMessage { param($message) Write-Host "[ERROR] $message" -ForegroundColor Red }
-
-            # Simplified inline version of copyInstallersToHost
-            $remoteRelDir = "Temp\silk-echo-install-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-            $remoteDir = "C:\$remoteRelDir"
-            $remotePaths = @{}
-
-            try {
-                # Create remote directory
-                $scriptBlock = {
-                    param($RemoteDir)
-                    if (-not (Test-Path $RemoteDir)) {
-                        New-Item -ItemType Directory -Path $RemoteDir -Force | Out-Null
-                        Write-Output "Created remote directory: $RemoteDir"
-                    }
-                    return $RemoteDir
-                }
-
-                if ($HostInfo.host_auth -eq $ENUM_ACTIVE_DIRECTORY) {
-                    $result = Invoke-Command -ComputerName $HostInfo.host_addr -ScriptBlock $scriptBlock -ArgumentList $remoteDir -ErrorAction Stop
-                } elseif ($HostInfo.host_auth -eq $ENUM_CREDENTIALS) {
-                    $credential = New-Object System.Management.Automation.PSCredential($HostInfo.host_user, $HostInfo.host_pass)
-                    $sessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
-                    $result = Invoke-Command -ComputerName $HostInfo.host_addr -Credential $credential -ScriptBlock $scriptBlock -SessionOption $sessionOption -ArgumentList $remoteDir -ErrorAction Stop
-                }
-
-                DebugMessage "Remote directory prepared on $($HostInfo.host_addr): $remoteDir"
-
-                # Copy each installer file
-                foreach ($installerType in $LocalPaths.Keys) {
-                    $localPath = $LocalPaths[$installerType]
-                    $fileName = Split-Path $localPath -Leaf
-
-
-
-                    DebugMessage "Copying $installerType installer to $($HostInfo.host_addr)..."
-                    $remotePath = "$remoteDir\$fileName"
-
-                    if ($HostInfo.host_auth -eq $ENUM_ACTIVE_DIRECTORY) {
-                        $remotePathUnc = "\\$($HostInfo.host_addr)\C$\$remoteRelDir\$fileName"
-                        Copy-Item -Path $localPath -Destination $remotePathUnc -Force -ErrorAction Stop
-                    } elseif ($HostInfo.host_auth -eq $ENUM_CREDENTIALS) {
-
-                        $session = New-PSSession -ComputerName $HostInfo.host_addr -Credential $credential -SessionOption $sessionOption -ErrorAction Stop
-                        Copy-Item -Path $localPath -Destination $remotePath -ToSession $session -Force -ErrorAction Stop
-                        Remove-PSSession $session -ErrorAction SilentlyContinue
-                    }
-                    $remotePaths[$installerType] = $remotePath
-                    DebugMessage "Copied $installerType installer to: $remotePath"
-                }
-
-                InfoMessage "All installers uploaded to $($HostInfo.host_addr)"
-                return $remotePaths
-
-            } catch {
-                ErrorMessage "Failed to upload installers to $($HostInfo.host_addr): $_"
-                return $null
-            }
-        } -ArgumentList $hostInfo, $LocalPaths, $ENUM_ACTIVE_DIRECTORY, $ENUM_CREDENTIALS
-
-        $jobs += @{
-            Job = $job
-            HostInfo = $hostInfo
-        }
-
-        $batchCount++
-        if ($batchCount % $MaxConcurrency -eq 0) {
-            InfoMessage "Started upload jobs for $batchCount hosts..."
-        }
-    }
-
-    # Wait for remaining jobs to complete
-    InfoMessage "Waiting for remaining upload jobs to complete..."
-    while ($jobs.Count -gt 0) {
-        $completedJob = $jobs | Where-Object { $_.Job.State -ne 'Running' } | Select-Object -First 1
-        if ($completedJob) {
-            $processJobResult = processUploadJobResult -JobInfo $completedJob
-            $jobs = @($jobs | Where-Object { $_.Job.Id -ne $completedJob.Job.Id })
-            if (-not $processJobResult) {
-                # Clean up remaining jobs and return failure
-                $jobs | ForEach-Object { Remove-Job $_.Job -Force }
-                return $false
-            }
-        } else {
-            Start-Sleep -Milliseconds 100
-        }
-    }
-
-    InfoMessage "Completed uploading installers to all hosts successfully"
-    return $true
-}
-
-function processUploadJobResult {
-    param (
-        [Parameter(Mandatory=$true)]
-        [PSCustomObject]$JobInfo
-    )
-
-    $job = $JobInfo.Job
-    $hostInfo = $JobInfo.HostInfo
-
-    if ($job.State -eq 'Completed') {
-        $remoteInstallerPaths = Receive-Job -Job $job
-        if ($remoteInstallerPaths) {
-            # Store remote paths in host object for use by InstallSingleHost
-            $hostInfo | Add-Member -MemberType NoteProperty -Name "remote_installer_paths" -Value $remoteInstallerPaths -Force
-            InfoMessage "Successfully uploaded installers to $($hostInfo.host_addr)"
-            Remove-Job -Job $job -Force
-            return $true
-        } else {
-            ErrorMessage "Failed to upload installers to $($hostInfo.host_addr)"
-            Remove-Job -Job $job -Force
-            return $false
-        }
-    } else {
-        $errorMsg = if ($job.State -eq 'Failed') {
-            Receive-Job -Job $job -ErrorAction SilentlyContinue | Out-String
-        } else {
-            "Job timed out or failed"
-        }
-        ErrorMessage "Upload job failed for $($hostInfo.host_addr): $errorMsg"
+        # Write report after updating host
+        WriteHostsSummaryToFile -Hosts $HostInfos -OutputPath $SilkEchoReportFilePath
         Remove-Job -Job $job -Force
-        return $false
+    }
+    # Enhanced job script that includes constants and LocalPaths
+    $jobScriptWithParams = {
+        param($hostInfo)
+        $ENUM_ACTIVE_DIRECTORY = "active_directory"
+        $ENUM_CREDENTIALS = "credentials"
+        & ([ScriptBlock]::Create($using:uploadJobScript)) $hostInfo $using:LocalPaths $ENUM_ACTIVE_DIRECTORY $ENUM_CREDENTIALS
+    }
+    # Use generic batch processor
+    Start-BatchJobProcessor -Items $HostInfos -JobScriptBlock $jobScriptWithParams -ResultProcessor $resultProcessor -MaxConcurrency $MaxConcurrency -JobDescription "upload"
+    # Check upload results and provide summary
+    $successfulUploads = @($HostInfos | Where-Object { $_.remote_installer_paths })
+    $failedUploads = @($HostInfos | Where-Object { -not $_.remote_installer_paths })
+    if ($failedUploads.Count -gt 0) {
+        WarningMessage "Upload failed for $($failedUploads.Count) hosts:"
+        foreach ($hostInfo in $failedUploads) {
+            WarningMessage " - $($hostInfo.host_addr)"
+        }
+    }
+    if ($successfulUploads.Count -gt 0) {
+        InfoMessage "Successfully uploaded installers to $($successfulUploads.Count) hosts"
+    } else {
+        ErrorMessage "Failed to upload installers to any hosts"
     }
 }
 #endregion UploadInstallersToHosts
-
-
 #endregion InstallerUploader
-
-#endregion orc_uploader.ps1
-
+#endregion orc_uploader
 # InstallSingleHost, FetchJobResult, ProcessSingleJobResult
-#region orc_invoke_remote_install.ps1
+#region orc_invoke_remote_install
 #region FetchJobResult
-function fetchStream {
+function FetchStream {
     param (
         [Parameter(Mandatory=$true)]
         [object]$stream
@@ -1433,26 +1578,23 @@ function fetchStream {
     }
     return $lines
 }
-
 function FetchJobResult {
     param (
         [Parameter(Mandatory=$true)]
-        [string]$computerName,
+        [string]$hostAddress,
         [Parameter(Mandatory=$false)]
         [PSCustomObject]$jobResult,
         [string]$JobState
     )
     # Initialize arrays for different output types
-    InfoMessage "Fetching job result for $computerName with state $JobState"
+    InfoMessage "Fetching job result for $hostAddress with state $JobState"
     $outputLines = @()
     $errorLines = @()
-
     if ($jobResult) {
-        $outputLines = fetchStream -Stream $jobResult.Information
+        $outputLines = FetchStream -Stream $jobResult.Information
     }
-
     if ($jobResult.Error) {
-        $errorLines = fetchStream -Stream $jobResult.Error
+        $errorLines = FetchStream -Stream $jobResult.Error
     }
     # Determine status based on presence of errors
     $JState = if ($JobState -eq 'Completed') {
@@ -1461,148 +1603,20 @@ function FetchJobResult {
         'Failed'
     }
     $result = [PSCustomObject]@{
-                ComputerName = $computerName
+                HostAddress = $hostAddress
                 JobState = $JState
                 Info = $outputLines
                 Error = $errorLines
             }
-    InfoMessage "Job result for $computerName`: $($result.JobState)"
+    InfoMessage "Job result for $hostAddress`: $($result.JobState)"
     return $result
 }
 #endregion FetchJobResult
-
-#region InstallSingleHost
-function InstallSingleHost {
-    param (
-        [Parameter(Mandatory=$true)]
-        [PSCustomObject]$HostInfo,
-        [Parameter(Mandatory=$true)]
-        [PSCustomObject]$Config,
-        [Parameter(Mandatory=$true)]
-        [string]$FlexToken,
-        [Parameter(Mandatory=$true)]
-        [string]$SqlConnectionString,
-        [Parameter(Mandatory=$true)]
-        [System.Management.Automation.PSCredential]$SdpCredentials,
-        [Parameter(Mandatory=$true)]
-        [string]$HostSetupScript
-    )
-
-    $ComputerName = $HostInfo.host_addr
-    InfoMessage "Starting installation on $ComputerName..."
-
-    $IsDebug = $DebugPreference -eq 'Continue'
-    $IsDryRun = $DryRun.IsPresent
-    # Use uploaded installer paths instead of URLs
-    $agentPath = if ($HostInfo.remote_installer_paths.agent) { $HostInfo.remote_installer_paths.agent } else { $Config.agent }
-    $vssPath = if ($HostInfo.remote_installer_paths.vss) { $HostInfo.remote_installer_paths.vss } else { $Config.svss }
-
-    $ArgumentList = @(
-        $HostInfo.flex_host_ip,
-        $FlexToken,
-        $SqlConnectionString,
-        $agentPath,
-        $vssPath,
-        $HostInfo.sdp_id,
-        $SdpCredentials.UserName,
-        $SdpCredentials.GetNetworkCredential().Password,
-        $IsDebug,
-        $IsDryRun,
-        $HostInfo.mount_points_directory
-    )
-
-    DebugMessage "Preparing to run installation script on $ComputerName"
-    DebugMessage "Using Flex IP: $($HostInfo.flex_host_ip)"
-    DebugMessage "Using Flex Token: [REDACTED]"
-    DebugMessage "Using SQL Connection String: [REDACTED]"
-    DebugMessage "Using agent path: $agentPath"
-    DebugMessage "Using VSS path: $vssPath"
-    DebugMessage "Using SDP ID: $($HostInfo.sdp_id)"
-    DebugMessage "Using SDP Username: $($SdpCredentials.UserName)"
-    DebugMessage "Using SDP Password: [REDACTED]"
-    DebugMessage "Dry Run Mode: $($IsDryRun)"
-    DebugMessage "Mount Points Directory: $($HostInfo.mount_points_directory)"
-
-    # Read the script content and convert it to a scriptblock
-    $installScript = [ScriptBlock]::Create(($HostSetupScript))
-
-    # Create the remote scriptblock
-    $scriptBlock = {
-        param($FlexIP, $FlexToken, $DBConnectionString, $SilkAgentPath, $SilkVSSPath, $SDPId, $SDPUsername, $SDPPassword, $DebugMode, $DryRunMode, $MountPointsDirectory, $Script)
-
-        # Set debug preferences in the remote session based on the debug mode
-        if ($DebugMode) {
-            $DebugPreference = 'Continue'
-            $VerbosePreference = 'Continue'
-        } else {
-            $DebugPreference = 'SilentlyContinue'
-            $VerbosePreference = 'SilentlyContinue'
-        }
-
-        # Create a new function with the script content
-        $function = [ScriptBlock]::Create($Script)
-        Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [INFO] - Running installation (Debug: $DebugMode)"
-
-        # Prepare base arguments
-        $functionArgs = @{
-            FlexIP = $FlexIP
-            FlexToken = $FlexToken
-            DBConnectionString = $DBConnectionString
-            SilkAgentPath = $SilkAgentPath
-            SilkVSSPath = $SilkVSSPath
-            SDPId = $SDPId
-            SDPUsername = $SDPUsername
-            SDPPassword = $SDPPassword
-            MountPointsDirectory = $MountPointsDirectory
-        }
-
-        # Add DryRun parameter if in dry run mode
-        if ($DryRunMode) {
-            $functionArgs.Add('DryRun', $true)
-            Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [INFO] - Dry run mode is enabled, no changes will be made."
-        }
-
-        # Execute function with prepared arguments using splatting
-        try {
-            & $function @functionArgs
-        } catch {
-            Write-Error "Failed to execute host_installer script: $_"
-            throw
-        }
-    }
-
-    # Add the script content to the argument list
-    $ArgumentList += @($installScript.ToString())
-
-    # Prepare invoke command parameters
-    $invokeParams = @{
-        ComputerName = $ComputerName
-        AsJob = $true
-        ScriptBlock = $scriptBlock
-        ArgumentList = $ArgumentList
-    }
-
-    # Add credential parameter only if not using Kerberos
-    if ($HostInfo.host_auth -ne $ENUM_ACTIVE_DIRECTORY) {
-        $credential = New-Object System.Management.Automation.PSCredential($HostInfo.host_user, $HostInfo.host_pass)
-        $invokeParams['Credential'] = $credential
-    }
-    InfoMessage "Invoking installation script on $ComputerName..."
-    $job = Invoke-Command @invokeParams
-    InfoMessage "Installation script invoked on $ComputerName, job ID: $($job.Id)"
-    return [PSCustomObject]@{
-        ComputerName = $ComputerName
-        Job = $job
-    }
-}
-#endregion InstallSingleHost
-
 #region ProcessSingleJobResult
 function ProcessSingleJobResult {
     <#
     .SYNOPSIS
         Processes the result of a single remote installation job safely.
-
     .DESCRIPTION
         This function handles all aspects of processing a completed job including:
         - Waiting for job completion
@@ -1610,10 +1624,8 @@ function ProcessSingleJobResult {
         - Fetching detailed job results
         - Error handling to prevent script termination
         - Cleanup of job resources
-
     .PARAMETER JobInfo
         The job information object containing the job and computer name
-
     .OUTPUTS
         PSCustomObject containing the processed job result
     #>
@@ -1621,49 +1633,54 @@ function ProcessSingleJobResult {
         [Parameter(Mandatory=$true)]
         [PSCustomObject]$JobInfo
     )
-
-    $computerName = $JobInfo.ComputerName
+    $hostAddress = $JobInfo.HostAddress
     $job = $JobInfo.Job
-
-    InfoMessage "Waiting for job completion on $computerName..."
+    InfoMessage "Waiting for job completion on $hostAddress (timeout: $REMOTE_INSTALL_TIMEOUT_SECONDS seconds)..."
     try {
-        $job | Wait-Job | Out-Null
-        InfoMessage "Job completed on $computerName."
+        $waitResult = $job | Wait-Job -Timeout $REMOTE_INSTALL_TIMEOUT_SECONDS
+        if ($waitResult) {
+            InfoMessage "Job completed on $hostAddress."
+        } else {
+            WarningMessage "Job timed out after $REMOTE_INSTALL_TIMEOUT_SECONDS seconds on $hostAddress"
+            # Stop the timed-out job gracefully to allow log collection
+            try {
+                $job | Stop-Job
+                DebugMessage "Stopped timed-out job on $hostAddress"
+            } catch {
+                WarningMessage "Failed to stop timed-out job on $hostAddress`: $_"
+            }
+        }
     } catch {
-        WarningMessage "Error while waiting for job completion on $computerName`: $_"
+        ErrorMessage "Error while waiting for job completion on $hostAddress`: $_"
     }
-
     # read job errors if any - wrap in try-catch to prevent script termination
     $jobErrors = $null
     try {
         Receive-Job -Job $job -Keep -ErrorVariable jobErrors -ErrorAction SilentlyContinue
-        DebugMessage "Job state for $computerName`: $($job.State)"
+        DebugMessage "Job state for $hostAddress`: $($job.State)"
     } catch {
-        WarningMessage "Error while receiving job output from $computerName`: $_"
+        ErrorMessage "Error while receiving job output from $hostAddress`: $_"
         $jobErrors = @($_.Exception.Message)
     }
-
     $jobResult = $null
     try {
         $jobResult = $job.ChildJobs[0]
     } catch {
-        WarningMessage "Error accessing child job for $computerName`: $_"
+        WarningMessage "Error accessing child job for $hostAddress`: $_"
     }
-
     # Fetch logs from the job result - wrap in try-catch
     try {
-        $result = FetchJobResult -ComputerName $computerName -jobResult $jobResult -JobState $job.State
+        $result = FetchJobResult -hostAddress $hostAddress -jobResult $jobResult -JobState $job.State
     } catch {
-        WarningMessage "Error fetching job result for $computerName`: $_"
+        WarningMessage "Error fetching job result for $hostAddress`: $_"
         # Create a fallback result object
         $result = [PSCustomObject]@{
-            ComputerName = $computerName
+            HostAddress = $hostAddress
             JobState = 'Failed'
             Info = @()
             Error = @("Error fetching job result: $($_.Exception.Message)")
         }
     }
-
     # add jobErrors to the result if any - ensure result.Error is an array
     if ($jobErrors) {
         if (-not $result.Error) {
@@ -1671,43 +1688,366 @@ function ProcessSingleJobResult {
         }
         $result.Error += $jobErrors | ForEach-Object { $_.ToString().Trim() }
     }
-
     # Clean up the job
     try {
         $job | Remove-Job
-        DebugMessage "Cleaned up job for $computerName"
+        DebugMessage "Cleaned up job for $hostAddress"
     } catch {
-        WarningMessage "Error cleaning up job for $computerName`: $_"
+        WarningMessage "Error cleaning up job for $hostAddress`: $_"
     }
-
     return $result
 }
 #endregion ProcessSingleJobResult
-
-#endregion orc_invoke_remote_install.ps1
-
+#endregion orc_invoke_remote_install
+# StartBatchInstallation, SaveInstallationResults
+#region orc_batch_installer
+#region Batch Installation Orchestration
+<#
+.SYNOPSIS
+    Handles batch installation orchestration across multiple remote hosts.
+.DESCRIPTION
+    This module manages the parallel installation process across multiple hosts using dynamic
+    batch processing. It coordinates installation jobs, tracks progress, manages completion
+    state persistence, and generates comprehensive results.
+.NOTES
+    File Name      : orc_batch_installer.ps1
+    Author         : Silk.us, Inc.
+    Prerequisite   : PowerShell version 5 or higher
+    Copyright      : (c) 2024 Silk.us, Inc.
+.FUNCTIONALITY
+    Batch installation orchestration, Dynamic job processing, State tracking, Results management
+#>
+#region StartBatchInstallation
+function StartBatchInstallation {
+    param (
+        [Parameter(Mandatory=$true)]
+        [Object[]]$RemoteComputers,
+        [Parameter(Mandatory=$true)]
+        [PSCustomObject]$Config,
+        [Parameter(Mandatory=$true)]
+        [PSCustomObject]$CompletedHosts,
+        [Parameter(Mandatory=$true)]
+        [string]$ProcessedHostsPath,
+        [Parameter(Mandatory=$true)]
+        [string]$HostSetupScript,
+        [Parameter(Mandatory=$false)]
+        [int]$MaxConcurrency = 10
+    )
+    # Installation job logic - direct remote installation (like upload/connectivity pattern)
+    $installationJobScript = {
+        param($hostInfo, $Config, $HostSetupScript, $ENUM_ACTIVE_DIRECTORY, $IsDryRun, $IsDebug)
+        function InfoMessageIJS { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [INFO] $message" -ForegroundColor Green }
+        function DebugMessageIJS { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [DEBUG] $message" -ForegroundColor Gray }
+        function ErrorMessageIJS { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [ERROR] $message" -ForegroundColor Red }
+        try {
+            $HostAddress = $hostInfo.host_addr
+            InfoMessageIJS "Starting installation on $HostAddress..."
+            # Use uploaded installer paths
+            DebugMessageIJS "Remote installer paths: $($hostInfo.remote_installer_paths | ConvertTo-Json -Compress)"
+            $agentPath = $hostInfo.remote_installer_paths.agent
+            $vssPath = $hostInfo.remote_installer_paths.vss
+            DebugMessageIJS "Installer paths: $($hostInfo.remote_installer_paths | ConvertTo-Json -Depth 3)"
+            # Validate that remote installer paths are not null
+            if (-not $agentPath) {
+                ErrorMessageIJS "Agent path is null or empty. Remote installer paths may not be properly set."
+            }
+            if (-not $vssPath) {
+                ErrorMessageIJS "VSS path is null or empty. Remote installer paths may not be properly set."
+            }
+            # do not continue if the paths are null, add issue and return
+            if (-not $agentPath -or -not $vssPath) {
+                $hostInfo.issues += "Failed to upload installers. $issue"
+                return
+            }
+            DebugMessageIJS "Preparing to run installation script on $HostAddress"
+            DebugMessageIJS "Using Flex IP: $($hostInfo.flex_host_ip)"
+            DebugMessageIJS "Using Flex Token: [REDACTED]"
+            DebugMessageIJS "Using SQL Connection String: [REDACTED]"
+            DebugMessageIJS "Using agent path: $agentPath"
+            DebugMessageIJS "Using VSS path: $vssPath"
+            DebugMessageIJS "Using SDP ID: $($hostInfo.sdp_id)"
+            DebugMessageIJS "Using SDP Username: $($hostInfo.sdp_credential.UserName)"
+            DebugMessageIJS "Using SDP Password: [REDACTED]"
+            DebugMessageIJS "Dry Run Mode: $IsDryRun"
+            DebugMessageIJS "Mount Points Directory: $($hostInfo.mount_points_directory)"
+            # Create the remote scriptblock for installation
+            $remoteInstallationScript = {
+                param($FlexIP, 
+                      $FlexToken,
+                      $DBConnectionString,
+                      $SilkAgentPath,
+                      $SilkVSSPath,
+                      $SDPId,
+                      $SDPUsername,
+                      $SDPPassword,
+                      $DebugMode,
+                      $DryRunMode,
+                      $MountPointsDirectory,
+                      $Script)
+                function InfoMessageRIS { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [INFO] $message"}
+                function DebugMessageRIS { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [DEBUG] $message"}
+                function ErrorMessageRIS { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [ERROR] $message"}
+                # Set debug preferences in the remote session based on the debug mode
+                if ($DebugMode) {
+                    $DebugPreference = 'Continue'
+                    $VerbosePreference = 'Continue'
+                } else {
+                    $DebugPreference = 'SilentlyContinue'
+                    $VerbosePreference = 'SilentlyContinue'
+                }
+                # Create a new function with the script content
+                $function = [ScriptBlock]::Create($Script)
+                InfoMessageRIS "Running installation script... (Debug: $DebugMode, DryRun: $DryRunMode)"
+                # Prepare base arguments
+                $functionArgs = @{
+                    FlexIP = $FlexIP
+                    FlexToken = $FlexToken
+                    DBConnectionString = $DBConnectionString
+                    SilkAgentPath = $SilkAgentPath
+                    SilkVSSPath = $SilkVSSPath
+                    SDPId = $SDPId
+                    SDPUsername = $SDPUsername
+                    SDPPassword = $SDPPassword
+                    MountPointsDirectory = $MountPointsDirectory
+                }
+                # Add DryRun parameter if in dry run mode
+                if ($DryRunMode) {
+                    $functionArgs.Add('DryRun', $true)
+                    InfoMessageRIS "Dry run mode is enabled, no changes will be made."
+                }
+                # Execute function with prepared arguments using splatting
+                try {
+                    $result = & $function @functionArgs
+                    return @{ Success = $true; Output = $result; Error = $null }
+                } catch {
+                    ErrorMessageRIS "Installation script execution failed: $_"
+                    return @{ Success = $false; Output = $null; Error = $_.Exception.Message }
+                }
+            }
+            # Prepare argument list with null checks
+            $ArgumentList = @(
+                $hostInfo.flex_host_ip,
+                $hostInfo.flex_access_token,
+                $hostInfo.sql_connection_string,
+                $agentPath,
+                $vssPath,
+                $hostInfo.sdp_id,
+                $hostInfo.sdp_credential.UserName,
+                $hostInfo.sdp_credential.GetNetworkCredential().Password,
+                $IsDebug,
+                $IsDryRun,
+                $hostInfo.mount_points_directory,
+                $HostSetupScript
+            )
+            # Validate ArgumentList for null values
+            for ($i = 0; $i -lt $ArgumentList.Count; $i++) {
+                if ($null -eq $ArgumentList[$i]) {
+                    $paramNames = @('flex_host_ip', 'flex_access_token', 'sql_connection_string', 'agentPath', 'vssPath', 'sdp_id', 'sdp_username', 'sdp_password', 'IsDebug', 'IsDryRun', 'mount_points_directory', 'HostSetupScript')
+                    ErrorMessageIJS "Null value found in ArgumentList at index $i (parameter: $($paramNames[$i]))"
+                    return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Null parameter: $($paramNames[$i])" }
+                }
+            }
+            # Prepare invoke command parameters - DIRECT EXECUTION (NO -AsJob)
+            $invokeParams = @{
+                ComputerName = $HostAddress
+                ScriptBlock = $remoteInstallationScript
+                ArgumentList = $ArgumentList
+            }
+            # Add credential parameter only if not using Kerberos
+            if ($hostInfo.host_auth -ne $ENUM_ACTIVE_DIRECTORY) {
+                $credential = New-Object System.Management.Automation.PSCredential($hostInfo.host_user, $hostInfo.host_pass)
+                $invokeParams['Credential'] = $credential
+            }
+            InfoMessageIJS "Invoking installation script on $HostAddress..."
+            $installResult = Invoke-Command @invokeParams -ErrorAction Stop
+            if ($installResult -and $installResult.Success) {
+                InfoMessageIJS "Installation completed successfully on $HostAddress"
+                return @{ Success = $true; HostAddress = $HostAddress; Output = $installResult.Output; Error = $null }
+            } else {
+                $errorMsg = if ($installResult.Error) { $installResult.Error } else { "Unknown installation error" }
+                ErrorMessageIJS "Installation failed on ${HostAddress}: $errorMsg"
+                return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = $errorMsg }
+            }
+        } catch {
+            $hostInfo.issues += "Installation error: $($_.Exception.Message)"
+            ErrorMessageIJS "Installation job failed for ${HostAddress}: $_"
+            return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = $_.Exception.Message }
+        }
+    }
+    # Result processor - handles completed installation jobs (like upload/connectivity pattern)
+    $installationResultProcessor = {
+        param($JobInfo)
+        $job = $JobInfo.Job
+        $hostInfo = $JobInfo.Item
+        if ($job.State -eq 'Completed') {
+            $installResult = Receive-Job -Job $job
+            if ($installResult -and $installResult.Success) {
+                InfoMessage "Installation completed successfully on $($hostInfo.host_addr)"
+                # Create result object in expected format for compatibility
+                $result = [PSCustomObject]@{
+                    HostAddress = $installResult.HostAddress
+                    JobState = 'Success'
+                    Info = @($installResult.Output)
+                    Error = @()
+                }
+                $script:results += $result
+                # Update the corresponding host's result field in both collections
+                $hostToUpdate = $script:remoteComputers | Where-Object { $_.host_addr -eq $result.HostAddress }
+                if ($hostToUpdate) {
+                    $hostToUpdate.result = $result
+                }
+                # Also update config.hosts collection for progress file
+                $configHostToUpdate = $script:config.hosts | Where-Object { $_.host_addr -eq $result.HostAddress }
+                if ($configHostToUpdate) {
+                    $configHostToUpdate.result = $result
+                }
+                # Write report after updating host
+                WriteHostsSummaryToFile -Hosts $script:config.hosts -OutputPath $SilkEchoReportFilePath
+                $script:NumOfSuccessHosts++
+                # Mark host as completed immediately (only in live mode)
+                if (-not $DryRun.IsPresent) {
+                    MarkHostCompleted -CompletedHosts $script:completedHosts -HostAddress $result.HostAddress
+                    SaveCompletedHosts -StateFilePath $script:processedHostsPath -CompletedHosts $script:completedHosts | Out-Null
+                }
+            } else {
+                # Check if we have enhanced timeout information from our updated functions
+                $errorMsg = $null
+                if ($installResult.Output -and $installResult.Output.Message) {
+                    # Enhanced result object with timeout information
+                    $errorMsg = $installResult.Output.Message
+                    if ($installResult.Output.Reason -eq "Timeout") {
+                        InfoMessage "Timeout detected for $($hostInfo.host_addr): $errorMsg"
+                    }
+                } elseif ($installResult.Error) {
+                    $errorMsg = $installResult.Error
+                } else {
+                    $errorMsg = "Unknown installation error"
+                }
+                ErrorMessage "Installation failed on $($hostInfo.host_addr): $errorMsg"
+                # Add error to host issues for progress tracking in both collections
+                $hostToUpdate = $script:remoteComputers | Where-Object { $_.host_addr -eq $hostInfo.host_addr }
+                # Create failure result object
+                $result = [PSCustomObject]@{
+                    HostAddress = $hostInfo.host_addr
+                    JobState = 'Failed'
+                    Info = @()
+                    Error = @($errorMsg)
+                }
+                $script:results += $result
+                # Update the corresponding host's result field in both collections
+                if ($hostToUpdate) {
+                    $hostToUpdate.result = $result
+                }
+                if ($configHostToUpdate) {
+                    $configHostToUpdate.result = $result
+                }
+                # Write report after updating host
+                WriteHostsSummaryToFile -Hosts $script:config.hosts -OutputPath $SilkEchoReportFilePath
+                $script:NumOfFailedHosts++
+            }
+        } else {
+            $stdErrOut = Receive-Job -Job $job -ErrorAction SilentlyContinue | Out-String
+            $errorMsg = "Installation job failed for $($hostInfo.host_addr). State: $($job.State). $stdErrOut"
+            ErrorMessage $errorMsg
+            # Create failure result object
+            $result = [PSCustomObject]@{
+                HostAddress = $hostInfo.host_addr
+                JobState = 'Failed'
+                Info = @()
+                Error = @($errorMsg)
+            }
+            $script:results += $result
+            # Update the corresponding host's result field in both collections
+            if ($hostToUpdate) {
+                $hostToUpdate.result = $result
+            }
+            if ($configHostToUpdate) {
+                $configHostToUpdate.result = $result
+            }
+            # Write report after updating host
+            WriteHostsSummaryToFile -Hosts $script:config.hosts -OutputPath $SilkEchoReportFilePath
+            $script:NumOfFailedHosts++
+        }
+        Remove-Job -Job $job -Force
+    }
+    # Initialize script-scope variables for result processor access
+    $script:results = @()
+    $script:remoteComputers = $RemoteComputers
+    $script:config = $Config
+    $script:completedHosts = $CompletedHosts
+    $script:processedHostsPath = $ProcessedHostsPath
+    # Enhanced job script that includes constants (like upload/connectivity pattern)
+    $jobScriptWithConstants = {
+        param($hostInfo)
+        & ([ScriptBlock]::Create($using:installationJobScript)) `
+            $hostInfo `
+            $using:Config `
+            $using:HostSetupScript `
+            $using:ENUM_ACTIVE_DIRECTORY `
+            $using:DryRun.IsPresent `
+            ($using:DebugPreference -eq 'Continue')
+    }
+    # Use dynamic batch processor for installations
+    Start-BatchJobProcessor -Items $RemoteComputers -JobScriptBlock $jobScriptWithConstants -ResultProcessor $installationResultProcessor -MaxConcurrency $MaxConcurrency -JobDescription "installation"
+    # Return the results
+    return $script:results
+}
+#endregion StartBatchInstallation
+#region SaveInstallationResults
+function SaveInstallationResults {
+    param (
+        [Parameter(Mandatory=$true)]
+        [Array]$Results,
+        [Parameter(Mandatory=$true)]
+        [PSCustomObject]$Config,
+        [Parameter(Mandatory=$true)]
+        [string]$CacheDirectory,
+        [Parameter(Mandatory=$true)]
+        [string]$ReportFilePath,
+        [Parameter(Mandatory=$true)]
+        [string]$ProcessedHostsPath
+    )
+    try {
+        # Final checkpoint: Save complete installation report
+        WriteHostsSummaryToFile -Hosts $Config.hosts -OutputPath $ReportFilePath
+        # Display short summary to console
+        DisplayInstallationSummary -Hosts $Config.hosts
+        InfoMessage ""
+        if ($script:NumOfFailedHosts -gt 0) {
+            ErrorMessage "Installation failed on $script:NumOfFailedHosts host(s). Check the logs for details."
+        } else {
+            InfoMessage "Installation completed successfully on all hosts."
+        }
+        InfoMessage "Completed hosts saved to: $ProcessedHostsPath"
+        InfoMessage "To reprocess all hosts, delete the completed hosts file above."
+        InfoMessage "*************************************************"
+    }
+    catch {
+        ErrorMessage "Error saving installation results: $_"
+        throw
+    }
+}
+#endregion SaveInstallationResults
+#endregion Batch Installation Orchestration
+#endregion orc_batch_installer
 # EnsureHostsConnectivity
-#region orc_host_communication.ps1
+#region orc_host_communication
 #region addHostsToTrustedHosts
 function addHostsToTrustedHosts {
     param (
         [Parameter(Mandatory=$true)]
         [Array]$hostEntries
     )
-
     $hostsToAdd = @()
     foreach ($hostInfo in $hostEntries){
         $hostsToAdd += $hostInfo.host_addr
     }
-
     if($hostsToAdd.Count -eq 0){
         DebugMessage "No hosts to add to TrustedHosts list."
         return
     }
-
     $currentTrustedHosts = Get-Item WSMan:\localhost\Client\TrustedHosts
     $newHosts = @($hostsToAdd | Where-Object { $_ -notin $currentTrustedHosts.Value.Split(',') })
-
     if ($newHosts.Count -eq 0) {
         InfoMessage "All hosts are already in TrustedHosts list"
         return
@@ -1718,18 +2058,15 @@ function addHostsToTrustedHosts {
             InfoMessage "$hostAddr"
         }
     }
-
     # ask user if they want to add hosts to TrustedHosts or process without it
     $confirmation = Read-Host "Do you want to add these hosts to TrustedHosts? (Y/n)"
     if ($confirmation -eq 'N' -or $confirmation -eq 'n') {
         InfoMessage "User declined to add hosts to TrustedHosts. Unable to proceed with installation."
         Exit 1
     }
-
     $hostsToAddString = $newHosts -join ','
     InfoMessage "The following hosts need to be added to TrustedHosts:"
     InfoMessage $hostsToAddString
-
     if ($currentTrustedHosts.Value) {
         $newValue = "$($currentTrustedHosts.Value),$hostsToAddString"
     } else {
@@ -1739,37 +2076,30 @@ function addHostsToTrustedHosts {
     InfoMessage "Successfully added hosts to TrustedHosts"
 }
 #endregion addHostsToTrustedHosts
-
 #region ensureHostCredentials
 function ensureHostCredentials {
     param (
         [Parameter(Mandatory=$true)]
         [Array]$hostEntries
     )
-
     # Check if any hosts with credentials auth are missing username or password
     $missingCredHosts = @($hostEntries | Where-Object {
         $_.host_auth -eq $ENUM_CREDENTIALS -and (-not $_.host_user -or -not $_.host_pass)
     })
-
     # return if no missing
     if ($missingCredHosts.Count -eq 0) {
         return
     }
-
     ImportantMessage "Missing credentials detected for some hosts with credentials authentication."
     ImportantMessage "The provided username and password will be used for all hosts with missing credentials:"
-
     foreach ($hostInfo in $missingCredHosts) {
         ImportantMessage "$($hostInfo.host_addr)"
     }
-
     $cred = Get-Credential -Message "Enter Host's username and password"
     if (-not $cred) {
         ErrorMessage "No credentials provided. Cannot proceed without valid credentials for all hosts."
         Exit 1
     }
-
     foreach ($hostInfo in $missingCredHosts) {
         if (-not $hostInfo.host_user) {
             Add-Member -InputObject $hostInfo -MemberType NoteProperty -Name "host_user" -Value $cred.UserName -Force
@@ -1778,7 +2108,6 @@ function ensureHostCredentials {
             Add-Member -InputObject $hostInfo -MemberType NoteProperty -Name "host_pass" -Value $cred.GetNetworkCredential().Password -Force
         }
     }
-
     # convert all hosts with auth credentials to secured credentials
     foreach ($hostInfo in $hostEntries) {
         if ($hostInfo.host_auth -eq $ENUM_CREDENTIALS) {
@@ -1790,14 +2119,12 @@ function ensureHostCredentials {
     }
 }
 #endregion ensureHostCredentials
-
 #region resolveIPToHostname
 function resolveIPToHostname {
     param (
         [Parameter(Mandatory=$true)]
         [string]$IPAddress
     )
-    
     try {
         $hostname = [System.Net.Dns]::GetHostEntry($IPAddress).HostName
         if ($hostname -and $hostname -ne $IPAddress) {
@@ -1807,25 +2134,21 @@ function resolveIPToHostname {
     } catch {
         DebugMessage "Failed to resolve IP $IPAddress to hostname: $_"
     }
-    
     return $null
 }
 #endregion resolveIPToHostname
-
 #region isActiveDirectoryUser
 function isActiveDirectoryUser {
     # Check if the current user is logged in to Active Directory
     try {
         # Try multiple methods for cross-version compatibility
         $isDomainUser = $false
-
         # Method 1: Check environment variables (works in both PS 5.1 and 7)
         $userDomain = $env:USERDOMAIN
         $computerName = $env:COMPUTERNAME
         if ($userDomain -and $userDomain -ne $computerName) {
             $isDomainUser = $true
         }
-
         # Method 2: Try .NET method
         if (-not $isDomainUser) {
             try {
@@ -1837,7 +2160,6 @@ function isActiveDirectoryUser {
                 # Ignore errors, continue with other methods
             }
         }
-
         # Method 3: Check using WMI/CIM
         if (-not $isDomainUser) {
             try {
@@ -1853,7 +2175,6 @@ function isActiveDirectoryUser {
                 # Ignore errors
             }
         }
-
         if ($isDomainUser) {
             InfoMessage "Current user is logged in to Active Directory domain: $userDomain"
             return $true
@@ -1867,7 +2188,6 @@ function isActiveDirectoryUser {
     }
 }
 #endregion isActiveDirectoryUser
-
 #region isHostConnectivityValid
 function isHostConnectivityValid {
     param (
@@ -1883,7 +2203,6 @@ function isHostConnectivityValid {
                 "ERROR: $($_.Exception.Message)"
             }
         }
-
         if ($HostInfo.host_auth -eq $ENUM_ACTIVE_DIRECTORY) {
             # Use current credentials for Active Directory authentication
             InfoMessage "Testing connectivity to $($HostInfo.host_addr) using $ENUM_ACTIVE_DIRECTORY authentication..."
@@ -1891,7 +2210,6 @@ function isHostConnectivityValid {
         } elseif ($HostInfo.host_auth -eq $ENUM_CREDENTIALS) {
             # Create credential object for explicit authentication
             $credential = New-Object System.Management.Automation.PSCredential($HostInfo.host_user, $HostInfo.host_pass)
-
             # Use session options for better compatibility
             $sessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
             InfoMessage "Testing connectivity to $($HostInfo.host_addr) using $ENUM_CREDENTIALS authentication..."
@@ -1904,44 +2222,34 @@ function isHostConnectivityValid {
         if ($result -and $result.ToString().StartsWith("ERROR:")) {
             return $false
         }
-
         return $true
     } catch {
         return $false
     }
 }
 #endregion isHostConnectivityValid
-
 #region EnsureHostsConnectivity
 function EnsureHostsConnectivity {
     param (
         [Parameter(Mandatory=$true)]
         [Array]$hostEntries
     )
-
-    # Reset host_connectivity_issue to "not validated" before start processing
-    foreach ($hostInfo in $hostEntries) {
-        $hostInfo | Add-Member -NotePropertyName "host_connectivity_issue" -NotePropertyValue "not validated" -Force
-    }
-
     # Fulfill credentials for hosts
     ensureHostCredentials -hostEntries $hostEntries
-
     # Check that all hosts have proper host_auth values
     foreach ($hostInfo in $hostEntries) {
         if ($hostInfo.host_auth -ne $ENUM_ACTIVE_DIRECTORY -and $hostInfo.host_auth -ne $ENUM_CREDENTIALS) {
-            $hostInfo.host_connectivity_issue = "Invalid host_auth value. Must be '$ENUM_ACTIVE_DIRECTORY' or '$ENUM_CREDENTIALS'"
+            $hostInfo.issues += "Invalid host_auth value. Must be '$ENUM_ACTIVE_DIRECTORY' or '$ENUM_CREDENTIALS'"
             continue
         }
     }
-
     # Handle active_directory authentication
     $adHosts = @($hostEntries | Where-Object { $_.host_auth -eq $ENUM_ACTIVE_DIRECTORY })
     if ($adHosts.Count -gt 0) {
         # Ensure current user is domain user
         if (-not (isActiveDirectoryUser)) {
             foreach ($hostInfo in $adHosts) {
-                $hostInfo.host_connectivity_issue = "Current user is not logged in to Active Directory"
+                $hostInfo.issues += "Current user is not logged in to Active Directory"
             }
         } else {
             foreach ($hostInfo in $adHosts) {
@@ -1953,36 +2261,27 @@ function EnsureHostsConnectivity {
                         $hostInfo.host_addr = $resolvedHostname
                         InfoMessage "Using resolved hostname $resolvedHostname for Active Directory authentication"
                     } else {
-                        $hostInfo.host_connectivity_issue = "Could not resolve IP $($hostInfo.host_addr) to hostname for $ENUM_ACTIVE_DIRECTORY auth"
+                        $hostInfo.issues += "Could not resolve IP $($hostInfo.host_addr) to hostname for $ENUM_ACTIVE_DIRECTORY auth"
                         continue
                     }
-                }
-                # Test connectivity
-                if (isHostConnectivityValid -HostInfo $hostInfo) {
-                    $hostInfo.host_connectivity_issue = ""
-                } else {
-                    $hostInfo.host_connectivity_issue = "Failed to connect to host using $ENUM_ACTIVE_DIRECTORY authentication"
                 }
             }
         }
     }
-
     # Handle credentials authentication
     $credHosts = @($hostEntries | Where-Object { $_.host_auth -eq $ENUM_CREDENTIALS })
     if ($credHosts.Count -gt 0) {
-
         # validate all host entries has an IP addresses
         $isError = $false
         foreach ($hostInfo in $credHosts) {
             if (-not ($hostInfo.host_addr -as [IPAddress])) {
-                $hostInfo.host_connectivity_issue = "Invalid host address '$($hostInfo.host_addr)'. Must be an IP address for $ENUM_CREDENTIALS authentication."
+                $hostInfo.issues += "Invalid host address '$($hostInfo.host_addr)'. Must be an IP address for $ENUM_CREDENTIALS authentication."
                 $isError = $true
             }
         }
         if ($isError) {
-            return $hostEntries | Where-Object { $_.host_connectivity_issue -ne ""  -and $_.host_connectivity_issue -ne "not validated" }
+            return @($hostEntries | Where-Object { $_.issues.Count -gt 0 })
         }
-
         try{
             addHostsToTrustedHosts -hostEntries $credHosts
         } catch {
@@ -1991,64 +2290,122 @@ function EnsureHostsConnectivity {
             ErrorMessage "Failed to add hosts to TrustedHosts. Cannot proceed with $ENUM_CREDENTIALS authentication."
             Exit 1
         }
-
-        foreach ($hostInfo in $credHosts) {
-            # Test connectivity
-            if (isHostConnectivityValid -HostInfo $hostInfo) {
-                $hostInfo.host_connectivity_issue = ""
-            } else {
-                $hostInfo.host_connectivity_issue = "Failed to connect to host using $ENUM_CREDENTIALS authentication"
-            }
-        }
     }
-
-    $badHosts = @($hostEntries | Where-Object { $_.host_connectivity_issue -ne ""  -and $_.host_connectivity_issue -ne "not validated" })
-
+    # Perform parallel connectivity testing for all hosts that passed validation
+    $hostsToTest = @($hostEntries | Where-Object { $_.issues.Count -eq 0 })
+    if ($hostsToTest.Count -gt 0) {
+        testHostsConnectivityInParallel -hostEntries $hostsToTest -MaxConcurrency $script:MaxConcurrency
+    }
+    $badHosts = @($hostEntries | Where-Object { $_.issues.Count -gt 0 })
     return $badHosts
 }
 #endregion EnsureHostsConnectivity
-
-#endregion orc_host_communication.ps1
-
+#region testHostsConnectivityInParallel
+function testHostsConnectivityInParallel {
+    param (
+        [Parameter(Mandatory=$true)]
+        [Array]$hostEntries,
+        [Parameter(Mandatory=$false)]
+        [int]$MaxConcurrency = 10
+    )
+    # Connectivity test job logic
+    $connectivityJobScript = {
+        param($HostInfo, $ENUM_ACTIVE_DIRECTORY, $ENUM_CREDENTIALS)
+        function InfoMessageCJS { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - ConnJob - [INFO] $message"}
+        # Connectivity test logic (same as isHostConnectivityValid but in job)
+        try {
+            $scriptBlock = {
+                try {
+                    Get-Date
+                } catch {
+                    "ERROR: $($_.Exception.Message)"
+                }
+            }
+            if ($HostInfo.host_auth -eq $ENUM_ACTIVE_DIRECTORY) {
+                InfoMessageCJS "Testing connectivity to $($HostInfo.host_addr) using $ENUM_ACTIVE_DIRECTORY authentication..."
+                $result = Invoke-Command -ComputerName $HostInfo.host_addr -ScriptBlock $scriptBlock -ErrorAction Stop
+            } elseif ($HostInfo.host_auth -eq $ENUM_CREDENTIALS) {
+                $credential = New-Object System.Management.Automation.PSCredential($HostInfo.host_user, $HostInfo.host_pass)
+                $sessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
+                InfoMessageCJS "Testing connectivity to $($HostInfo.host_addr) using $ENUM_CREDENTIALS authentication..."
+                $result = Invoke-Command -ComputerName $HostInfo.host_addr -Credential $credential -ScriptBlock $scriptBlock -SessionOption $sessionOption -ErrorAction Stop
+            } else {
+                return @{ Success = $false; Error = "Invalid authentication method" }
+            }
+            InfoMessageCJS "Successfully connected to $($HostInfo.host_addr) with result: $result"
+            # Check if result indicates an error
+            if ($result -and $result.ToString().StartsWith("ERROR:")) {
+                return @{ Success = $false; Error = "Remote command execution failed: $result" }
+            }
+            return @{ Success = $true; Error = $null }
+        } catch {
+            return @{ Success = $false; Error = $_.Exception.Message }
+        }
+    }
+    # Result processor
+    $resultProcessor = {
+        param($JobInfo)
+        $job = $JobInfo.Job
+        $hostInfo = $JobInfo.Item
+        if ($job.State -eq 'Completed') {
+            $testResult = Receive-Job -Job $job
+            if ($testResult -and $testResult.Success) {
+                InfoMessage "Successfully verified connectivity to $($hostInfo.host_addr)"
+            } else {
+                $errorMsg = if ($testResult.Error) { $testResult.Error } else { "Unknown connectivity error" }
+                $hostInfo.issues += "Failed to connect to host using $($hostInfo.host_auth) authentication: $errorMsg"
+                # Write report after updating host
+                WriteHostsSummaryToFile -Hosts $hostEntries -OutputPath $SilkEchoReportFilePath
+            }
+        } else {
+            $stdErrOut = Receive-Job -Job $job -ErrorAction SilentlyContinue | Out-String
+            $errorMsg = "Connectivity test job failed for $($hostInfo.host_addr). State: $($job.State). $stdErrOut"
+            $hostInfo.issues += $errorMsg
+            # Write report after updating host
+            WriteHostsSummaryToFile -Hosts $hostEntries -OutputPath $SilkEchoReportFilePath
+        }
+        Remove-Job -Job $job -Force
+    }
+    # Enhanced job script that includes constants
+    $jobScriptWithConstants = {
+        param($hostInfo)
+        & ([ScriptBlock]::Create($using:connectivityJobScript)) $hostInfo $using:ENUM_ACTIVE_DIRECTORY $using:ENUM_CREDENTIALS
+    }
+    # Use generic batch processor
+    Start-BatchJobProcessor -Items $hostEntries -JobScriptBlock $jobScriptWithConstants -ResultProcessor $resultProcessor -MaxConcurrency $MaxConcurrency -JobDescription "ConnectivityTest"
+}
+#endregion testHostsConnectivityInParallel
+#endregion orc_host_communication
 # GetHostInstallScript
-#region orc_host_setup_extractor.ps1
+#region orc_host_setup_extractor
 #region GetHostInstallScript
 function GetHostInstallScript {
     <#
     .SYNOPSIS
         Extracts the host installation script from the orchestrator.
-
     .DESCRIPTION
         This function reads the orchestrator script content and extracts the host installer
         portion after the HOSTSETUP_START_MARKER.
-
     .PARAMETER OrchestratorPath
         Path to the orchestrator script. If not specified, uses the script that called this function.
-
     .OUTPUTS
         String containing the host installation script content
     #>
-
     param (
         [Parameter(Mandatory=$true)]
         [string]$OrchestratorPath
     )
-
     try {
         DebugMessage "Extracting host installation script from orchestrator..."
-
         # Read the orchestrator script content
         $orchestratorContent = Get-Content -Path $OrchestratorPath -Raw
-
         # Extract content after the HOSTSETUP_START_MARKER
         $hostScriptContent = $orchestratorContent -split $HOSTSETUP_START_MARKER | Select-Object -Last 1
         $hostScriptContent = $hostScriptContent.Trim()
-
         if ([string]::IsNullOrWhiteSpace($hostScriptContent)) {
             ErrorMessage "Failed to extract host installer script content from orchestrator."
             return $null
         }
-
         DebugMessage "Host installation script extracted successfully."
         return $hostScriptContent
     }
@@ -2058,75 +2415,72 @@ function GetHostInstallScript {
     }
 }
 #endregion GetHostInstallScript
-
-#endregion orc_host_setup_extractor.ps1
-
+#endregion orc_host_setup_extractor
 # ExpandImportsInline
-#region orc_import_expander.ps1
+#region orc_import_expander
 #region ExpandImportsInline
 function ExpandImportsInline {
     <#
     .SYNOPSIS
         Expands dot-sourced imports by replacing them with actual file content.
-
     .DESCRIPTION
         This function replaces dot-sourced imports (. ./orc_*.ps1) with actual file content.
         It processes imports up to 3 times to handle nested dependencies.
         This creates a self-contained script with all dependencies embedded inline.
-
     .PARAMETER ScriptContent
         The script content containing imports to process
-
     .OUTPUTS
         String containing the processed script content with imports replaced
     #>
-
     param (
         [Parameter(Mandatory=$true)]
         [string]$ScriptContent
     )
-
     try {
         DebugMessage "Expanding imports inline..."
-
         $processedContent = $ScriptContent
-
         # Process imports up to 3 times to handle nested dependencies
         for ($iteration = 1; $iteration -le 3; $iteration++) {
             DebugMessage "Expanding imports - iteration $iteration"
-
-            # Find all orc_* files and replace the dot-sourcing lines with their content
-            $orcFiles = Get-ChildItem -Path $PSScriptRoot -Filter "orc_*.ps1"
+            $lines = $processedContent -split '[\r\n]+'
+            $newLines = [System.Collections.Generic.List[string]]::new()
             $importsProcessed = 0
-
-            foreach ($orcFile in $orcFiles) {
-                $importPattern = ". ./$($orcFile.Name)"
-
-                if ($processedContent.Contains($importPattern)) {
-                    try {
-                        $orcContent = Get-Content -Path $orcFile.FullName -Raw
-                        $replacementContent = "#region $($orcFile.Name)`n$orcContent`n#endregion $($orcFile.Name)`n"
-
-                        $processedContent = $processedContent.Replace($importPattern, $replacementContent)
+            foreach ($line in $lines) {
+                if ($line -match "^\s*\.\s+(\./orc_[\w-]+\.ps1)\s*$") {
+                    $fileName = $matches[1]
+                    $filePath = Join-Path $PSScriptRoot $fileName
+                    # remove ps1 from filename
+                    $fileName = $fileName -replace "\.ps1$",""
+                    # remove starting ./
+                    $fileName = $fileName -replace "^\./",""
+                    if (Test-Path $filePath) {
+                        $orcContent = Get-Content -Path $filePath -Raw
+                        $newLines.Add("#region $fileName")
+                        # Split the content into lines and add each line separately
+                        $contentLines = $orcContent.TrimEnd() -split '[\r\n]+'
+                        foreach ($contentLine in $contentLines) {
+                            if ($contentLine.Trim() -ne '') {
+                                $newLines.Add($contentLine)
+                            }
+                        }
+                        $newLines.Add("#endregion $fileName")
                         $importsProcessed++
-
-                        DebugMessage "Replaced import for $($orcFile.Name)"
+                        DebugMessage "Expanded import for $fileName"
+                    } else {
+                        WarningMessage "Could not find import file: $fileName. Keeping original import line."
+                        $newLines.Add($line)
                     }
-                    catch {
-                        WarningMessage "Failed to process import for $($orcFile.Name): $_"
-                    }
+                } else {
+                    $newLines.Add($line)
                 }
             }
-
+            $processedContent = $newLines -join [System.Environment]::NewLine
             DebugMessage "Iteration $iteration completed. Processed $importsProcessed imports."
-
-            # If no imports were processed in this iteration, we can break early
             if ($importsProcessed -eq 0) {
                 DebugMessage "No more imports to process. Breaking early."
                 break
             }
         }
-
         DebugMessage "Import expansion completed successfully."
         return $processedContent
     }
@@ -2136,24 +2490,190 @@ function ExpandImportsInline {
     }
 }
 #endregion ExpandImportsInline
-
-#endregion orc_import_expander.ps1
-
-
+#endregion orc_import_expander
+# LoadCompletedHosts, SaveCompletedHosts, IsHostCompleted, MarkHostCompleted
+#region orc_tracking
+#region Simple Host Completion Tracking
+#region LoadCompletedHosts
+function LoadCompletedHosts {
+    <#
+    .SYNOPSIS
+        Loads the list of completed hosts from processing.json file.
+    .DESCRIPTION
+        Loads a simple list of completed hosts with timestamps to avoid duplicate installations.
+    .PARAMETER StateFilePath
+        Path to the processing.json state file
+    .RETURNS
+        PSCustomObject containing completed hosts or empty object if file doesn't exist
+    #>
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$StateFilePath
+    )
+    try {
+        if (Test-Path $StateFilePath) {
+            InfoMessage "Loading completed hosts from: $StateFilePath"
+            $stateContent = Get-Content -Path $StateFilePath -Raw -Encoding UTF8
+            $state = $stateContent | ConvertFrom-Json
+            if ($state -and $state.completed_hosts) {
+                $completedCount = ($state.completed_hosts | Get-Member -MemberType NoteProperty).Count
+                InfoMessage "Found $completedCount previously completed hosts."
+                return $state.completed_hosts
+            }
+        }
+        # Return empty object if file doesn't exist or is invalid
+        InfoMessage "No previous completed hosts found. Starting fresh."
+        return [PSCustomObject]@{}
+    } catch {
+        WarningMessage "Failed to load completed hosts: $_"
+        InfoMessage "Starting with empty completed hosts list."
+        return [PSCustomObject]@{}
+    }
+}
+#endregion LoadCompletedHosts
+#region SaveCompletedHosts
+function SaveCompletedHosts {
+    <#
+    .SYNOPSIS
+        Saves the completed hosts list to processing.json file.
+    .DESCRIPTION
+        Saves the simple completed hosts list to JSON file.
+    .PARAMETER StateFilePath
+        Path to the processing.json state file
+    .PARAMETER CompletedHosts
+        The completed hosts object to save
+    .RETURNS
+        Boolean indicating success/failure
+    #>
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$StateFilePath,
+        [Parameter(Mandatory=$true)]
+        [PSCustomObject]$CompletedHosts
+    )
+    try {
+        # Create simple state object
+        $state = [PSCustomObject]@{
+            last_updated = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+            completed_hosts = $CompletedHosts
+        }
+        # Convert to JSON with proper formatting
+        $jsonContent = $state | ConvertTo-Json -Depth 3 -Compress:$false
+        # Save to file with UTF8 encoding
+        $jsonContent | Out-File -FilePath $StateFilePath -Encoding UTF8
+        DebugMessage "Completed hosts saved to: $StateFilePath"
+        return $true
+    } catch {
+        WarningMessage "Failed to save completed hosts: $_"
+        return $false
+    }
+}
+#endregion SaveCompletedHosts
+#region IsHostCompleted
+function IsHostCompleted {
+    <#
+    .SYNOPSIS
+        Checks if a host has already been completed.
+    .DESCRIPTION
+        Simple check to see if host exists in completed hosts list.
+    .PARAMETER CompletedHosts
+        The completed hosts object to check
+    .PARAMETER HostAddress
+        The host address/name to check
+    .RETURNS
+        Boolean indicating if host is already completed
+    #>
+    param (
+        [Parameter(Mandatory=$true)]
+        [PSCustomObject]$CompletedHosts,
+        [Parameter(Mandatory=$true)]
+        [string]$HostAddress
+    )
+    try {
+        if ($CompletedHosts.PSObject.Properties[$HostAddress]) {
+            $timestamp = $CompletedHosts.PSObject.Properties[$HostAddress].Value
+            InfoMessage "Host $HostAddress already completed on $timestamp. Skipping."
+            return $true
+        }
+        return $false
+    } catch {
+        WarningMessage "Error checking completion for $HostAddress`: $_"
+        return $false
+    }
+}
+#endregion IsHostCompleted
+#region MarkHostCompleted
+function MarkHostCompleted {
+    <#
+    .SYNOPSIS
+        Marks a host as completed with current timestamp.
+    .DESCRIPTION
+        Adds or updates a host in the completed hosts list with current timestamp.
+    .PARAMETER CompletedHosts
+        The completed hosts object to update
+    .PARAMETER HostAddress
+        The host address/name to mark as completed
+    #>
+    param (
+        [Parameter(Mandatory=$true)]
+        [PSCustomObject]$CompletedHosts,
+        [Parameter(Mandatory=$true)]
+        [string]$HostAddress
+    )
+    try {
+        $timestamp = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+        $CompletedHosts | Add-Member -MemberType NoteProperty -Name $HostAddress -Value $timestamp -Force
+        InfoMessage "Marked host $HostAddress as completed at $timestamp"
+    } catch {
+        WarningMessage "Failed to mark host $HostAddress as completed: $_"
+    }
+}
+#endregion MarkHostCompleted
+#endregion Simple Host Completion Tracking
+#endregion orc_tracking
 #region MainOrchestrator
 function MainOrchestrator {
     param (
         [Parameter(Mandatory=$true)]
         [PSCustomObject]$config
     )
-
     # Skip certificate check for Invoke-WebRequest,
     # this is needed for self-signed certificates of the Flex server
     SkipCertificateCheck
-
-    # Save detailed logs to a file in $SilkEchoInstallerCacheDir
-    ensureCacheDir $SilkEchoInstallerCacheDir
-
+    # Load completed hosts to avoid duplicate installations (unless Force is specified)
+    $completedHosts = LoadCompletedHosts -StateFilePath $script:processedHostsFile
+    $originalHostCount = $config.hosts.Count
+    if ($Force.IsPresent) {
+        ImportantMessage "Force mode enabled - processing all $originalHostCount hosts regardless of previous completion status"
+        # Clear completed hosts to ensure all hosts are processed
+        $completedHosts = @{}
+    } else {
+        # Filter out already completed hosts
+        $hostsToProcess = @()
+        $skippedHosts = @()
+        foreach ($hostInfo in $config.hosts) {
+            if (IsHostCompleted -CompletedHosts $completedHosts -HostAddress $hostInfo.host_addr) {
+                $skippedHosts += $hostInfo
+            } else {
+                $hostsToProcess += $hostInfo
+            }
+        }
+        # Update config with hosts to process
+        $config.hosts = $hostsToProcess
+        if ($skippedHosts.Count -gt 0) {
+            ImportantMessage "Skipping $($skippedHosts.Count) already completed hosts:"
+            foreach ($hostInfo in $skippedHosts) {
+                InfoMessage "  - $($hostInfo.host_addr) (completed previously)"
+            }
+        }
+        if ($config.hosts.Count -eq 0) {
+            ImportantMessage "All hosts have been processed successfully. No work to do."
+            ImportantMessage "To reprocess hosts, delete or rename: $script:processedHostsFile"
+            ImportantMessage "Or use the -Force parameter to reprocess all hosts."
+            return
+        }
+    }
+    ImportantMessage "Processing $($config.hosts.Count) of $originalHostCount total hosts."
     # Download and cache installer files locally (before asking for any credentials)
     InfoMessage "Ensuring installer files are available locally..."
     $localInstallerPaths = EnsureLocalInstallers -Config $config
@@ -2161,53 +2681,62 @@ function MainOrchestrator {
         ErrorMessage "Failed to ensure installer files are available. Cannot proceed with installation."
         return
     }
-
     $failedHosts = EnsureHostsConnectivity -hostEntries $config.hosts
-
     if ($failedHosts.Count -eq 0) {
         ImportantMessage "Hosts connectivity check succeeded."
     } else {
-        # Log errors to stderr but continue execution
-        Write-Error "Hosts connectivity check failed:" -ErrorAction Continue
+        # Log warnings but continue with valid hosts
+        WarningMessage "Hosts connectivity check failed for $($failedHosts.Count) hosts:"
         foreach ($hostInfo in $failedHosts) {
-            Write-Error " - $($hostInfo.host_addr): $($hostInfo.host_connectivity_issue)" -ErrorAction Continue
+            WarningMessage " - $($hostInfo.host_addr): $($hostInfo.issues -join '; ')"
         }
+    }
+    $hostsWithoutIssues = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
+    if ($hostsWithoutIssues.Count -eq 0) {
+        ErrorMessage "No valid hosts remaining after connectivity validation. Cannot proceed."
         return
     }
-
     # make SQL server authentication string
     $ok = UpdateHostSqlConnectionString -Config $config
     if (-not $ok) {
         ErrorMessage "Failed to prepare SQL connection string. Cannot proceed with installation."
         return
     }
-
     # Login to Silk Flex and get the token
     $flexToken = UpdateFlexAuthToken -Config $config
-
     # Get and validate SDP credentials
     UpdateSDPCredentials -Config $config -flexToken $flexToken
-
-    # Add hosts to TrustedHosts if needed
-    $remoteComputers = @($config.hosts)
-
-    InfoMessage "The following hosts will be configured:"
-    foreach ($hostInfo in $remoteComputers) {
-        InfoMessage "    $($hostInfo.host_addr)"
-    }
-
-    # Upload installer files to all hosts
-    InfoMessage "Uploading installer files to target hosts..."
-    $uploadSuccess = UploadInstallersToHosts -HostInfos $remoteComputers -LocalPaths $localInstallerPaths -MaxConcurrency $MaxConcurrency
-    if (-not $uploadSuccess) {
-        ErrorMessage "Failed to upload installers to some hosts. Cannot proceed with installation."
+    # Only process hosts without issues for installation
+    $hostsWithoutIssues = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
+    if ($hostsWithoutIssues.Count -eq 0) {
+        ErrorMessage "No valid hosts remaining after connectivity validation. Cannot proceed."
         return
     }
-
+    InfoMessage "The following hosts will be configured:"
+    foreach ($hostInfo in $hostsWithoutIssues) {
+        InfoMessage "    $($hostInfo.host_addr)"
+    }
+    # Upload installer files to all hosts
+    InfoMessage "Uploading installer files to target hosts..."
+    UploadInstallersToHosts -HostInfos $hostsWithoutIssues -LocalPaths $localInstallerPaths -MaxConcurrency $script:MaxConcurrency
+    # Check which hosts had upload failures and update remote computers list
+    $hostsWithUploads = @($hostsWithoutIssues | Where-Object { $_.remote_installer_paths })
+    $hostsWithFailedUploads = @($hostsWithoutIssues | Where-Object { -not $_.remote_installer_paths })
+    if ($hostsWithFailedUploads.Count -gt 0) {
+        WarningMessage "Upload failed for $($hostsWithFailedUploads.Count) hosts:"
+        foreach ($hostInfo in $hostsWithFailedUploads) {
+            WarningMessage " - $($hostInfo.host_addr): $($hostInfo.issues -join '; ')"
+        }
+    }
+    # Only proceed with hosts that have successful uploads
+    $remoteComputers = $hostsWithUploads
+    if ($remoteComputers.Count -eq 0) {
+        ErrorMessage "No hosts remain after upload failures. Cannot proceed with installation."
+        return
+    }
     $HostSetupScript = GetHostInstallScript -OrchestratorPath $PSCommandPath
-
     # Process imports in development mode
-    if ($IsDevelopmentMode) {
+    if ($script:IsDevelopmentMode) {
         InfoMessage "Development mode detected - expanding imports in host script..."
         $HostSetupScript = ExpandImportsInline -ScriptContent $HostSetupScript
         if ($HostSetupScript -eq $null) {
@@ -2215,99 +2744,57 @@ function MainOrchestrator {
             return
         }
     }
-
-    InfoMessage "Starting remote installation on $($remoteComputers.Count) hosts in batches of $MaxConcurrency..."
+    # log all variables before call
+    DebugMessage "Final configuration before installation:"
+    $safeConfig = @{
+        remoteComputers = $remoteComputers
+        MaxConcurrency  = $script:MaxConcurrency
+        DryRun          = $DryRun.IsPresent
+        completedHosts  = $completedHosts
+        processedHostsFile = $script:processedHostsFile
+        HostSetupScript = if ($HostSetupScript) { "Loaded $($HostSetupScript.Length) bytes" } else { "Not Loaded" }
+    }
+    DebugMessage "Configuration is: $($safeConfig | ConvertTo-Json -Depth 4)"
+    # Start batch installation process
+    $results = StartBatchInstallation `
+        -RemoteComputers   $remoteComputers `
+        -Config            $config `
+        -CompletedHosts    $completedHosts `
+        -ProcessedHostsPath $script:processedHostsFile `
+        -HostSetupScript   $HostSetupScript `
+        -MaxConcurrency    $script:MaxConcurrency
     try {
-        $results = @()
-        $totalHosts = $remoteComputers.Count
-        $processedHosts = 0
-
-        # Process hosts in chunks
-        for ($batchStart = 0; $batchStart -lt $totalHosts; $batchStart += $MaxConcurrency) {
-            $batchEnd = [Math]::Min($batchStart + $MaxConcurrency - 1, $totalHosts - 1)
-            if ($batchStart -eq $batchEnd) {
-                $currentBatch = @($remoteComputers[$batchStart])
-            } else {
-                $currentBatch = $remoteComputers[$batchStart..$batchEnd]
-            }
-            $batchNumber = [Math]::Floor($batchStart / $MaxConcurrency) + 1
-            $totalBatches = [Math]::Ceiling($totalHosts / $MaxConcurrency)
-
-            InfoMessage "Processing batch $batchNumber of $totalBatches (hosts $($batchStart + 1)-$($batchEnd + 1) of $totalHosts)..."
-
-            # Start jobs for current batch
-            $jobs = @()
-            foreach ($hostInfo in $currentBatch) {
-                $jobInfo = InstallSingleHost -HostInfo $hostInfo -Config $config -FlexToken $hostInfo.flex_access_token -SqlConnectionString $hostInfo.sql_connection_string -SdpCredentials $hostInfo.sdp_credential -HostSetupScript $HostSetupScript
-                $jobs += $jobInfo
-            }
-
-            InfoMessage "Installation jobs started for batch $batchNumber. Waiting for completion..."
-
-            # Process each job in the current batch
-            foreach ($jobInfo in $jobs) {
-                $result = ProcessSingleJobResult -JobInfo $jobInfo
-                $results += $result
-
-                if ($result.JobState -eq 'Success') {
-                    $script:NumOfSuccessHosts++
-                } else {
-                    $script:NumOfFailedHosts++
-                }
-                $processedHosts++
-            }
-
-            InfoMessage "Batch $batchNumber completed. Progress: $processedHosts/$totalHosts hosts processed."
-        }
-
-        $logPath = Join-Path $SilkEchoInstallerCacheDir "installation_logs_$(Get-Date -Format 'yyyyMMdd_HHmmss').json"
-        $results | ConvertTo-Json -Depth 4 | Out-File -FilePath $logPath
-        InfoMessage "Detailed logs saved to: $logPath"
-
-        # Display summary
-        InfoMessage "*************************************************"
-        InfoMessage "Installation Summary:"
-        InfoMessage "Total Hosts: $($remoteComputers.Count)"
-        InfoMessage "Successful: $script:NumOfSuccessHosts"
-
-        if ($script:NumOfFailedHosts -gt 0) {
-            ErrorMessage "Failed: $script:NumOfFailedHosts"
-            foreach ($result in $results | Where-Object { $_.JobState -eq 'Failed' }) {
-                ErrorMessage "    $($result.ComputerName)"
-            }
-            ErrorMessage "Installation failed on $script:NumOfFailedHosts host(s). Check the logs for details. $logPath"
-        } else {
-            InfoMessage "Installation completed successfully on all hosts."
-        }
-        InfoMessage "*************************************************"
+        # Save installation results and generate summaries
+        SaveInstallationResults `
+            -Results $results `
+            -Config $config `
+            -CacheDirectory $SilkEchoInstallerCacheDir `
+            -ReportFilePath $SilkEchoReportFilePath `
+            -ProcessedHostsPath $script:processedHostsFile
     }
     catch {
         ErrorMessage "Error during remote installation: $_"
         return
     }
 }
-
 #region Start of the Execution
-
 # Local Variables for Summary
 [string]$script:HostList      = ""
 [int]$script:NumOfHosts       = 0
 [int]$script:NumOfSuccessHosts = 0
 [int]$script:NumOfFailedHosts = 0
-
 # Check if the user is running as administrator
-$MessageCurrentObject = "Echo Installer"
-
+$MessageCurrentObject = "Orchestrator"
 # Header intro with common information
 ImportantMessage "=================================================="
 ImportantMessage "       Silk Echo Installer - v$($InstallerProduct)"
 ImportantMessage "=================================================="
-
 InfoMessage "PowerShell Version is - $($PSVersionTable.PSVersion.Major)"
 InfoMessage "PowerShell Edition is - $($PSVersionTable.PSEdition)"
-
+if ($Script:IsDevelopmentMode){
+    ImportantMessage "IsDevelopmentMode is ON"
+}
 # Get current user information
-
 if ($PSVersionTable.Platform -eq "Unix") {
     $userName = $env:USER
     InfoMessage "Current User: $userName"
@@ -2320,7 +2807,6 @@ if ($PSVersionTable.Platform -eq "Unix") {
     $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent()
     $userName = $currentUser.Name
     $isDomainUser = isActiveDirectoryUser
-
     InfoMessage "Current User: $userName"
     if ($isDomainUser) {
         InfoMessage "Authentication Type: Active Directory Domain User"
@@ -2330,28 +2816,23 @@ if ($PSVersionTable.Platform -eq "Unix") {
     InfoMessage "Computer Name: $env:COMPUTERNAME"
     InfoMessage "Operating System: $((Get-CimInstance Win32_OperatingSystem).Caption)"
 }
-
 # Handle CreateConfigTemplate parameter
 if ($CreateConfigTemplate) {
     GenerateConfigTemplate
     exit 0
 }
-
 # get the configuration file path from the command line argument -ConfigPath
 if (-Not $ConfigPath) {
     ErrorMessage "Configuration file path is required. Please provide it as an argument to the script using -ConfigPath parameter."
     InfoMessage "Usage: .\orchestrator.ps1 -ConfigPath <path_to_config_file>"
     Exit 1
 }
-
 $config = ReadConfigFile -ConfigFile $ConfigPath
 if (-Not $config) {
     ErrorMessage "Failed to read the configuration file. Please ensure it is a valid JSON file."
     Exit 1
 }
-
 $passedPreReqs = EnsureRequirements
-
 if(!$passedPreReqs) {
 	InfoMessage "PSVersion is - $($PSVersionTable.PSVersion.Major)"
 	InfoMessage "PSEdition is - $($PSVersionTable.PSEdition)"
@@ -2359,152 +2840,121 @@ if(!$passedPreReqs) {
 	ErrorMessage "`n`tPress any key to continue...";
     $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown');
 	return
-} else {
-    # clear the console
-    #clear-host
 }
-
 InfoMessage "Script Location: $PSScriptRoot"
 InfoMessage "Configuration File: $ConfigPath"
-InfoMessage "Max Concurrency: $MaxConcurrency hosts"
-
+InfoMessage "Max Concurrency: $script:MaxConcurrency hosts"
 if ($DryRun) {
     ImportantMessage "Mode: DRY RUN (Validation Only - No Changes)"
 } else {
     ImportantMessage "Mode: LIVE INSTALLATION"
 }
-
+if ($Force) {
+    ImportantMessage "Force Mode: ENABLED (Ignoring completed hosts tracking)"
+}
 if ( $DebugPreference -eq 'Continue' ) {
     Write-Verbose "Verbose/Debug output is enabled."
     $safeConfig = @{
         installers = $config.installers
         hosts = $config.hosts
     }
-
     InfoMessage @"
 Configuration is:
 $($safeConfig | ConvertTo-Json -Depth 4)
 "@
 }
 MainOrchestrator -config $config
-
 if ($DryRun) {
     ImportantMessage "DryRun mode is enabled. No changes were made."
 }
-
+# Stop transcript logging
+try {
+    WriteHostsSummaryToFile -Hosts $config.hosts -OutputPath $script:SilkEchoFullLogPath -Stdout
+    Stop-Transcript
+    InfoMessage "Full execution log saved to: $script:SilkEchoFullLogPath"
+} catch {
+    # Transcript may not have been started successfully
+}
 exit 0
-
 # MARKER: HOST_INSTALLER_STARTS_HERE
-
-#region orc_host_installer.ps1
+#region orc_host_installer
 <#
 .SYNOPSIS
     Installs Silk Echo components (Node Agent and VSS Provider) on a remote host.
-
 .DESCRIPTION
     This PowerShell script installs the Silk Node Agent and Silk VSS Provider service on a remote Windows host.
     It connects to Silk Flex to register the host, downloads the required installers, and performs the installation
     with the provided configuration parameters.
-
     The script requires administrative privileges and assumes that all necessary prerequisites are in place.
-
 .PARAMETER FlexIP
     The IP address of the Silk Flex server.
-
 .PARAMETER FlexToken
     The authentication token for accessing the Silk Flex API.
-
 .PARAMETER DBConnectionString
     The SQL Server connection string for the Silk Node Agent.
-
 .PARAMETER SilkAgentPath
     The local file path to the Silk Node Agent installer.
-
 .PARAMETER SilkVSSPath
     The local file path to the Silk VSS Provider installer.
-
 .PARAMETER SDPId
     The SDP (Silk Data Platform) identifier.
-
 .PARAMETER SDPUsername
     The username for SDP authentication.
-
 .PARAMETER SDPPassword
     The password for SDP authentication.
-
 .PARAMETER MountPointsDirectory
     The directory where mount points for the Silk Node Agent will be created.
-
 .PARAMETER DryRun
     Perform validation and connectivity tests without actually installing the components.
     When enabled, the script will verify downloads, connections, and prerequisites but skip the actual installation steps.
-
 .EXAMPLE
     .\orc_host_installer.ps1 -FlexIP "10.0.0.1" -FlexToken "abc123" -DBConnectionString "server=localhost;..." -SilkAgentPath "C:\Temp\SilkInstallers\agent-installer.exe" -SilkVSSPath "C:\Temp\SilkInstallers\vss-installer.exe" -SDPId "d9b601" -SDPUsername "admin" -SDPPassword "password"
-
     Installs Silk Echo components with the specified parameters.
-
 .EXAMPLE
     .\orc_host_installer.ps1 -FlexIP "10.0.0.1" -FlexToken "abc123" -DBConnectionString "server=localhost;..." -SilkAgentPath "C:\Temp\SilkInstallers\agent-installer.exe" -SilkVSSPath "C:\Temp\SilkInstallers\vss-installer.exe" -SDPId "d9b601" -SDPUsername "admin" -SDPPassword "password" -DryRun
-
     Performs validation and connectivity tests without installing the components.
-
 .NOTES
     File Name      : orc_host_installer.ps1
     Author         : Silk.us, Inc.
     Prerequisite   : PowerShell version 5 or higher, Administrator privileges
     Copyright      : (c) 2024 Silk.us, Inc.
-
 .INPUTS
     String parameters for configuration and authentication.
-
 .OUTPUTS
     Installation status messages and logs.
-
 .FUNCTIONALITY
     Remote installation, System administration, Silk Echo deployment
 #>
-
 # PowerShell script to install Echo on a remote host
 # This script assumes you have the necessary permissions and prerequisites in place.
 # It installs the Silk Node Agent and the Silk VSS Provider service.
 # Make sure to run this script with administrative privileges.
-
 param (
     [Parameter(Mandatory=$true)]
     [ValidateNotNullOrEmpty()]
     [string]$FlexIP,
-
     [Parameter(Mandatory=$true)]
     [ValidateNotNullOrEmpty()]
     [string]$FlexToken,
-
     [Parameter(Mandatory=$true)]
     [string]$DBConnectionString,
-
     [Parameter(Mandatory=$true)]
     [ValidateNotNullOrEmpty()]
     [string]$SilkAgentPath,
-
     [Parameter(Mandatory=$true)]
     [ValidateNotNullOrEmpty()]
     [string]$SilkVSSPath,
-
     [Parameter(Mandatory=$true)]
     [string]$SDPId,
-
     [Parameter(Mandatory=$true)]
     [ValidateNotNullOrEmpty()]
     [string]$SDPUsername,
-
     [Parameter(Mandatory=$true)]
     [ValidateNotNullOrEmpty()]
     [string]$SDPPassword,
-
     [string]$MountPointsDirectory = "",
     [switch]$DryRun
 )
-
 if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
     Write-Host "Debug and Verbose output enabled."
     $DebugPreference = 'Continue'
@@ -2514,41 +2964,32 @@ if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
     $DebugPreference = 'SilentlyContinue'
     $VerbosePreference = 'SilentlyContinue'
 }
-
 # suppress progress bar
 $ProgressPreference = 'SilentlyContinue'
-
-
 # ErrorMessage, InfoMessage, DebugMessage, WarningMessage
-#region orc_logging_on_host.ps1
-
+#region orc_logging_on_host
 #region Logging
 Function LogTimeStamp {
     # returns formatted timestamp
 	return Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'
 }
-
 function Sanitize {
     param (
         [string]$Text
     )
-
     # Reduct password from text, sometimes text contains connection string with password
-    $ReductedText = $Text -replace '(?i)(?<=Password=)[^;]+', '[reducted]'
-
+    $ReductedText = $Text -replace '(?i)(?<=Password=)[^; ]+', '[reducted]'
+    $ReductedText = $ReductedText -replace '(?i)(?<=Token=)[^; ]+', '[reducted]'
     # Replace the value of the $FlexToken variable with '[reducted]' only if it exists and is not empty
     if ($Global:FlexToken -and $Global:FlexToken.Length -gt 0) {
         $ReductedText = $ReductedText -replace [regex]::Escape($Global:FlexToken), '[reducted]'
     }
-
     # Replace the value of the $SDPPassword variable with '[reducted]' only if it exists and is not empty
     if ($Global:SDPPassword -and $Global:SDPPassword.Length -gt 0) {
         $ReductedText = $ReductedText -replace [regex]::Escape($Global:SDPPassword), '[reducted]'
     }
-
     return $ReductedText
 }
-
 Function ArgsToSanitizedString {
     $sanitizedArgs = @()
     foreach ($arg in $args) {
@@ -2560,36 +3001,36 @@ Function ArgsToSanitizedString {
     }
     return [string]::Join(' ', $sanitizedArgs)
 }
-
 Function ErrorMessage {
     $msg = ArgsToSanitizedString @args
-	Write-Host "$(LogTimeStamp) - $($MessageCurrentObject) - [ERROR] - $msg"
-    Write-Error "$(LogTimeStamp) - $($MessageCurrentObject) - [ERROR] - $msg"
+	Write-Host "$(LogTimeStamp) - Host[$env:COMPUTERNAME] - [ERROR] - $msg"
 }
-
 Function InfoMessage {
     $msg = ArgsToSanitizedString @args
-	Write-Host "$(LogTimeStamp) - $($MessageCurrentObject) - [INFO] - $msg"
+    Write-Host "$(LogTimeStamp) - Host[$env:COMPUTERNAME] - [INFO] $msg"
 }
-
 Function DebugMessage {
     if ($DebugPreference -ne 'Continue') {
         return
     }
     $msg = ArgsToSanitizedString @args
-	Write-Host "$(LogTimeStamp) - $($MessageCurrentObject) - [DEBUG] - $msg"
+	Write-Host "$(LogTimeStamp) - Host[$env:COMPUTERNAME] - [DEBUG] - $msg"
 }
-
+Function DebugMessageRaw {
+    if ($DebugPreference -ne 'Continue') {
+        return
+    }
+    $msg = [string]::Join(' ', $args)
+	Write-Host "$(LogTimeStamp) - Host[$env:COMPUTERNAME] - [DEBUG] (RAW) - $msg"
+}
 Function WarningMessage {
     $msg = ArgsToSanitizedString @args
-	Write-Host "$(LogTimeStamp) - $($MessageCurrentObject) - [WARN] - $msg"
+	Write-Host "$(LogTimeStamp) - Host[$env:COMPUTERNAME] - [WARN] - $msg"
 }
 #endregion Logging
-
-#endregion orc_logging_on_host.ps1
-
+#endregion orc_logging_on_host
 # SkipCertificateCheck
-#region orc_no_verify_cert.ps1
+#region orc_no_verify_cert
 #region SkipCertificateCheck
 function SkipCertificateCheck {
     $IsPowerShell7 = $PSVersionTable.PSVersion.Major -ge 7
@@ -2597,7 +3038,6 @@ function SkipCertificateCheck {
         # if Powershell version is 7 or higher, set SkipCertificateCheck
         return
     }
-
     # set policy only once per powershell sessions
     $currentPolicy = [System.Net.ServicePointManager]::CertificatePolicy
     if ($currentPolicy -eq $null -or ($currentPolicy.GetType().FullName -ne "TrustAllCertsPolicy")) {
@@ -2618,13 +3058,10 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
     }
 }
 #endregion SkipCertificateCheck
-
-#endregion orc_no_verify_cert.ps1
-
+#endregion orc_no_verify_cert
 # CallSelfCertEndpoint, CallSDPApi, CallFlexApi
-#region orc_web_client.ps1
+#region orc_web_client
 #region NETWORK
-
 #region CallSelfCertEndpoint
 function CallSelfCertEndpoint {
     param (
@@ -2633,7 +3070,6 @@ function CallSelfCertEndpoint {
         [object]$RequestBody,
         [hashtable]$Headers
     )
-
     DebugMessage "Calling [$HttpMethod]$URL"
     # capitalize the first letter of HttpMethod
     $HttpMethod = $HttpMethod.Substring(0,1).ToUpper() + $HttpMethod.Substring(1).ToLower()
@@ -2655,7 +3091,6 @@ function CallSelfCertEndpoint {
     return $response
 }
 #endregion CallSelfCertEndpoint
-
 #region CallSDPApi
 function CallSDPApi {
     param (
@@ -2664,17 +3099,13 @@ function CallSDPApi {
         [string]$ApiEndpoint,
         [System.Management.Automation.PSCredential]$Credential
     )
-
     $url = "https://${SDPHost}:${SDPPort}/api/v2/$ApiEndpoint"
-
     DebugMessage "Call SDPApi USERNAME: $($Credential.UserName)"
     $BasicAuthString = "$($Credential.UserName):$($Credential.GetNetworkCredential().Password)"
-
     $BasicAuth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($BasicAuthString))
     $_headers = @{
         "Authorization" = "Basic $BasicAuth"
     }
-
     try {
         $response = CallSelfCertEndpoint -URL $url -HttpMethod "GET" -RequestBody $null -Headers $_headers
         if ($response.StatusCode -ne 200) {
@@ -2689,7 +3120,6 @@ function CallSDPApi {
     }
 }
 #endregion CallSDPApi
-
 #region CallFlexApi
 function CallFlexApi {
         param (
@@ -2699,10 +3129,8 @@ function CallFlexApi {
         [string]$HttpMethod,
         [string]$RequestBody
     )
-
     $flexApiUrl = "https://$FlexIP$ApiEndpoint"
     $headers = @{ "Authorization" = "Bearer $FlexToken" }
-
     DebugMessage "Calling Flex API at $flexApiUrl with method $HttpMethod"
     try {
         $response = CallSelfCertEndpoint -URL $flexApiUrl -HttpMethod $HttpMethod -RequestBody $RequestBody -Headers $headers
@@ -2712,38 +3140,33 @@ function CallFlexApi {
         ErrorMessage "Error calling Flex API: $_"
         return $null
     }
-
 }
 #endregion CallFlexApi
-
 #endregion NETWORK
-
-#endregion orc_web_client.ps1
-
-
+#endregion orc_web_client
+# Constants for installer
+#region orc_constants_installer
+#region Constants
+# Internal Installation Process Timeout (110 seconds)
+Set-Variable -Name INTERNAL_INSTALL_TIMEOUT_SECONDS -Value 110 -Option AllScope -Scope Script
+#endregion Constants
+#endregion orc_constants_installer
 # global variables
 # ============================================================================
-
 # Create SDP credential from passed parameters
 $SDPCredential = New-Object System.Management.Automation.PSCredential($SDPUsername, (ConvertTo-SecureString $SDPPassword -AsPlainText -Force))
-
 Set-Variable -Name SDPCredential -Value $SDPCredential -Scope Global
 Set-Variable -Name IsDryRun -Value $DryRun.IsPresent -Scope Global
 Set-Variable -Name AgentInstallationLogPath -Scope Global
 Set-Variable -Name SVSSInstallationLogPath -Scope Global
 Set-Variable -Name HostID -Value "$(hostname)" -Scope Global
-Set-Variable -Name MessageCurrentObject -Value "Host[$(hostname)]" -Scope Global
 Set-Variable -Name FlexToken -Value $FlexToken -Scope Global
-
 $SilkAgentDirectory = Split-Path -Path $SilkAgentPath -Parent
 Set-Variable -Name AgentInstallationLogPath -Value "$SilkAgentDirectory\install.log" -Scope Global
 $SilkVSSDirectory = Split-Path -Path $SilkVSSPath -Parent
 Set-Variable -Name SVSSInstallationLogPath -Value "$SilkVSSDirectory\SilkVSSProviderInstall.log" -Scope Global
-
 DebugMessage "Agent installation log path: $AgentInstallationLogPath"
 DebugMessage "SVSS installation log path: $SVSSInstallationLogPath"
-
-
 #region TestFlexConnectivity
 function TestFlexConnectivity {
     param (
@@ -2766,8 +3189,6 @@ function TestFlexConnectivity {
     return $false
 }
 #endregion TestFlexConnectivity
-
-
 #region RegisterHostAtFlex
 function RegisterHostAtFlex {
     param (
@@ -2775,22 +3196,17 @@ function RegisterHostAtFlex {
         [string]$FlexToken
     )
     InfoMessage "Registering host at Flex... $HostID"
-
-
     $ApiEndpoint = "/api/hostess/v1/hosts/${HostID}"
-
     InfoMessage "Unregister if exists"
     $response = CallFlexApi -FlexIP $FlexIP -FlexToken $FlexToken -ApiEndpoint $ApiEndpoint -HttpMethod "DELETE" -RequestBody $null
     if ($response.StatusCode -ne 204) {
         ErrorMessage "Failed to unregister host at Flex. Status code: $($response.StatusCode)"
-        return $null
+        return ""
     }
-
     # Register the host at Flex with hostname and db_vendor, hostname like it return from pwsh hostname (not $env:COMPUTERNAME because it is always UPPERCASE)
     $RequestBody = @{
         "db_vendor" = "mssql"
     } | ConvertTo-Json
-
     try {
         $response = CallFlexApi -FlexIP $FlexIP -FlexToken $FlexToken -ApiEndpoint $ApiEndpoint -HttpMethod "PUT" -RequestBody $RequestBody
         DebugMessage "Response from Flex API: $($response.StatusCode) - $($response.StatusDescription)"
@@ -2810,24 +3226,20 @@ function RegisterHostAtFlex {
     }
 }
 #endregion RegisterHostAtFlex
-
 #region GetMSSQLHostPorts
 function GetMSSQLHostPorts {
     $listener = Get-NetTCPConnection -State Listen | Where-Object {
         (Get-Process -Id $_.OwningProcess).ProcessName -eq "sqlservr" -and
         $_.LocalAddress -match '^\d{1,3}(\.\d{1,3}){3}$'
     }
-
     if (-not $listener) {
         DebugMessage "No SQL Server listener found. Please ensure SQL Server is running."
         return @()
     }
-
     # write all options to the log
     foreach ($item in $listener) {
         DebugMessage "Found SQL Server listener: LocalAddress=$($item.LocalAddress), LocalPort=$($item.LocalPort)"
     }
-
     # Get hostname and resolve it to IP
     $hostname = $env:COMPUTERNAME
     $hostnameIP = $null
@@ -2837,9 +3249,8 @@ function GetMSSQLHostPorts {
     } catch {
         WarningMessage "Failed to resolve hostname '$hostname' to IP: $_"
     }
-
-    # Phase 1: Filter listeners - prioritize standard ports 1433, 1434
-    $standardPortListeners = $listener | Where-Object { $_.LocalPort -eq 1433 -or $_.LocalPort -eq 1434 }
+    # Phase 1: Filter listeners - prioritize standard ports 1433
+    $standardPortListeners = $listener | Where-Object { $_.LocalPort -eq 1433 }
     $candidateListeners = if ($standardPortListeners) {
         InfoMessage "Found SQL Server listeners on standard ports, prioritizing them"
         $standardPortListeners
@@ -2847,22 +3258,18 @@ function GetMSSQLHostPorts {
         InfoMessage "No standard ports found, using all available listeners"
         $listener
     }
-
     # Phase 2: Build prioritized list of all potential server addresses
     $prioritizedServers = @()
-
     # Priority 1: loopback addresses
     $loopbackListeners = $candidateListeners | Where-Object { $_.LocalAddress -like "127.*" }
     foreach ($listener in $loopbackListeners) {
         $prioritizedServers += "localhost,$($listener.LocalPort)"
     }
-
     # Priority 2: wildcard listeners (0.0.0.0) - use hostname
     $wildcardListeners = $candidateListeners | Where-Object { $_.LocalAddress -eq "0.0.0.0" }
     foreach ($listener in $wildcardListeners) {
         $prioritizedServers += "${hostname},$($listener.LocalPort)"
     }
-
     # Priority 3: hostname IP listeners - use hostname
     if ($hostnameIP) {
         $hostnameIPListeners = $candidateListeners | Where-Object { $_.LocalAddress -eq $hostnameIP }
@@ -2870,7 +3277,6 @@ function GetMSSQLHostPorts {
             $prioritizedServers += "${hostname},$($listener.LocalPort)"
         }
     }
-
     # Priority 4: all other listeners - use actual IP
     $otherListeners = $candidateListeners | Where-Object {
         $_.LocalAddress -notlike "127.*" -and
@@ -2880,19 +3286,15 @@ function GetMSSQLHostPorts {
     foreach ($listener in $otherListeners) {
         $prioritizedServers += "$($listener.LocalAddress),$($listener.LocalPort)"
     }
-
     InfoMessage "Discovered $($prioritizedServers.Count) SQL Server endpoints to try"
     return $prioritizedServers
 }
 #endregion GetMSSQLHostPorts
-
-
 #region createAndTestConnectionString
 function createAndTestConnectionString {
     param (
         [string]$DBConnectionString
     )
-
     # Parse input connection string
     $baseParams = @{}
     $DBConnectionString = $DBConnectionString.Trim()
@@ -2903,15 +3305,12 @@ function createAndTestConnectionString {
             $baseParams[$key.Trim()] = $value.Trim()
         }
     }
-
     # Set application name to SilkAgent
     $baseParams['Application Name'] = 'SilkAgent'
-
     # If Server is already specified, test that connection first
     if ($baseParams.ContainsKey('Server') -and $baseParams['Server'] -ne '') {
         $connectionStringParts = $baseParams.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }
         $connectionString = [string]::Join(';', $connectionStringParts)
-
         InfoMessage "Testing provided server: $($baseParams['Server'])"
         if (TestSQLConnection -ConnectionString $connectionString) {
             InfoMessage "Successfully connected to provided server"
@@ -2920,36 +3319,28 @@ function createAndTestConnectionString {
             WarningMessage "Failed to connect to provided server, will try auto-discovery"
         }
     }
-
     # Auto-discover SQL Server instances and test each one
     $discoveredServers = GetMSSQLHostPorts
     if ($discoveredServers.Count -eq 0) {
         ErrorMessage "No SQL Server instances discovered. Please ensure SQL Server is running."
         return $null
     }
-
     InfoMessage "Testing $($discoveredServers.Count) discovered SQL Server endpoints..."
-
     foreach ($serverEndpoint in $discoveredServers) {
         $testParams = $baseParams.Clone()
         $testParams['Server'] = $serverEndpoint
-
         $connectionStringParts = $testParams.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }
         $connectionString = [string]::Join(';', $connectionStringParts)
-
         InfoMessage "Testing connection to: $serverEndpoint"
         if (TestSQLConnection -ConnectionString $connectionString) {
             InfoMessage "Successfully connected to SQL Server at: $serverEndpoint"
             return $connectionString
         }
     }
-
     ErrorMessage "Failed to connect to any discovered SQL Server instances"
     return $null
 }
 #endregion createAndTestConnectionString
-
-
 #region TestSQLConnection
 function TestSQLConnection {
     param (
@@ -2966,8 +3357,6 @@ function TestSQLConnection {
     }
 }
 #endregion TestSQLConnection
-
-
 #region PrintAgentInstallationLog
 function PrintAgentInstallationLog {
     InfoMessage "======== Agent Installation Log ========"
@@ -2982,8 +3371,6 @@ function PrintAgentInstallationLog {
     InfoMessage "======== End Agent Installation Log ========"
 }
 #endregion PrintAgentInstallationLog
-
-
 #region PrintSVSSInstallationLog
 function PrintSVSSInstallationLog {
     InfoMessage "======== SVSS Installation Log ========"
@@ -2998,8 +3385,6 @@ function PrintSVSSInstallationLog {
     InfoMessage "======== End SVSS Installation Log ========"
 }
 #endregion PrintSVSSInstallationLog
-
-
 #region CleanupInstallerFiles
 function CleanupInstallerFiles {
     # Remove all files in the directory including the directory itself
@@ -3021,7 +3406,6 @@ function CleanupInstallerFiles {
     }
 }
 #endregion CleanupInstallerFiles
-
 #region EscapePowershellParameter
 function EscapePowershellParameter {
     param (
@@ -3032,24 +3416,94 @@ function EscapePowershellParameter {
     return $escapedParameter
 }
 #endregion EscapePowershellParameter
-
-
+#region StartProcessWithTimeout
+function StartProcessWithTimeout {
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$FilePath,
+        [Parameter(Mandatory=$true)]
+        [array]$ArgumentList,
+        [Parameter(Mandatory=$false)]
+        [int]$TimeoutSeconds = 90,
+        [Parameter(Mandatory=$true)]
+        [string]$ProcessName
+    )
+    InfoMessage "Starting installation of $ProcessName from $FilePath with timeout of $TimeoutSeconds seconds"
+    try {
+        # Convert ArgumentList array to JSON string for safe job parameter passing
+        $argsJson = $ArgumentList | ConvertTo-Json -Compress
+        # Start installation process with timeout
+        $installJob = Start-Job -ScriptBlock {
+            param($InstallerPath, $ArgsJson)
+            try {
+                # Convert JSON back to array
+                $Args = $ArgsJson | ConvertFrom-Json
+                # Ensure it's an array even if single element
+                if ($Args -is [string]) {
+                    $Args = @($Args)
+                }
+                $process = Start-Process -FilePath $InstallerPath -ArgumentList $Args -Wait -NoNewWindow -PassThru
+                Write-Host "Process completed with exit code: $($process.ExitCode)"
+                return $process.ExitCode
+            } catch {
+                Write-Error "Process failed: $_"
+                return 999
+            }
+        } -ArgumentList $FilePath, $argsJson
+        DebugMessage "Started job with ID $($installJob.Id) for $ProcessName installation"
+        # Wait for job completion with timeout
+        $waitResult = $installJob | Wait-Job -Timeout $TimeoutSeconds
+        if ($waitResult) {
+            # Job completed within timeout
+            $exitCode = Receive-Job -Job $installJob
+            Remove-Job -Job $installJob -Force
+            InfoMessage "$ProcessName installation completed with exit code [$exitCode]"
+            return @{
+                Success = ($exitCode -eq 0)
+                Reason = "Completed"
+                ExitCode = $exitCode
+                ProcessName = $ProcessName
+            }
+        } else {
+            # Installation timed out
+            ErrorMessage "$ProcessName installation timed out after $TimeoutSeconds seconds"
+            Stop-Job -Job $installJob -ErrorAction SilentlyContinue
+            Remove-Job -Job $installJob -Force -ErrorAction SilentlyContinue
+            return @{
+                Success = $false
+                Reason = "Timeout"
+                TimeoutSeconds = $TimeoutSeconds
+                ProcessName = $ProcessName
+            }
+        }
+    } catch {
+        ErrorMessage "Error installing $ProcessName`: $_"
+        return @{
+            Success = $false
+            Reason = "Error"
+            ErrorMessage = $_.Exception.Message
+            ProcessName = $ProcessName
+        }
+    }
+}
+#endregion StartProcessWithTimeout
 #region InstallSilkNodeAgent
 function InstallSilkNodeAgent {
     param (
         [string]$InstallerFilePath,
         [string]$SQLConnectionString,
         [string]$FlexIP,
-        [string]$AgentToken
+        [string]$AgentToken,
+        [string]$MountPointsDirectory
     )
-    InfoMessage "Installing Silk Node Agent from $InstallerFilePath"
+    InfoMessage "InstallSilkNodeAgent: executable $InstallerFilePath"
     # execute InstallerFilePath
     if (-not (Test-Path -Path $InstallerFilePath)) {
         InfoMessage "Installer file not found at $InstallerFilePath. Exiting script."
         return $false
     }
-
     # pass argumnets as /DbConnStr='"$sqlConn"'
+    InfoMessage "Building arguments with SQLConnectionString='$SQLConnectionString', FlexIP='$FlexIP', AgentToken='[REDACTED]', MountPointsDirectory='$MountPointsDirectory'"
     $arguments = @(
         '/S', # Silent installation
         "/DbConnStr='$SQLConnectionString'",
@@ -3057,40 +3511,69 @@ function InstallSilkNodeAgent {
         "/Token='$AgentToken'",
         "/MountPointsDirectory='$MountPointsDirectory'"
     )
-
-    try {
-        Start-Process -FilePath $InstallerFilePath -ArgumentList $arguments -Wait -NoNewWindow
-        if ($LASTEXITCODE -ne 0) {
-            ErrorMessage "Silk Node Agent installation failed with exit code $LASTEXITCODE"
-            return $false
+    DebugMessage "Arguments array: $($arguments -join ' ')"
+    # Run installation with timeout
+    $installResult = StartProcessWithTimeout `
+                        -FilePath $InstallerFilePath `
+                        -ArgumentList $arguments `
+                        -TimeoutSeconds $INTERNAL_INSTALL_TIMEOUT_SECONDS `
+                        -ProcessName "Silk Node Agent"
+    if (-not $installResult.Success) {
+        # Return detailed failure information to caller
+        return @{
+            Success = $false
+            Reason = $installResult.Reason
+            Details = $installResult
+            Message = switch ($installResult.Reason) {
+                "Timeout" { "Silk Node Agent installation timed out after $($installResult.TimeoutSeconds) seconds" }
+                "Error" { "Silk Node Agent installation failed with error: $($installResult.ErrorMessage)" }
+                default { "Silk Node Agent installation failed" }
+            }
         }
-    } catch {
-        InfoMessage "Error installing Silk Node Agent: $_"
-        return $false
     }
-
     # error handling
-
     InfoMessage "Silk Node Agent installation completed. Checking installation log at $AgentInstallationLogPath"
-
     # test log file do not contain "error"
+    # if "Installation process succeeded." in log means we are ok
     if (Test-Path -Path $AgentInstallationLogPath) {
         $logContent = Get-Content -Path $AgentInstallationLogPath
-        if ($logContent -match "error") {
+        if ($logContent -match "Installation process succeeded.") {
+            DebugMessage "Installation log indicates success."
+            return @{
+                Success = $true
+                Reason = "Completed"
+                Message = "Silk Node Agent installed successfully"
+                ExitCode = $installResult.ExitCode
+            }
+        }
+        if ($logContent -match "(?i)error") {
             ErrorMessage "Installation log contains errors. Please check the log file at $AgentInstallationLogPath"
-            return $false
+            return @{
+                Success = $false
+                Reason = "LogError"
+                Message = "Silk Node Agent installation log contains errors. Check $AgentInstallationLogPath."
+                LogPath = $AgentInstallationLogPath
+            }
         } else {
             DebugMessage "Silk Node Agent installed successfully."
-            return $true
+            return @{
+                Success = $true
+                Reason = "Completed"
+                Message = "Silk Node Agent installed successfully"
+                ExitCode = $installResult.ExitCode
+            }
         }
     } else {
         ErrorMessage "Installation log file not found at $AgentInstallationLogPath. Installation may have failed."
-        return $false
+        return @{
+            Success = $false
+            Reason = "LogNotFound"
+            Message = "Installation log file not found at $AgentInstallationLogPath"
+            LogPath = $AgentInstallationLogPath
+        }
     }
 }
 #endregion InstallSilkNodeAgent
-
-
 #region GetSDPInfo
 function GetSDPInfo {
     # we should have sdp floating ip, username and password for vss provider
@@ -3106,19 +3589,16 @@ function GetSDPInfo {
             ErrorMessage "Failed to get SDP info from Flex. Status code: $($response.StatusCode)"
             return $null
         }
-
         $responseContent = $response.Content | ConvertFrom-Json
         if (-not $responseContent.k2xs) {
             ErrorMessage "No k2xs found in the response from Flex."
             return $null
         }
-
         if (-not $SDPID) {
             # if SDPID not provided, take the first k2x id
             $SDPID = $responseContent.k2xs[0].id
             InfoMessage "No SDP ID provided. Using first k2x ID: $SDPID"
         }
-
         # case insensitive search for k2x with given SDPID
         $SDPID = $SDPID.ToLower()
         DebugMessage "Searching for k2x with ID: $SDPID"
@@ -3127,7 +3607,6 @@ function GetSDPInfo {
             ErrorMessage "No k2x found with ID $SDPID in the response from Flex."
             return $null
         }
-
         $sdpInfo = @{
             "id" = $k2x.id
             "version" = $k2x.version
@@ -3135,7 +3614,6 @@ function GetSDPInfo {
             "mc_https_port" = $k2x.mc_https_port
             "credentials" = $null
         }
-
         DebugMessage "Found k2x with ID $($sdpInfo.id) and version $($sdpInfo.version)"
         return $sdpInfo
     } catch {
@@ -3144,8 +3622,6 @@ function GetSDPInfo {
     }
 }
 #endregion GetSDPInfo
-
-
 #region ValidateSDPConnection
 function ValidateSDPConnection {
     param (
@@ -3154,19 +3630,15 @@ function ValidateSDPConnection {
         [System.Management.Automation.PSCredential]$Credential
     )
     $ApiEndpoint = 'system/state'
-
-    InfoMessage "==== ValidateSDPConnection USERNAME: $($Credential.UserName) ===="
+    DebugMessage "Validating SDP connection for username: $($Credential.UserName)"
     $response = CallSDPApi -SDPHost $SDPHost -SDPPort $SDPPort -ApiEndpoint $ApiEndpoint -Credential $Credential
     if (-not $response) {
         ErrorMessage "Failed to call SDP API at https://${SDPHost}:${SDPPort}/api/v2/$ApiEndpoint"
         return $false
     }
-
     return $true
 }
 #endregion ValidateSDPConnection
-
-
 #region InstallSilkVSSProvider
 function InstallSilkVSSProvider {
     param (
@@ -3182,8 +3654,7 @@ function InstallSilkVSSProvider {
         InfoMessage "Installer file not found at $InstallerFilePath. Exiting script."
         return $false
     }
-
-$ArgumentList = @(
+    $arguments = @(
         '/silent',
         "/external_ip=$SDPHost",
         "/host_name=$(hostname)",
@@ -3197,118 +3668,133 @@ $ArgumentList = @(
         '/retention_policy=Best_Effort_Retention',
         "/log=$SVSSInstallationLogPath"
     )
-
-    try {
-        $processArgs = @{
-            FilePath     = $InstallerFilePath
-            Wait         = $true
-            ArgumentList = $ArgumentList
-            NoNewWindow  = $true
+    InfoMessage "Silk VSS Provider installation arguments: $arguments"
+    # Run installation with timeout
+    $installResult = StartProcessWithTimeout `
+                        -FilePath $InstallerFilePath `
+                        -ArgumentList $arguments `
+                        -TimeoutSeconds $INTERNAL_INSTALL_TIMEOUT_SECONDS `
+                        -ProcessName "Silk VSS"
+    if (-not $installResult.Success) {
+        InfoMessage "Silk VSS Provider installation failed. $($installResult | Out-String)"
+        # Return detailed failure information to caller
+        return @{
+            Success = $false
+            Reason = $installResult.Reason
+            Details = $installResult
+            Message = switch ($installResult.Reason) {
+                "Timeout" { "Silk VSS Provider installation timed out after $($installResult.TimeoutSeconds) seconds" }
+                "Error" { "Silk VSS Provider installation failed with error: $($installResult.ErrorMessage)" }
+                default { "Silk VSS Provider installation failed" }
+            }
         }
-        Start-Process @processArgs
-
-    } catch {
-        InfoMessage "Error installing Silk VSS Provider: $_"
-        return $false
     }
-
     # error handling
-    DebugMessage "Silk VSS Provider installed successfully."
-    return $true
+    InfoMessage "Silk VSS Provider installation completed. Checking installation log at $SVSSInstallationLogPath"
+    # test log file do not contain "error"
+    if (Test-Path -Path $SVSSInstallationLogPath) {
+        $logContent = Get-Content -Path $SVSSInstallationLogPath
+        # split log content into lines and find all lines containing "error" or "out of memory" (case insensitive)
+        if ($logContent -match "(?i)error") {
+            ErrorMessage "Installation log contains errors. Please check the log file at $SVSSInstallationLogPath"
+            return @{
+                Success = $false
+                Reason = "LogError"
+                Message = "Silk VSS Provider installation log contains errors. Check $SVSSInstallationLogPath, $($errors -join '; ')"
+                LogPath = $SVSSInstallationLogPath
+            }
+        } else {
+            InfoMessage "Silk VSS Provider installed successfully."
+            return @{
+                Success = $true
+                Reason = "Completed"
+                Message = "Silk VSS Provider installed successfully"
+                ExitCode = $installResult.ExitCode
+            }
+        }
+    } else {
+        ErrorMessage "Installation log file not found at $SVSSInstallationLogPath. Installation may have failed."
+        return @{
+            Success = $false
+            Reason = "LogNotFound"
+            Message = "Installation log file not found at $SVSSInstallationLogPath"
+            LogPath = $SVSSInstallationLogPath
+        }
+    }
 }
 #endregion InstallSilkVSSProvider
-
-
 #region setup
 function setup{
-
     try {
         SkipCertificateCheck
-
-
         if (-not (TestFlexConnectivity -FlexIP $FlexIP -FlexToken $FlexToken)) {
             InfoMessage "Flex connectivity test failed"
             return "Failed to establish connection with Flex server at $FlexIP"
         }
-
         InfoMessage "Successfully connected to Flex"
-
         # get sdp username and password from flex
         $SDPInfo = GetSDPInfo -FlexIP $FlexIP -FlexToken $FlexToken -SDPID $SDPId
-
         if (-not $SDPInfo) {
             ErrorMessage "Failed to get SDP info from Flex"
             return "Unable to retrieve SDP information from Flex server"
         }
-
         $SDPID = $SDPInfo["id"]
         $SDPVersion = $SDPInfo["version"]
         $SDPHost = $SDPInfo["mc_floating_ip"]
         $SDPPort = $SDPInfo["mc_https_port"]
         InfoMessage "Successfully retrieved SDP info from Flex $SDPID ($SDPVersion) at ${SDPHost}:$SDPPort"
-
         $SdpConnectionValid = ValidateSDPConnection -SDPHost $SDPHost -SDPPort $SDPPort -Credential $SDPCredential
         if (-not $SdpConnectionValid) {
             ErrorMessage "Failed to validate SDP connection"
             return "Unable to establish connection with SDP at ${SDPHost}:${SDPPort}"
         }
-
         $ConnectionString = createAndTestConnectionString -DBConnectionString $DBConnectionString
-
         if (-not $ConnectionString) {
             ErrorMessage "Failed to create and test connection string"
             return "Unable to establish connection with any available SQL Server instance. Check SQL Server availability and credentials"
         }
-
-        InfoMessage "Successfully established SQL Server connection"
-
-        # Use local installer files that were uploaded by orchestrator
-        DebugMessage "Using Silk VSS Provider installer at $SilkVSSPath"
-
-        if (-not (Test-Path $SilkVSSPath)) {
-            ErrorMessage "Silk VSS Provider installer not found at $SilkVSSPath"
-            return "Unable to find Silk VSS Provider installer at $SilkVSSPath"
-        } else {
-            InfoMessage "Silk VSS Provider installer found at $SilkVSSPath"
-        }
-
-        DebugMessage "Using Silk Node Agent installer at $SilkAgentPath"
-
+        InfoMessage "Successfully established SQL Server connection with connection string: $ConnectionString"
         if (-not (Test-Path $SilkAgentPath)) {
             ErrorMessage "Silk Node Agent installer not found at $SilkAgentPath"
             return "Unable to find Silk Node Agent installer at $SilkAgentPath"
         } else {
             InfoMessage "Silk Node Agent installer found at $SilkAgentPath"
         }
-
+        if (-not (Test-Path $SilkVSSPath)) {
+            ErrorMessage "Silk VSS Provider installer not found at $SilkVSSPath"
+            return "Unable to find Silk VSS Provider installer at $SilkVSSPath"
+        } else {
+            InfoMessage "Silk VSS Provider installer found at $SilkVSSPath"
+        }
         if ($IsDryRun) {
             # stop execution if dry run is enabled
             InfoMessage "Dry run mode enabled. Skipping actual installation."
             return $null
         }
-
         $AgentToken = RegisterHostAtFlex -FlexIP $FlexIP -FlexToken $FlexToken
         if (-not $AgentToken) {
             return "Failed to register host $HostID with Flex and obtain agent token"
         }
-
-        if (-not (InstallSilkNodeAgent -InstallerFilePath $SilkAgentPath -SQLConnectionString $ConnectionString -FlexIP $FlexIP -AgentToken $AgentToken)) {
-            ErrorMessage "Failed to install Silk Node Agent"
-            return "Installation of Silk Node Agent failed. Check the installation log at $AgentInstallationLogPath"
-        }
-
         # Install Silk VSS Provider
-        $installed = InstallSilkVSSProvider -InstallerFilePath $SilkVSSPath -SDPID $SDPID -SDPHost $SDPHost -SDPPort $SDPPort -Credential $SDPCredential
-        if (-not $installed) {
-            ErrorMessage "Failed to install Silk VSS Provider"
-            return "Installation of Silk VSS Provider failed. Check the installation log at $SVSSInstallationLogPath"
+        $vssResult = InstallSilkVSSProvider -InstallerFilePath $SilkVSSPath -SDPID $SDPID -SDPHost $SDPHost -SDPPort $SDPPort -Credential $SDPCredential
+        if (-not $vssResult.Success) {
+            ErrorMessage "Failed to install Silk VSS Provider: $($vssResult.Reason)"
+            return $vssResult.Message
         }
-
         InfoMessage "Temporary directory: $SilkVSSDirectory"
         if ($IsDryRun) {
             InfoMessage "Validation completed successfully. No actual installation was performed."
         } else {
             InfoMessage "Silk Node Agent and VSS Provider installation completed successfully."
+        }
+        $installResult = InstallSilkNodeAgent -InstallerFilePath $SilkAgentPath `
+                                          -SQLConnectionString $ConnectionString `
+                                          -FlexIP $FlexIP `
+                                          -AgentToken $AgentToken `
+                                          -MountPointsDirectory $MountPointsDirectory
+        if (-not $installResult.Success) {
+            ErrorMessage "Failed to install Silk Node Agent: $($installResult.Reason)"
+            return $installResult.Message
         }
         # Return $null to indicate success
         return $null
@@ -3318,35 +3804,28 @@ function setup{
     }
 }
 #endregion setup
-
 #region SetupHost
 function SetupHost {
     InfoMessage "Starting Silk Node Agent and VSS Provider installation script..."
-
     try {
         $error = setup
     } catch {
         $error = $_
     }
-
     PrintAgentInstallationLog
     PrintSVSSInstallationLog
-
     if ($error) {
         ErrorMessage "Process log files located at:"
         ErrorMessage " - Silk Node Agent installation log: $AgentInstallationLogPath"
         ErrorMessage " - Silk VSS Provider installation log: $SVSSInstallationLogPath"
         ErrorMessage "Setup completed with errors. Please check the logs for details: $($error)"
-        throw "Setup failed. $($error)"
+        throw "Setup failed on Host[$env:COMPUTERNAME]. $($error)"
     } else {
         CleanupInstallerFiles
         InfoMessage "Setup completed successfully."
     }
 }
-
 SetupHost
 #endregion SetupHost
-
-#endregion orc_host_installer.ps1
-
+#endregion orc_host_installer
 
