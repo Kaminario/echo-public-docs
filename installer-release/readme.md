@@ -11,7 +11,19 @@ The Silk Echo installer automates the deployment of Silk's data acceleration com
 - **Host Registration**: Registers hosts with Silk Flex management server
 - **SQL Server Integration**: Configures database connectivity for the Node Agent
 
-The installer supports parallel execution across multiple hosts with comprehensive validation, logging, and error handling.
+## Key Features
+
+
+### 🛡️ **Enterprise-Grade Reliability**
+- **Fault Tolerance**: Continues with valid hosts when some fail validation, upload, or installation
+- **State Persistence**: Resume capability via automatic progress tracking in `processing.json`
+- **Timeout Protection**: Two-tier timeout system (110s internal, 120s orchestrator) prevents hanging jobs
+- **Comprehensive Logging**: Detailed timestamped logs with credential sanitization
+
+### 📊 **Advanced Monitoring**
+- **Progress Monitoring**: Status updates during upload, connectivity testing, and installation
+- **Host-by-Host Status**: Detailed progress reports and final installation summaries
+- **Immediate Result Collection**: Job results processed and logged as soon as they complete
 
 ## Quick Start
 
@@ -50,7 +62,7 @@ Edit the generated `config.json` file with your environment-specific values:
 - **PowerShell remoting enabled** on target hosts (WinRM service running)
 - Valid credentials for:
   - Silk Flex management server
-  - SDP (Silk Data Platform) 
+  - SDP (Silk Data Platform)
   - SQL Server instances
   - Target Windows hosts (if using credential-based authentication)
 
@@ -62,6 +74,7 @@ Edit the generated `config.json` file with your environment-specific values:
 | `CreateConfigTemplate` | Generate a config.json template interactively | No | - |
 | `MaxConcurrency` | Number of hosts to process in parallel | No | 10 |
 | `DryRun` | Validation mode - checks connectivity without making changes | No | false |
+| `Force` | Force reprocessing all hosts, ignore completed tracking | No | false |
 | `Verbose/Debug` | Enable verbose output for detailed logging | No | false |
 
 *Required unless using `-CreateConfigTemplate`
@@ -80,6 +93,9 @@ Edit the generated `config.json` file with your environment-specific values:
 
 # Validate configuration without installing
 .\orchestrator.ps1 -ConfigPath "config.json" -DryRun
+
+# Force reprocessing all hosts (ignore completed tracking)
+.\orchestrator.ps1 -ConfigPath "config.json" -Force
 
 # Run with verbose logging
 .\orchestrator.ps1 -ConfigPath "config.json" -Verbose
@@ -103,7 +119,7 @@ Defines how to obtain the Silk Agent and VSS Provider installers.
       "path": "C:\\Installers\\silk-agent.exe"
     },
     "vss": {
-      "url": "https://custom-server.com/svss-install.exe", 
+      "url": "https://custom-server.com/svss-install.exe",
       "path": "C:\\Installers\\svss-install.exe"
     }
   }
@@ -126,7 +142,7 @@ Contains shared configuration inherited by all hosts unless overridden.
     "sdp_id": "your-sdp-identifier",
     "sdp_user": "sdp-username",
     "sdp_pass": "sdp-password",
-    "sql_user": "sql-username", 
+    "sql_user": "sql-username",
     "sql_pass": "sql-password",
     "flex_host_ip": "192.168.1.100",
     "flex_user": "flex-username",
@@ -134,7 +150,7 @@ Contains shared configuration inherited by all hosts unless overridden.
     "host_user": "local-admin-user",
     "host_pass": "local-admin-password",
     "host_auth": "credentials",
-    "mount_points_directory": "E:\\MountPoints"
+    "mount_points_directory": "C:\\MountPoints"
   }
 }
 ```
@@ -143,6 +159,15 @@ Contains shared configuration inherited by all hosts unless overridden.
 - `sdp_id`: SDP platform identifier
 - `flex_host_ip`: IP address of Silk Flex server (must be valid IP)
 - `mount_points_directory`: Directory for mount points (must not be empty)
+
+**Optional Fields:**
+- `sql_server`: SQL Server instance to use for all host connections. If
+  set, this server will be used in all host connection strings unless
+  overridden in the host section itself. If not set, the installer will
+  auto-discover SQL Server instances by scanning for listening SQL
+  servers on each host. Port 1433 will be prioritized, and the hostname
+  will be used instead of IP address or localhost if the server is
+  listening on 0.0.0.0.
 
 **Authentication Fields:**
 - `host_auth`: Either `"active_directory"` or `"credentials"`
@@ -192,7 +217,7 @@ Hosts inherit all settings from the `common` section:
 {
   "hosts": [
     "192.168.1.10",
-    "192.168.1.11", 
+    "192.168.1.11",
     "server03.domain.com"
   ]
 }
@@ -227,7 +252,7 @@ Uses the current domain user's credentials via Kerberos authentication.
 
 **Host Address Handling:**
 - **IP Addresses**: Automatically resolved to hostnames via reverse DNS lookup
-- **Hostnames**: Used directly  
+- **Hostnames**: Used directly
 - **Resolution Failure**: Host is skipped with error message
 
 **Configuration:**
@@ -243,7 +268,7 @@ Uses the current domain user's credentials via Kerberos authentication.
 }
 ```
 
-### Credentials Authentication  
+### Credentials Authentication
 Uses explicit username/password for each target host.
 
 **Requirements:**
@@ -259,7 +284,7 @@ Uses explicit username/password for each target host.
 {
   "common": {
     "host_auth": "credentials",
-    "host_user": "Administrator", 
+    "host_user": "Administrator",
     "host_pass": "Password123"
   },
   "hosts": [
@@ -279,22 +304,22 @@ All hosts inherit properties from the `common` section. Object-format hosts can 
   "common": {
     "sql_user": "default-sql-user",
     "sql_pass": "default-sql-password",
-    "mount_points_directory": "E:\\MountPoints"
+    "mount_points_directory": "C:\\MountPoints"
   },
   "hosts": [
     // Inherits all common properties
     "192.168.1.10",
-    
+
     // Overrides SQL credentials, inherits mount_points_directory
     {
       "host_addr": "192.168.1.11",
       "sql_user": "special-sql-user",
-      "sql_pass": "special-sql-password" 
+      "sql_pass": "special-sql-password"
     },
-    
+
     // Overrides mount point directory
     {
-      "host_addr": "192.168.1.12", 
+      "host_addr": "192.168.1.12",
       "mount_points_directory": "F:\\AlternateMountPoints"
     }
   ]
@@ -344,7 +369,7 @@ Here's a full example configuration file for Active Directory authentication wit
     "sql_user": "silk-agent",
     "sql_pass": "SqlServicePassword456!",
     "flex_host_ip": "10.10.1.100",
-    "flex_user": "flex", 
+    "flex_user": "flex",
     "flex_pass": "FlexAdminPassword789!",
     "host_auth": "active_directory",
     "mount_points_directory": "C:\\SilkMountPoints"
@@ -386,7 +411,7 @@ Here's a full example configuration file for credential-based authentication wit
   },
   "hosts": [
     "192.168.1.10",
-    "192.168.1.11", 
+    "192.168.1.11",
     "192.168.1.12"
   ]
 }
@@ -397,7 +422,7 @@ This configuration:
 - Configures credential-based authentication
 - **Omits all passwords** - the installer will prompt interactively for:
   - SDP password (`sdp_pass`)
-  - SQL Server password (`sql_pass`) 
+  - SQL Server password (`sql_pass`)
   - Flex server password (`flex_pass`)
   - Host administrator password (`host_pass`)
 - Uses IP addresses (required for credential authentication)
@@ -406,29 +431,42 @@ This configuration:
 
 ## Installation Process
 
-The installer follows this workflow:
+The installer follows this enhanced workflow with advanced batch orchestration:
 
 1. **Prerequisites Check**: Validates PowerShell version, admin privileges, and platform
-2. **Configuration Validation**: Parses and validates the config.json file
-3. **Installer Preparation**: Downloads or locates required installer files locally
+2. **Output Directory Setup**: Creates and validates write permissions for `SilkEchoInstallerArtifacts` directory
+3. **State Recovery**: Loads `processing.json` to identify previously completed hosts (skipped automatically unless `-Force` used)
+4. **Configuration Validation**: Parses and validates the config.json file with enhanced error reporting
+5. **Installer Preparation**: Downloads or locates required installer files locally
    - Downloads from URLs if specified, or uses default URLs
    - Uses local paths if files exist at specified locations
    - Caches downloaded files in `SilkEchoInstallerArtifacts` directory
-4. **Connectivity Testing**: Validates PowerShell remoting to all target hosts
-5. **Authentication Setup**: 
+6. **Parallel Connectivity Testing**: Validates PowerShell remoting to all target hosts using dynamic batch processing
+   - **Progress Updates**: Shows connectivity test status and completion
+   - **Fault-tolerant**: Failed hosts are logged but script continues with valid hosts
+   - **Dynamic Scheduling**: New tests start immediately as slots become available
+   - Only terminates if no valid hosts remain
+7. **Authentication Setup** (for valid hosts only):
    - Logs into Silk Flex server and obtains access token
    - Validates SDP credentials
-   - Prepares SQL connection strings
-6. **File Distribution**: Uploads installer files to target hosts in parallel
+   - Prepares SQL connection strings with automatic endpoint discovery
+8. **Parallel File Distribution**: Uploads installer files to target hosts using dynamic batch processing
+   - **Progress Updates**: Shows upload status and completion
    - Creates temporary directory on each target host (`C:\Temp\silk-echo-install-<timestamp>`)
    - Copies both agent and VSS installer files to each host
    - Uses PowerShell remoting for file transfer
-   - Processes hosts with configured concurrency (default: 10)
-   - **Only proceeds to installation if ALL uploads succeed**
-7. **Installation Execution**: Runs installations across hosts with configured concurrency
+   - **Dynamic Scheduling**: New uploads start immediately as slots become available
+   - **Fault-tolerant**: Failed uploads are logged but script continues with successful hosts
+9. **Parallel Installation Execution**: Runs installations across hosts using dynamic batch processing
+   - **Progress Updates**: Shows installation status and completion
    - Uses the uploaded installer files from each host's temporary directory
-   - Executes installations in parallel batches
-8. **Results Collection**: Gathers logs and provides installation summary
+   - **Multi-tier Timeout Protection**: 110s internal timeout, 120s orchestrator timeout
+   - **Dynamic Scheduling**: New installations start immediately as slots become available
+   - **Immediate State Persistence**: Successful installations tracked immediately in `processing.json`
+10. **Results Collection and Reporting**:
+    - **Real-time Result Processing**: Job results processed immediately upon completion
+    - **Comprehensive Logging**: All output saved to transcript and report files
+    - **Final Summary**: Console display with success/failure counts and log file locations
 
 ## Troubleshooting
 
@@ -449,7 +487,7 @@ Invoke-Command -ComputerName "server01.domain.com" -ScriptBlock { Get-Date }
 Get-WmiObject -Class Win32_ComputerSystem -ComputerName "server01.domain.com" | Select PartOfDomain, Domain
 ```
 
-**"Could not resolve IP to hostname for active_directory auth"**  
+**"Could not resolve IP to hostname for active_directory auth"**
 - The script couldn't perform reverse DNS lookup for the IP address
 - Either use hostnames directly or switch to credential authentication
 - Verify DNS configuration
@@ -461,7 +499,7 @@ Get-WmiObject -Class Win32_ComputerSystem -ComputerName "server01.domain.com" | 
 Resolve-DnsName "server01.domain.com"
 ```
 
-**"Failed to connect to host using credentials authentication"** 
+**"Failed to connect to host using credentials authentication"**
 - Verify username/password are correct for target host
 - Check that target host allows the user account to log in
 - Ensure WinRM service is running on target host
@@ -500,7 +538,7 @@ Get-Item WSMan:\localhost\Client\TrustedHosts
 # Test WinRM connectivity manually
 Test-WSMan -ComputerName "192.168.1.10"
 
-# Check TrustedHosts list  
+# Check TrustedHosts list
 Get-Item WSMan:\localhost\Client\TrustedHosts
 
 # Test PowerShell remoting
@@ -514,7 +552,14 @@ Invoke-Command -ComputerName "server01.domain.com" -ScriptBlock { Get-Date }
 Run with `-Debug` or `-Verbose` for detailed troubleshooting information:
 
 ```powershell
+# Debug mode with dry run (recommended for troubleshooting)
 .\orchestrator.ps1 -ConfigPath "config.json" -Debug -DryRun
+
+# Verbose mode shows additional execution details
+.\orchestrator.ps1 -ConfigPath "config.json" -Verbose
+
+# Check the full transcript log after execution
+Get-Content "SilkEchoInstallerArtifacts\orchestrator_full_log_<timestamp>.txt" | Select-Object -Last 50
 ```
 
 ## Security Considerations
@@ -525,11 +570,84 @@ Run with `-Debug` or `-Verbose` for detailed troubleshooting information:
 
 ## Logging and Output
 
-The installer provides comprehensive logging:
+The installer provides comprehensive logging and state tracking:
 
-- **Console Output**: Real-time progress and status messages
-- **Detailed Logs**: Saved to `SilkEchoInstallerArtifacts\installation_logs_<timestamp>.json`
+### **Console Output**
+- **Progress Updates**: Status messages during all operations
+- **Timestamped Messages**: All output includes timestamps for tracking execution timeline
+- **Color-coded Messages**: ImportantMessage (Green), ERROR (Red), WARNING (Yellow), INFO/DEBUG (Default white)
 - **Credential Sanitization**: Passwords are automatically redacted from all log output
-- **Installation Summary**: Final report showing success/failure count per host
 
-The installer creates a cache directory `SilkEchoInstallerArtifacts` in the script location for temporary files and logs.
+### **File Logging**
+- **Full Execution Transcript**: Complete session log saved to `SilkEchoInstallerArtifacts\orchestrator_full_log_<timestamp>.txt`
+- **Installation Report**: Detailed per-host results saved to `SilkEchoInstallerArtifacts\installation_report_<timestamp>.txt`
+- **Processing State**: Progress tracking saved to `SilkEchoInstallerArtifacts\processing.json`
+- **Remote Host Logs**: All remote execution output is captured and echoed to the orchestrator console
+
+### **Log Locations**
+The installer creates a cache directory `SilkEchoInstallerArtifacts` in the script location containing:
+- `orchestrator_full_log_<timestamp>.txt` - Complete execution transcript
+- `installation_report_<timestamp>.txt` - Final installation results per host
+- `processing.json` - Completed hosts tracking for resume capability
+- Downloaded installer files (cached for reuse)
+
+### **After Installation**
+Once installation completes, you can find:
+1. **Console Summary**: Final count of successful/failed installations
+2. **Full Transcript**: Complete log file with all execution details
+3. **Installation Report**: Per-host status with error details if any failures occurred
+4. **Resume State**: Completed hosts list for potential re-runs
+
+## Installation State Tracking
+
+The installer automatically tracks installation progress to prevent duplicate installations and enable safe resumption:
+
+### **Processing State File**
+- **Location**: `SilkEchoInstallerArtifacts\processing.json`
+- **Purpose**: Tracks which hosts have been successfully processed
+- **Format**: Simple JSON file with completed host addresses and completion timestamps
+
+### **Simple Tracking**
+- Only successfully completed hosts are tracked
+- Each completed host has a timestamp of when it was completed
+- Failed hosts are NOT tracked (they will be retried on next run)
+- Simple format: `{"host_addr": "completion_timestamp"}`
+
+### **Resume Capability**
+- If the script is interrupted, rerun with the same configuration
+- Already completed hosts will be automatically skipped
+- Only remaining hosts will be processed
+- To reprocess all hosts, use `-Force` parameter or delete `processing.json` file
+
+### **Recovery After Failures**
+
+#### **If Installation Fails or Gets Interrupted:**
+1. **Check the logs**: Review the full transcript and installation report files
+2. **Identify failed hosts**: Look for ERROR messages in the console output or log files
+3. **Fix underlying issues**: Address connectivity, credential, or configuration problems
+4. **Resume installation**: Simply rerun the same command - completed hosts will be skipped automatically
+
+#### **Common Recovery Scenarios:**
+```powershell
+# View current processing state
+Get-Content "SilkEchoInstallerArtifacts\processing.json" | ConvertFrom-Json
+
+# Resume after interruption (skips completed hosts)
+.\orchestrator.ps1 -ConfigPath "config.json"
+
+# Force reprocessing all hosts (ignore completed tracking)
+.\orchestrator.ps1 -ConfigPath "config.json" -Force
+
+# Reset processing state manually (alternative to -Force)
+Remove-Item "SilkEchoInstallerArtifacts\processing.json"
+
+# Check recent logs for failure analysis
+Get-Content "SilkEchoInstallerArtifacts\orchestrator_full_log_*.txt" | Select-Object -Last 100 | Where-Object { $_ -like "*ERROR*" }
+```
+
+#### **Failure Analysis Steps:**
+1. **Check Console Output**: Look for final summary showing success/failure counts
+2. **Review Full Transcript**: Open `orchestrator_full_log_<timestamp>.txt` and search for "ERROR"
+3. **Check Installation Report**: Open `installation_report_<timestamp>.txt` for per-host results
+4. **Verify Prerequisites**: Ensure failed hosts meet all requirements (WinRM, credentials, etc.)
+5. **Test Individual Host**: Use troubleshooting commands to verify connectivity to failed hosts
