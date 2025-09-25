@@ -573,8 +573,18 @@ function InstallSilkNodeAgent {
     InfoMessage "Silk Node Agent installation completed. Checking installation log at $AgentInstallationLogPath"
 
     # test log file do not contain "error"
+    # if "Installation process succeeded." in log means we are ok
     if (Test-Path -Path $AgentInstallationLogPath) {
         $logContent = Get-Content -Path $AgentInstallationLogPath
+        if ($logContent -match "Installation process succeeded.") {
+            DebugMessage "Installation log indicates success."
+            return @{
+                Success = $true
+                Reason = "Completed"
+                Message = "Silk Node Agent installed successfully"
+                ExitCode = $installResult.ExitCode
+            }
+        }
         if ($logContent -match "(?i)error") {
             ErrorMessage "Installation log contains errors. Please check the log file at $AgentInstallationLogPath"
             return @{
