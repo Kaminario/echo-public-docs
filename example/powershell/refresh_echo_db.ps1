@@ -13,6 +13,9 @@
 .PARAMETER EchoDbHostName
     The name of the host where the target Echo database resides.
 
+.PARAMETER FlexUrl
+    The base URL for the Flex server, e.g., https://flex.example.com.
+
 .PARAMETER FlexIp
     The IP address of the Flex server. Can also be set via the $env:FLEX_IP environment variable.
 
@@ -24,6 +27,18 @@
 
 .PARAMETER ConsistencyLevel
     The consistency level for the snapshot. Must be either 'crash' or 'application'. Defaults to 'crash'.
+
+.PARAMETER PollSeconds
+    The interval in seconds to poll for task completion. Defaults to 5.
+
+.PARAMETER TimeoutMinutes
+    The maximum time in minutes to wait for a task to complete. Defaults to 60.
+
+.PARAMETER ValidateOnly
+    If set, the script validates the refresh operation without performing it.
+
+.PARAMETER Quiet
+    If set, suppresses all non-essential output.
 
 .EXAMPLE
     # Basic refresh
@@ -382,7 +397,7 @@ Write-Info "Fetching system topology from $($script:FlexBaseUrl)..."
 $topology = Invoke-FlexApi -Uri "/api/ocie/v1/topology"
 
 # 2. Find the Echo DBs and their source
-$cloneListDisplay = ($EchoDbNames -join "', '")
+$cloneListDisplay = ($EchoDbNames -join ", ")
 Write-Info "Searching for Echo DB(s) '$cloneListDisplay' on host '$EchoDbHostName'..."
 $echoHost = $topology | Where-Object { $_.host.name -eq $EchoDbHostName }
 if (-not $echoHost) {
