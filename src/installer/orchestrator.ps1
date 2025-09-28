@@ -169,7 +169,7 @@ try {
     # Add trap to ensure transcript is stopped on script termination
     trap {
         try {
-            WriteHostsSummaryToFile -Hosts $config.hosts -OutputPath $script:SilkEchoFullLogPath -Stdout
+            WriteHostsSummary -Hosts $config.hosts -OutputPath "STDOUT"
             Stop-Transcript
         } catch { }
         break
@@ -380,7 +380,6 @@ function MainOrchestrator {
             -Results $results `
             -Config $config `
             -CacheDirectory $SilkEchoInstallerCacheDir `
-            -ReportFilePath $SilkEchoReportFilePath `
             -ProcessedHostsPath $script:processedHostsFile
     }
     catch {
@@ -499,7 +498,7 @@ if ($DryRun) {
 
 # Stop transcript logging
 try {
-    WriteHostsSummaryToFile -Hosts $config.hosts -OutputPath $script:SilkEchoFullLogPath -Stdout
+    WriteHostsSummary -Hosts $config.hosts -OutputPath "STDOUT"
     Stop-Transcript
     InfoMessage "Full execution log saved to: $script:SilkEchoFullLogPath"
 } catch {
