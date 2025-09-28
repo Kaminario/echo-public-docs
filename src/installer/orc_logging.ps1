@@ -68,7 +68,7 @@ Function WarningMessage {
 }
 
 #region HostsSummaryReport
-function WriteHostsSummaryToFile {
+function WriteHostsSummary {
     <#
     .SYNOPSIS
         Writes a summary of all hosts with their issues and results to a file.
@@ -88,27 +88,24 @@ function WriteHostsSummaryToFile {
         Array of host objects to write
 
     .PARAMETER OutputPath
-        Path to the output file where summary will be written
-
-    .PARAMETER Stdout
-        If specified, prints the report to console instead of writing to file
+        Path to the output file where summary will be written. Use "STDOUT" to print to console instead of writing to file
 
     .EXAMPLE
-        WriteHostsSummaryToFile -Hosts $config.hosts -OutputPath "hosts_summary.txt"
+        WriteHostsSummary -Hosts $config.hosts -OutputPath "hosts_summary.txt"
+
+    .EXAMPLE
+        WriteHostsSummary -Hosts $config.hosts -OutputPath "STDOUT"
     #>
     param (
         [Parameter(Mandatory=$true)]
         [Array]$Hosts,
 
         [Parameter(Mandatory=$true)]
-        [string]$OutputPath,
-
-        [Parameter(Mandatory=$false)]
-        [switch]$Stdout = $false
+        [string]$OutputPath
     )
 
     if ($Hosts.Count -eq 0) {
-        if ($Stdout) {
+        if ($OutputPath -eq "STDOUT") {
             Write-Host "No hosts to display"
         } else {
             "No hosts to display" | Out-File -FilePath $OutputPath -Encoding UTF8
@@ -210,7 +207,7 @@ function WriteHostsSummaryToFile {
     }
 
     # Output to console or file
-    if ($Stdout) {
+    if ($OutputPath -eq "STDOUT") {
         # Print to console
         foreach ($line in $outputLines) {
             Write-Host $line
@@ -229,7 +226,7 @@ function DisplayInstallationSummary {
 
     .DESCRIPTION
         Shows only the counts - how many hosts succeeded, failed, etc.
-        For detailed information, use WriteHostsSummaryToFile.
+        For detailed information, use WriteHostsSummary.
 
     .PARAMETER Hosts
         Array of host objects to summarize

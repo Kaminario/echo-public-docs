@@ -202,8 +202,6 @@ function UploadInstallersToHosts {
             ErrorMessage "Upload job failed for $($hostInfo.host_addr): State $($job.State), $issue"
         }
         
-        # Write report after updating host
-        WriteHostsSummaryToFile -Hosts $HostInfos -OutputPath $SilkEchoReportFilePath
         Remove-Job -Job $job -Force
     }
 

@@ -368,15 +368,11 @@ function testHostsConnectivityInParallel {
             } else {
                 $errorMsg = if ($testResult.Error) { $testResult.Error } else { "Unknown connectivity error" }
                 $hostInfo.issues += "Failed to connect to host using $($hostInfo.host_auth) authentication: $errorMsg"
-                # Write report after updating host
-                WriteHostsSummaryToFile -Hosts $hostEntries -OutputPath $SilkEchoReportFilePath
-            }
+                }
         } else {
             $stdErrOut = Receive-Job -Job $job -ErrorAction SilentlyContinue | Out-String
             $errorMsg = "Connectivity test job failed for $($hostInfo.host_addr). State: $($job.State). $stdErrOut"
             $hostInfo.issues += $errorMsg
-            # Write report after updating host
-            WriteHostsSummaryToFile -Hosts $hostEntries -OutputPath $SilkEchoReportFilePath
         }
         Remove-Job -Job $job -Force
     }

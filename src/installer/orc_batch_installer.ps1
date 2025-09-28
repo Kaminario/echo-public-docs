@@ -228,8 +228,6 @@ function StartBatchInstallation {
                 if ($configHostToUpdate) {
                     $configHostToUpdate.result = $result
                 }
-                # Write report after updating host
-                WriteHostsSummaryToFile -Hosts $script:config.hosts -OutputPath $SilkEchoReportFilePath
 
                 $script:NumOfSuccessHosts++
                 # Mark host as completed immediately (only in live mode)
@@ -272,8 +270,6 @@ function StartBatchInstallation {
                 if ($configHostToUpdate) {
                     $configHostToUpdate.result = $result
                 }
-                # Write report after updating host
-                WriteHostsSummaryToFile -Hosts $script:config.hosts -OutputPath $SilkEchoReportFilePath
                 $script:NumOfFailedHosts++
             }
         } else {
@@ -297,8 +293,6 @@ function StartBatchInstallation {
             if ($configHostToUpdate) {
                 $configHostToUpdate.result = $result
             }
-            # Write report after updating host
-            WriteHostsSummaryToFile -Hosts $script:config.hosts -OutputPath $SilkEchoReportFilePath
 
             $script:NumOfFailedHosts++
         }
@@ -342,15 +336,10 @@ function SaveInstallationResults {
         [Parameter(Mandatory=$true)]
         [string]$CacheDirectory,
         [Parameter(Mandatory=$true)]
-        [string]$ReportFilePath,
-        [Parameter(Mandatory=$true)]
         [string]$ProcessedHostsPath
     )
 
     try {
-        # Final checkpoint: Save complete installation report
-        WriteHostsSummaryToFile -Hosts $Config.hosts -OutputPath $ReportFilePath
-
         # Display short summary to console
         DisplayInstallationSummary -Hosts $Config.hosts
 

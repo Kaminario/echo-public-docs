@@ -21,9 +21,6 @@ Set-Variable -Name HOSTSETUP_START_MARKER -Value ("MARKER: " + "HOST_INSTALLER_S
 # Remote Installation Timeout (2 minutes = 120 seconds)
 Set-Variable -Name REMOTE_INSTALL_TIMEOUT_SECONDS -Value 120 -Option AllScope -Scope Script
 
-# Installation report file path
-$reportFilePath = Join-Path $cacheDir "installation_report_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
-Set-Variable -Name SilkEchoReportFilePath -Value $reportFilePath -Option AllScope -Scope Script
 
 # Full execution log file path
 $fullLogPath = Join-Path $cacheDir "orchestrator_full_log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"

@@ -341,7 +341,7 @@ Get-Help .\orchestrator.ps1 -Full
 
 **Core Logging (`orc_logging.ps1`):**
 - `ErrorMessage`, `InfoMessage`, `WarningMessage`, `DebugMessage`
-- `WriteHostsSummaryToFile` - Detailed progress file output with host status
+- `WriteHostsSummary` - Detailed progress file output with host status
 - `DisplayHostsSummary` - Console summary showing counts only
 - `AddHostIssueWithProgress` - Real-time progress tracking for host issues
 - `SetHostResultWithProgress` - Real-time progress tracking for installation results
