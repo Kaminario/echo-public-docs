@@ -44,7 +44,7 @@ function UpdateHostSqlConnectionString {
         }
     }
 
-    DebugMessage "Common SQL credentials needed: $commonCredentialsNeeded"
+    InfoMessage "Common SQL credentials needed: $commonCredentialsNeeded"
     # If any hosts are missing credentials, ask for default credentials to use
     if ($commonCredentialsNeeded) {
         $commonSqlPass = if ($Config.common.sql_pass) {

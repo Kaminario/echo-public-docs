@@ -36,6 +36,9 @@
 .PARAMETER MountPointsDirectory
     The directory where mount points for the Silk Node Agent will be created.
 
+.PARAMETER Dir
+    The target directory for the installers. This parameter will be passed to both the SilkAgent installer (using /D flag) and VSS installer (using /DIR flag).
+
 .PARAMETER DryRun
     Perform validation and connectivity tests without actually installing the components.
     When enabled, the script will verify downloads, connections, and prerequisites but skip the actual installation steps.
@@ -103,6 +106,7 @@ param (
     [string]$SDPPassword,
 
     [string]$MountPointsDirectory = "",
+    [string]$Dir = "",
     [switch]$DryRun
 )
 
@@ -528,7 +532,8 @@ function InstallSilkNodeAgent {
         [string]$SQLConnectionString,
         [string]$FlexIP,
         [string]$AgentToken,
-        [string]$MountPointsDirectory
+        [string]$MountPointsDirectory,
+        [string]$InstallDir
     )
     InfoMessage "InstallSilkNodeAgent: executable $InstallerFilePath"
     # execute InstallerFilePath
@@ -537,7 +542,7 @@ function InstallSilkNodeAgent {
         return $false
     }
     # pass argumnets as /DbConnStr='"$sqlConn"'
-    InfoMessage "Building arguments with SQLConnectionString='$SQLConnectionString', FlexIP='$FlexIP', AgentToken='[REDACTED]', MountPointsDirectory='$MountPointsDirectory'"
+    InfoMessage "Building arguments with SQLConnectionString='$SQLConnectionString', FlexIP='$FlexIP', AgentToken='[REDACTED]', MountPointsDirectory='$MountPointsDirectory', InstallDir='$InstallDir'"
     $arguments = @(
         '/S', # Silent installation
         "/DbConnStr='$SQLConnectionString'",
@@ -545,6 +550,11 @@ function InstallSilkNodeAgent {
         "/Token='$AgentToken'",
         "/MountPointsDirectory='$MountPointsDirectory'"
     )
+
+    # Add /D parameter if InstallDir is provided
+    if ($InstallDir -and $InstallDir.Trim() -ne "") {
+        $arguments += "/D='$InstallDir'"
+    }
     DebugMessage "Arguments array: $($arguments -join ' ')"
 
     # Run installation with timeout
@@ -697,7 +707,8 @@ function InstallSilkVSSProvider {
         [string]$SDPID,
         [string]$SDPHost,
         [string]$SDPPort,
-        [System.Management.Automation.PSCredential]$Credential
+        [System.Management.Automation.PSCredential]$Credential,
+        [string]$InstallDir
     )
     InfoMessage "Installing Silk VSS Provider from $InstallerFilePath"
     # execute InstallerFilePath
@@ -707,7 +718,7 @@ function InstallSilkVSSProvider {
     }
 
     $arguments = @(
-        '/silent',
+        '/VERYSILENT',
         "/external_ip=$SDPHost",
         "/host_name=$(hostname)",
         "/username=$($Credential.UserName)",
@@ -718,8 +729,13 @@ function InstallSilkVSSProvider {
         '/check_vg_full=false',
         '/snap_prefix=snap',
         '/retention_policy=Best_Effort_Retention',
-        "/log=$SVSSInstallationLogPath"
+        "/LOG=$SVSSInstallationLogPath"
     )
+
+    # Add /DIR parameter if InstallDir is provided
+    if ($InstallDir -and $InstallDir.Trim() -ne "") {
+        $arguments += "/DIR=$InstallDir"
+    }
 
     InfoMessage "Silk VSS Provider installation arguments: $arguments"
 
@@ -851,7 +867,7 @@ function setup{
         }
 
         # Install Silk VSS Provider
-        $vssResult = InstallSilkVSSProvider -InstallerFilePath $SilkVSSPath -SDPID $SDPID -SDPHost $SDPHost -SDPPort $SDPPort -Credential $SDPCredential
+        $vssResult = InstallSilkVSSProvider -InstallerFilePath $SilkVSSPath -SDPID $SDPID -SDPHost $SDPHost -SDPPort $SDPPort -Credential $SDPCredential -InstallDir $Dir
         if (-not $vssResult.Success) {
             ErrorMessage "Failed to install Silk VSS Provider: $($vssResult.Reason)"
             return $vssResult.Message
@@ -868,7 +884,8 @@ function setup{
                                           -SQLConnectionString $ConnectionString `
                                           -FlexIP $FlexIP `
                                           -AgentToken $AgentToken `
-                                          -MountPointsDirectory $MountPointsDirectory
+                                          -MountPointsDirectory $MountPointsDirectory `
+                                          -InstallDir $Dir
         if (-not $installResult.Success) {
             ErrorMessage "Failed to install Silk Node Agent: $($installResult.Reason)"
             return $installResult.Message
