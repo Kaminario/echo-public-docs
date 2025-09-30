@@ -17,6 +17,9 @@
     Number of hosts to install in parallel. Default value is 10.
     This helps manage resource usage and provides better progress tracking for large deployments.
 
+.PARAMETER Dir
+    The target directory for the installers. This parameter will be passed to both the SilkAgent installer (using /D flag) and VSS installer (using /DIR flag).
+
 .PARAMETER DryRun
     Perform validation of connectivity before running actual installation.
     It will validate connectivity from this host to the hosts defined in configuration file.
@@ -117,6 +120,9 @@ param (
 
     [Parameter(Mandatory=$false, HelpMessage="Number of hosts to install in parallel")]
     [int]$MaxConcurrency = 10,
+
+    [Parameter(Mandatory=$false, HelpMessage="The target directory for the installers")]
+    [string]$Dir = "",
 
     [Parameter(Mandatory=$false, HelpMessage="Perform dry run to validate connectivity before actual installation")]
     [switch]$DryRun,

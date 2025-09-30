@@ -38,7 +38,7 @@ function StartBatchInstallation {
 
     # Installation job logic - direct remote installation (like upload/connectivity pattern)
     $installationJobScript = {
-        param($hostInfo, $Config, $HostSetupScript, $ENUM_ACTIVE_DIRECTORY, $IsDryRun, $IsDebug)
+        param($hostInfo, $Config, $HostSetupScript, $ENUM_ACTIVE_DIRECTORY, $IsDryRun, $IsDebug, $InstallDir)
 
         function InfoMessageIJS { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [INFO] $message" -ForegroundColor Green }
         function DebugMessageIJS { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [DEBUG] $message" -ForegroundColor Gray }
@@ -78,10 +78,11 @@ function StartBatchInstallation {
             DebugMessageIJS "Using SDP Password: [REDACTED]"
             DebugMessageIJS "Dry Run Mode: $IsDryRun"
             DebugMessageIJS "Mount Points Directory: $($hostInfo.mount_points_directory)"
+            DebugMessageIJS "Install Directory: $InstallDir"
 
             # Create the remote scriptblock for installation
             $remoteInstallationScript = {
-                param($FlexIP, 
+                param($FlexIP,
                       $FlexToken,
                       $DBConnectionString,
                       $SilkAgentPath,
@@ -92,6 +93,7 @@ function StartBatchInstallation {
                       $DebugMode,
                       $DryRunMode,
                       $MountPointsDirectory,
+                      $InstallDir,
                       $Script)
 
                 function InfoMessageRIS { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [INFO] $message"}
@@ -121,6 +123,7 @@ function StartBatchInstallation {
                     SDPUsername = $SDPUsername
                     SDPPassword = $SDPPassword
                     MountPointsDirectory = $MountPointsDirectory
+                    Dir = $InstallDir
                 }
 
                 # Add DryRun parameter if in dry run mode
@@ -152,15 +155,19 @@ function StartBatchInstallation {
                 $IsDebug,
                 $IsDryRun,
                 $hostInfo.mount_points_directory,
+                $InstallDir,
                 $HostSetupScript
             )
 
-            # Validate ArgumentList for null values
+            # Validate ArgumentList for null values (skip InstallDir as it can be empty string)
             for ($i = 0; $i -lt $ArgumentList.Count; $i++) {
                 if ($null -eq $ArgumentList[$i]) {
-                    $paramNames = @('flex_host_ip', 'flex_access_token', 'sql_connection_string', 'agentPath', 'vssPath', 'sdp_id', 'sdp_username', 'sdp_password', 'IsDebug', 'IsDryRun', 'mount_points_directory', 'HostSetupScript')
-                    ErrorMessageIJS "Null value found in ArgumentList at index $i (parameter: $($paramNames[$i]))"
-                    return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Null parameter: $($paramNames[$i])" }
+                    $paramNames = @('flex_host_ip', 'flex_access_token', 'sql_connection_string', 'agentPath', 'vssPath', 'sdp_id', 'sdp_username', 'sdp_password', 'IsDebug', 'IsDryRun', 'mount_points_directory', 'InstallDir', 'HostSetupScript')
+                    # Allow InstallDir (index 11) to be null or empty
+                    if ($i -ne 11) {
+                        ErrorMessageIJS "Null value found in ArgumentList at index $i (parameter: $($paramNames[$i]))"
+                        return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Null parameter: $($paramNames[$i])" }
+                    }
                 }
             }
 
@@ -315,7 +322,8 @@ function StartBatchInstallation {
             $using:HostSetupScript `
             $using:ENUM_ACTIVE_DIRECTORY `
             $using:DryRun.IsPresent `
-            ($using:DebugPreference -eq 'Continue')
+            ($using:DebugPreference -eq 'Continue') `
+            $using:Dir
     }
 
     # Use dynamic batch processor for installations
