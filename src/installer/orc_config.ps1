@@ -16,12 +16,20 @@ function GenerateConfigTemplate {
         $InstallVSS = $false
     }
 
-    $templateConfigJson = '{"installers":{"agent":{"path": "local_path"},"vss": {"path": "local_path"}},"common":{"install_agent":true,"install_vss":true,"sdp_id":"sdp_id","sdp_user":"sdp_user","sdp_pass":"sdp_pass","sql_user":"sql_user","sql_pass":"sql_pass","sql_server":"host,port","flex_host_ip":"flex-ip","flex_user":"flex_user","flex_pass":"flex_pass","host_user":"host_user","host_pass":"host_pass","host_auth":"unset","mount_points_directory":"C:\\MountPoints"},"hosts":[{"host_addr":"host_ip","sql_user":"sql_user_1","sql_pass":"sql_pass_1"},"host_ip","host_ip"]}'
+    Write-Host ""
+    Write-Host "Installation Directory Configuration:" -ForegroundColor Yellow
+    Write-Host "  - Leave empty to use system default installation paths"
+    Write-Host "  - Provide a path (e.g., 'C:\CustomPath') to install components to a custom directory"
+    $installDir = Read-Host "Target installation directory (press Enter for default)"
+    $InstallToDirectory = $installDir.Trim()
+
+    $templateConfigJson = '{"installers":{"agent":{"path": "local_path"},"vss": {"path": "local_path"}},"common":{"install_agent":true,"install_vss":true,"install_to_directory":"","sdp_id":"sdp_id","sdp_user":"sdp_user","sdp_pass":"sdp_pass","sql_user":"sql_user","sql_pass":"sql_pass","sql_server":"host,port","flex_host_ip":"flex-ip","flex_user":"flex_user","flex_pass":"flex_pass","host_user":"host_user","host_pass":"host_pass","host_auth":"unset","mount_points_directory":"C:\\MountPoints"},"hosts":[{"host_addr":"host_ip","sql_user":"sql_user_1","sql_pass":"sql_pass_1"},"host_ip","host_ip"]}'
 
     # load template as json, make chages, and dump in a pretty way
     $ConfObj = $templateConfigJson | ConvertFrom-Json
 
     $ConfObj.common.install_vss = $InstallVSS
+    $ConfObj.common.install_to_directory = $InstallToDirectory
 
     if ($UseKerberos) {
         $ConfObj.common.host_auth = $ENUM_ACTIVE_DIRECTORY
@@ -125,24 +133,18 @@ function constructHosts {
             $hostObject.flex_pass = ConvertTo-SecureString $hostObject.flex_pass -AsPlainText -Force
         }
 
-        # Set default values for installAgent and installVSS if not specified
-        if (-not $hostObject.PSObject.Properties['installAgent']) {
-            Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "installAgent" -Value $true -Force
-        } elseif ($hostObject.installAgent -isnot [bool]) {
-            # Convert to boolean if specified as string/number
-            $hostObject.installAgent = [bool]$hostObject.installAgent
+        # Convert to boolean if host overrides with non-boolean value (inherited values are already boolean from common)
+        if ($hostObject.install_agent -isnot [bool]) {
+            $hostObject.install_agent = [bool]$hostObject.install_agent
         }
 
-        if (-not $hostObject.PSObject.Properties['installVSS']) {
-            Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "installVSS" -Value $true -Force
-        } elseif ($hostObject.installVSS -isnot [bool]) {
-            # Convert to boolean if specified as string/number
-            $hostObject.installVSS = [bool]$hostObject.installVSS
+        if ($hostObject.install_vss -isnot [bool]) {
+            $hostObject.install_vss = [bool]$hostObject.install_vss
         }
 
-        # Validate that at least one component is being installed
-        if (-not $hostObject.installAgent -and -not $hostObject.installVSS) {
-            ErrorMessage "Host '$($hostObject.host_addr)' has both installAgent and installVSS set to false. At least one component must be installed."
+        # Validate that at least one component is being installed (after any host-level overrides)
+        if (-not $hostObject.install_agent -and -not $hostObject.install_vss) {
+            ErrorMessage "Host '$($hostObject.host_addr)' has both install_agent and install_vss set to false. At least one component must be installed."
             return $null
         }
 
@@ -251,6 +253,31 @@ function ReadConfigFile {
         return $null
     }
 
+    # Set default values in common section before constructing hosts (so hosts inherit these defaults)
+    if (-not $commonConfig.PSObject.Properties['install_agent']) {
+        Add-Member -InputObject $commonConfig -MemberType NoteProperty -Name "install_agent" -Value $true
+    } elseif ($commonConfig.install_agent -isnot [bool]) {
+        # Convert to boolean only if not already boolean
+        $commonConfig.install_agent = [bool]$commonConfig.install_agent
+    }
+
+    if (-not $commonConfig.PSObject.Properties['install_vss']) {
+        Add-Member -InputObject $commonConfig -MemberType NoteProperty -Name "install_vss" -Value $true
+    } elseif ($commonConfig.install_vss -isnot [bool]) {
+        # Convert to boolean only if not already boolean
+        $commonConfig.install_vss = [bool]$commonConfig.install_vss
+    }
+
+    if (-not $commonConfig.PSObject.Properties['install_to_directory']) {
+        Add-Member -InputObject $commonConfig -MemberType NoteProperty -Name "install_to_directory" -Value ""
+    }
+
+    # Validate at least one component is enabled in common section
+    if (-not $commonConfig.install_agent -and -not $commonConfig.install_vss) {
+        ErrorMessage "Both install_agent and install_vss are set to false in common section. At least one component must be enabled."
+        return $null
+    }
+
     $config.hosts = constructHosts -CommonConfig $commonConfig -HostEntries $config.hosts
 
     # convert all common.pass to ConvertTo-SecureString
@@ -271,16 +298,16 @@ function ReadConfigFile {
     $installAgent = $true
     $installVSS = $true
 
-    if ($commonConfig.PSObject.Properties['installAgent']) {
-        $installAgent = [bool]$commonConfig.installAgent
+    if ($commonConfig.PSObject.Properties['install_agent']) {
+        $installAgent = [bool]$commonConfig.install_agent
     }
-    if ($commonConfig.PSObject.Properties['installVSS']) {
-        $installVSS = [bool]$commonConfig.installVSS
+    if ($commonConfig.PSObject.Properties['install_vss']) {
+        $installVSS = [bool]$commonConfig.install_vss
     }
 
     # Validate at least one component is enabled at common level
     if (-not $installAgent -and -not $installVSS) {
-        ErrorMessage "Both installAgent and installVSS are set to false in common section. At least one component must be enabled."
+        ErrorMessage "Both install_agent and install_vss are set to false in common section. At least one component must be enabled."
         return $null
     }
 

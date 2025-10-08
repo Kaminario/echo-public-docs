@@ -121,9 +121,6 @@ param (
     [Parameter(Mandatory=$false, HelpMessage="Number of hosts to install in parallel")]
     [int]$MaxConcurrency = 10,
 
-    [Parameter(Mandatory=$false, HelpMessage="The target directory for the installers")]
-    [string]$Dir = "",
-
     [Parameter(Mandatory=$false, HelpMessage="Perform dry run to validate connectivity before actual installation")]
     [switch]$DryRun,
 
