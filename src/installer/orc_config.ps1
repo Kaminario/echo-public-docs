@@ -74,7 +74,7 @@ function GenerateConfigTemplate {
     }
 
     try {
-        $formattedJson = $ConfObj | ConvertTo-Json -Depth 4
+        $formattedJson = $ConfObj | ConvertTo-Json -Depth 2
 
         $formattedJson | Out-File -FilePath $configPath -Encoding UTF8
         Write-Host "Configuration template created successfully: $configPath" -ForegroundColor Green

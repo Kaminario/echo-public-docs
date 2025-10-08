@@ -36,7 +36,7 @@
 .PARAMETER MountPointsDirectory
     The directory where mount points for the Silk Node Agent will be created.
 
-.PARAMETER Dir
+.PARAMETER DirectoryToInstall
     The target directory for the installers. This parameter will be passed to both the SilkAgent installer (using /D flag) and VSS installer (using /DIR flag).
 
 .PARAMETER DryRun
@@ -77,41 +77,42 @@
 param (
     [Parameter(Mandatory=$true)]
     [ValidateNotNullOrEmpty()]
-    [string]$FlexIP,
-
-    [Parameter(Mandatory=$true)]
-    [ValidateNotNullOrEmpty()]
-    [string]$FlexToken,
-
-    [Parameter(Mandatory=$true)]
-    [string]$DBConnectionString,
-
-    [Parameter(Mandatory=$true)]
-    [ValidateNotNullOrEmpty()]
-    [string]$SilkAgentPath,
-
-    [Parameter(Mandatory=$true)]
-    [ValidateNotNullOrEmpty()]
-    [string]$SilkVSSPath,
-
-    [Parameter(Mandatory=$true)]
-    [string]$SDPId,
-
-    [Parameter(Mandatory=$true)]
-    [ValidateNotNullOrEmpty()]
-    [string]$SDPUsername,
-
-    [Parameter(Mandatory=$true)]
-    [ValidateNotNullOrEmpty()]
-    [string]$SDPPassword,
-
-    [string]$MountPointsDirectory = "",
-    [string]$Dir = "",
-    [switch]$DryRun,
-
-    [bool]$InstallAgent = $true,
-    [bool]$InstallVSS = $true
+    [string]$ConfigJson
 )
+
+# Parse JSON configuration
+try {
+    $Config = $ConfigJson | ConvertFrom-Json
+} catch {
+    Write-Error "Failed to parse ConfigJson parameter: $_"
+    throw
+}
+
+# Extract parameters from config
+$FlexIP = $Config.flex_host_ip
+$FlexToken = $Config.flex_access_token
+$DBConnectionString = $Config.sql_connection_string
+$SilkAgentPath = $Config.agent_path
+$SilkVSSPath = $Config.vss_path
+$SDPId = $Config.sdp_id
+$SDPUsername = $Config.sdp_username
+$SDPPassword = $Config.sdp_password
+$MountPointsDirectory = $Config.mount_points_directory
+$DirectoryToInstall = $Config.install_to_directory
+$DryRun = [switch]$Config.is_dry_run
+$InstallAgent = [bool]$Config.install_agent
+$InstallVSS = [bool]$Config.install_vss
+
+# print info about params
+Write-Host "Parameters:"
+Write-Host "  FlexIP: $FlexIP"
+Write-Host "  DryRun: $DryRun"
+Write-Host "  SilkAgentPath: $SilkAgentPath"
+Write-Host "  SilkVSSPath: $SilkVSSPath"
+Write-Host "  InstallAgent: $InstallAgent"
+Write-Host "  InstallVSS: $InstallVSS"
+Write-Host "  DirectoryToInstall: $DirectoryToInstall"
+
 
 if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
     Write-Host "Debug and Verbose output enabled."
@@ -139,8 +140,12 @@ $ProgressPreference = 'SilentlyContinue'
 # global variables
 # ============================================================================
 
-# Create SDP credential from passed parameters
-$SDPCredential = New-Object System.Management.Automation.PSCredential($SDPUsername, (ConvertTo-SecureString $SDPPassword -AsPlainText -Force))
+# Create SDP credential from passed parameters (only if installing VSS)
+if ($InstallVSS -and $SDPUsername -and $SDPPassword) {
+    $SDPCredential = New-Object System.Management.Automation.PSCredential($SDPUsername, (ConvertTo-SecureString $SDPPassword -AsPlainText -Force))
+} else {
+    $SDPCredential = $null
+}
 
 Set-Variable -Name SDPCredential -Value $SDPCredential -Scope Global
 Set-Variable -Name IsDryRun -Value $DryRun.IsPresent -Scope Global
@@ -425,7 +430,9 @@ function PrintSVSSInstallationLog {
 #region CleanupInstallerFiles
 function CleanupInstallerFiles {
     # Remove all files in the directory including the directory itself
-    if (Test-Path -Path $SilkAgentDirectory) {
+    # if install_agent is true remove SilkAgentDirectory
+
+    if ($InstallAgent -and (Test-Path -Path $SilkAgentDirectory)) {
         try {
             Remove-Item -Path $SilkAgentDirectory -Recurse -Force
             InfoMessage "Cleaned up installer files in directory: $SilkAgentDirectory"
@@ -433,7 +440,7 @@ function CleanupInstallerFiles {
             WarningMessage "Failed to cleanup installer files in directory $SilkAgentDirectory`: $_"
         }
     }
-    if (Test-Path -Path $SilkVSSDirectory) {
+    if ($InstallVSS -and (Test-Path -Path $SilkVSSDirectory)) {
         try {
             Remove-Item -Path $SilkVSSDirectory -Recurse -Force
             InfoMessage "Cleaned up installer files in directory: $SilkVSSDirectory"
@@ -486,7 +493,6 @@ function StartProcessWithTimeout {
                 if ($Args -is [string]) {
                     $Args = @($Args)
                 }
-
                 $process = Start-Process -FilePath $InstallerPath -ArgumentList $Args -Wait -NoNewWindow -PassThru
                 Write-Host "Process completed with exit code: $($process.ExitCode)"
                 return $process.ExitCode
@@ -564,7 +570,7 @@ function InstallSilkNodeAgent {
 
     # Add /D parameter if InstallDir is provided
     if ($InstallDir -and $InstallDir.Trim() -ne "") {
-        $arguments += "/D='$InstallDir'"
+        $arguments += "/Directory='$InstallDir\\SilkAgent'"
     }
     DebugMessage "Arguments array: $($arguments -join ' ')"
 
@@ -745,7 +751,7 @@ function InstallSilkVSSProvider {
 
     # Add /DIR parameter if InstallDir is provided
     if ($InstallDir -and $InstallDir.Trim() -ne "") {
-        $arguments += "/DIR=$InstallDir"
+        $arguments += "/DIR=$InstallDir\\SilkVSS"
     }
 
     InfoMessage "Silk VSS Provider installation arguments: $arguments"
@@ -835,12 +841,12 @@ function setup_agent {
     InfoMessage "Silk Node Agent installer found at $SilkAgentPath"
 
     # Validate installation directory if specified
-    if ($Dir -and $Dir.Trim() -ne "") {
-        if (-not (Test-Path -Path $Dir -PathType Container)) {
-            ErrorMessage "Installation directory does not exist: $Dir"
-            return "Installation directory '$Dir' does not exist or is not a directory"
+    if ($DirectoryToInstall -and $DirectoryToInstall.Trim() -ne "") {
+        if (-not (Test-Path -Path $DirectoryToInstall -PathType Container)) {
+            ErrorMessage "Installation directory does not exist: $DirectoryToInstall"
+            return "Installation directory '$DirectoryToInstall' does not exist or is not a directory"
         }
-        InfoMessage "Installation directory validated: $Dir"
+        InfoMessage "Installation directory validated: $DirectoryToInstall"
     }
 
     # Validate and create SQL Server connection string
@@ -870,7 +876,7 @@ function setup_agent {
                                         -FlexIP $FlexIP `
                                         -AgentToken $AgentToken `
                                         -MountPointsDirectory $MountPointsDirectory `
-                                        -InstallDir $Dir
+                                        -InstallDir $DirectoryToInstall
 
     # Print installation log immediately after installation attempt
     PrintAgentInstallationLog
@@ -912,12 +918,12 @@ function setup_vss {
     InfoMessage "Silk VSS Provider installer found at $SilkVSSPath"
 
     # Validate installation directory if specified
-    if ($Dir -and $Dir.Trim() -ne "") {
-        if (-not (Test-Path -Path $Dir -PathType Container)) {
-            ErrorMessage "Installation directory does not exist: $Dir"
-            return "Installation directory '$Dir' does not exist or is not a directory"
+    if ($DirectoryToInstall -and $DirectoryToInstall.Trim() -ne "") {
+        if (-not (Test-Path -Path $DirectoryToInstall -PathType Container)) {
+            ErrorMessage "Installation directory does not exist: $DirectoryToInstall"
+            return "Installation directory '$DirectoryToInstall' does not exist or is not a directory"
         }
-        InfoMessage "Installation directory validated: $Dir"
+        InfoMessage "Installation directory validated: $DirectoryToInstall"
     }
 
     # Get SDP information from Flex
@@ -953,7 +959,7 @@ function setup_vss {
                                         -SDPHost $SDPHost `
                                         -SDPPort $SDPPort `
                                         -Credential $SDPCredential `
-                                        -InstallDir $Dir
+                                        -InstallDir $DirectoryToInstall
 
     # Print installation log immediately after installation attempt
     PrintSVSSInstallationLog
@@ -1065,7 +1071,7 @@ function SetupHost {
         }
         throw "Setup failed on Host[$env:COMPUTERNAME]. $($error)"
     } else {
-        CleanupInstallerFiles
+        # CleanupInstallerFiles
         InfoMessage "Setup completed successfully."
     }
 }

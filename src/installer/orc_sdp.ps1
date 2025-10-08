@@ -73,7 +73,7 @@ function UpdateSDPCredentials {
     $goodHost = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
 
     # Check if any hosts need VSS installation
-    $hostsNeedingVSS = @($goodHost | Where-Object { $_.installVSS -eq $true })
+    $hostsNeedingVSS = @($goodHost | Where-Object { $_.install_vss -eq $true })
 
     if ($hostsNeedingVSS.Count -eq 0) {
         InfoMessage "No hosts require VSS installation - skipping SDP credential collection"

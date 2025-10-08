@@ -53,17 +53,24 @@ function StartBatchInstallation {
             $agentPath = $hostInfo.remote_installer_paths.agent
             $vssPath = $hostInfo.remote_installer_paths.vss
             DebugMessageIJS "Installer paths: $($hostInfo.remote_installer_paths | ConvertTo-Json -Depth 3)"
-            # Validate that remote installer paths are not null
-            if (-not $agentPath) {
-                ErrorMessageIJS "Agent path is null or empty. Remote installer paths may not be properly set."
+
+            $agentPath = if ($hostInfo.install_agent) { $agentPath } else { "none" }
+            $vssPath = if ($hostInfo.install_vss) { $vssPath } else { "none" }
+
+            # Validate that required installer paths are not null
+            $missingPaths = @()
+            if ($hostInfo.install_agent -and -not $agentPath) {
+                ErrorMessageIJS "Agent path is null or empty but agent installation is required."
+                $missingPaths += "agent"
             }
-            if (-not $vssPath) {
-                ErrorMessageIJS "VSS path is null or empty. Remote installer paths may not be properly set."
+            if ($hostInfo.install_vss -and -not $vssPath) {
+                ErrorMessageIJS "VSS path is null or empty but VSS installation is required."
+                $missingPaths += "vss"
             }
 
-            # do not continue if the paths are null, add issue and return
-            if (-not $agentPath -or -not $vssPath) {
-                $hostInfo.issues += "Failed to upload installers. $issue"
+            # do not continue if required paths are missing
+            if ($missingPaths.Count -gt 0) {
+                $hostInfo.issues += "Missing required installer paths: $($missingPaths -join ', ')"
                 return
             }
 
@@ -82,59 +89,34 @@ function StartBatchInstallation {
 
             # Create the remote scriptblock for installation
             $remoteInstallationScript = {
-                param($FlexIP,
-                      $FlexToken,
-                      $DBConnectionString,
-                      $SilkAgentPath,
-                      $SilkVSSPath,
-                      $SDPId,
-                      $SDPUsername,
-                      $SDPPassword,
-                      $DebugMode,
-                      $DryRunMode,
-                      $MountPointsDirectory,
-                      $InstallDir,
-                      $Script)
+                param($ConfigJson, $Script)
 
                 function InfoMessageRIS { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [INFO] $message"}
                 function DebugMessageRIS { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [DEBUG] $message"}
                 function ErrorMessageRIS { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [ERROR] $message"}
-                # Set debug preferences in the remote session based on the debug mode
-                if ($DebugMode) {
-                    $DebugPreference = 'Continue'
-                    $VerbosePreference = 'Continue'
-                } else {
-                    $DebugPreference = 'SilentlyContinue'
-                    $VerbosePreference = 'SilentlyContinue'
-                }
 
-                # Create a new function with the script content
-                $function = [ScriptBlock]::Create($Script)
-                InfoMessageRIS "Running installation script... (Debug: $DebugMode, DryRun: $DryRunMode)"
-
-                # Prepare base arguments
-                $functionArgs = @{
-                    FlexIP = $FlexIP
-                    FlexToken = $FlexToken
-                    DBConnectionString = $DBConnectionString
-                    SilkAgentPath = $SilkAgentPath
-                    SilkVSSPath = $SilkVSSPath
-                    SDPId = $SDPId
-                    SDPUsername = $SDPUsername
-                    SDPPassword = $SDPPassword
-                    MountPointsDirectory = $MountPointsDirectory
-                    Dir = $hostInfo.install_to_directory
-                }
-
-                # Add DryRun parameter if in dry run mode
-                if ($DryRunMode) {
-                    $functionArgs.Add('DryRun', $true)
-                    InfoMessageRIS "Dry run mode is enabled, no changes will be made."
-                }
-
-                # Execute function with prepared arguments using splatting
+                # Parse config to set debug preferences
                 try {
-                    $result = & $function @functionArgs
+                    $config = $ConfigJson | ConvertFrom-Json
+                    if ($config.is_debug) {
+                        $DebugPreference = 'Continue'
+                        $VerbosePreference = 'Continue'
+                    } else {
+                        $DebugPreference = 'SilentlyContinue'
+                        $VerbosePreference = 'SilentlyContinue'
+                    }
+                    InfoMessageRIS "Running installation script... (Debug: $($config.is_debug), DryRun: $($config.is_dry_run))"
+                } catch {
+                    ErrorMessageRIS "Failed to parse ConfigJson: $_"
+                    return @{ Success = $false; Output = $null; Error = "Failed to parse configuration" }
+                }
+
+                # Create a new function with the script content and pass ConfigJson directly
+                $function = [ScriptBlock]::Create($Script)
+
+                # Execute function with ConfigJson parameter
+                try {
+                    $result = & $function -ConfigJson $ConfigJson
                     return @{ Success = $true; Output = $result; Error = $null }
                 } catch {
                     ErrorMessageRIS "Installation script execution failed: $_"
@@ -142,34 +124,49 @@ function StartBatchInstallation {
                 }
             }
 
-            # Prepare argument list with null checks
-            $ArgumentList = @(
-                $hostInfo.flex_host_ip,
-                $hostInfo.flex_access_token,
-                $hostInfo.sql_connection_string,
-                $agentPath,
-                $vssPath,
-                $hostInfo.sdp_id,
-                $hostInfo.sdp_credential.UserName,
-                $hostInfo.sdp_credential.GetNetworkCredential().Password,
-                $IsDebug,
-                $IsDryRun,
-                $hostInfo.mount_points_directory,
-                $hostInfo.install_to_directory,
-                $HostSetupScript
-            )
+            # Build configuration JSON with conditional fields
+            $installConfig = @{
+                flex_host_ip = $hostInfo.flex_host_ip
+                flex_access_token = $hostInfo.flex_access_token
+                sql_connection_string = $hostInfo.sql_connection_string
+                agent_path = $agentPath
+                vss_path = $vssPath
+                sdp_id = $hostInfo.sdp_id
+                sdp_username = if ($hostInfo.sdp_credential) { $hostInfo.sdp_credential.UserName } else { $null }
+                sdp_password = if ($hostInfo.sdp_credential) { $hostInfo.sdp_credential.GetNetworkCredential().Password } else { $null }
+                mount_points_directory = $hostInfo.mount_points_directory
+                install_to_directory = $hostInfo.install_to_directory
+                is_debug = $IsDebug
+                is_dry_run = $IsDryRun
+                install_agent = $hostInfo.install_agent
+                install_vss = $hostInfo.install_vss
+            }
 
-            # Validate ArgumentList for null values (install_to_directory can be empty string)
-            for ($i = 0; $i -lt $ArgumentList.Count; $i++) {
-                if ($null -eq $ArgumentList[$i]) {
-                    $paramNames = @('flex_host_ip', 'flex_access_token', 'sql_connection_string', 'agentPath', 'vssPath', 'sdp_id', 'sdp_username', 'sdp_password', 'IsDebug', 'IsDryRun', 'mount_points_directory', 'install_to_directory', 'HostSetupScript')
-                    # Allow install_to_directory (index 11) to be null or empty
-                    if ($i -ne 11) {
-                        ErrorMessageIJS "Null value found in ArgumentList at index $i (parameter: $($paramNames[$i]))"
-                        return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Null parameter: $($paramNames[$i])" }
+            # Validate required fields based on what's being installed
+            if ($hostInfo.install_agent) {
+                $agentFields = @('flex_host_ip', 'flex_access_token', 'sql_connection_string', 'agent_path')
+                foreach ($field in $agentFields) {
+                    if ($null -eq $installConfig[$field] -or $installConfig[$field] -eq '') {
+                        ErrorMessageIJS "Required field for agent installation '$field' is null or empty"
+                        return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Missing required field: $field" }
                     }
                 }
             }
+
+            if ($hostInfo.install_vss) {
+                $vssFields = @('vss_path', 'sdp_id', 'sdp_username', 'sdp_password')
+                foreach ($field in $vssFields) {
+                    if ($null -eq $installConfig[$field] -or $installConfig[$field] -eq '') {
+                        ErrorMessageIJS "Required field for VSS installation '$field' is null or empty"
+                        return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Missing required field: $field" }
+                    }
+                }
+            }
+
+            $ConfigJson = $installConfig | ConvertTo-Json -Compress
+
+            # Prepare argument list with ConfigJson and Script
+            $ArgumentList = @($ConfigJson, $HostSetupScript)
 
             # Prepare invoke command parameters - DIRECT EXECUTION (NO -AsJob)
             $invokeParams = @{
