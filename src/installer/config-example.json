@@ -10,6 +10,8 @@
       }
    },
    "common": {
+      "installAgent": true,
+      "installVSS": true,
       "sdp_id": "sdp_id",
       "sdp_user": "sdp_user",
       "sdp_pass": "sdp_pass",
@@ -31,7 +33,11 @@
       "sql_pass": "sql_pass_1",
       "sql_server": "host_1,port_1"
     },
-    "10.30.40.51",
+    {
+      "host_addr": "10.30.40.51",
+      "installAgent": true,
+      "installVSS": false
+    },
     "10.30.40.52"
     ]
 }

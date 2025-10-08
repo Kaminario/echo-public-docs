@@ -107,7 +107,10 @@ param (
 
     [string]$MountPointsDirectory = "",
     [string]$Dir = "",
-    [switch]$DryRun
+    [switch]$DryRun,
+
+    [bool]$InstallAgent = $true,
+    [bool]$InstallVSS = $true
 )
 
 if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
@@ -141,6 +144,8 @@ $SDPCredential = New-Object System.Management.Automation.PSCredential($SDPUserna
 
 Set-Variable -Name SDPCredential -Value $SDPCredential -Scope Global
 Set-Variable -Name IsDryRun -Value $DryRun.IsPresent -Scope Global
+Set-Variable -Name InstallAgent -Value $InstallAgent -Scope Global
+Set-Variable -Name InstallVSS -Value $InstallVSS -Scope Global
 Set-Variable -Name AgentInstallationLogPath -Scope Global
 Set-Variable -Name SVSSInstallationLogPath -Scope Global
 Set-Variable -Name HostID -Value "$(hostname)" -Scope Global
@@ -317,6 +322,12 @@ function createAndTestConnectionString {
 
     # Set application name to SilkAgent
     $baseParams['Application Name'] = 'SilkAgent'
+
+    # currently we support only credentials authentication and will failed if there is no User ID and Password
+    if (-not $baseParams.ContainsKey('User ID') -or -not $baseParams.ContainsKey('Password')) {
+        ErrorMessage "Connection string must include User ID and Password for SQL authentication"
+        return $null
+    }
 
     # If Server is already specified, test that connection first
     if ($baseParams.ContainsKey('Server') -and $baseParams['Server'] -ne '') {
@@ -798,105 +809,218 @@ function InstallSilkVSSProvider {
 #endregion InstallSilkVSSProvider
 
 
-#region setup
-function setup{
+#region setup_agent
+function setup_agent {
+    <#
+    .SYNOPSIS
+        Sets up and installs the Silk Node Agent component only.
 
-    try {
-        SkipCertificateCheck
+    .DESCRIPTION
+        This function handles all prerequisites and installation steps for the Silk Node Agent:
+        - Creates and validates SQL Server connection string
+        - Registers host at Flex to obtain agent token
+        - Installs the Silk Node Agent
 
+    .OUTPUTS
+        Returns $null on success, or an error message string on failure.
+    #>
 
-        if (-not (TestFlexConnectivity -FlexIP $FlexIP -FlexToken $FlexToken)) {
-            InfoMessage "Flex connectivity test failed"
-            return "Failed to establish connection with Flex server at $FlexIP"
-        }
+    InfoMessage "Starting Silk Node Agent setup..."
 
-        InfoMessage "Successfully connected to Flex"
+    # Verify Agent installer exists
+    if (-not (Test-Path $SilkAgentPath)) {
+        ErrorMessage "Silk Node Agent installer not found at $SilkAgentPath"
+        return "Unable to find Silk Node Agent installer at $SilkAgentPath"
+    }
+    InfoMessage "Silk Node Agent installer found at $SilkAgentPath"
 
-        # get sdp username and password from flex
-        $SDPInfo = GetSDPInfo -FlexIP $FlexIP -FlexToken $FlexToken -SDPID $SDPId
+    # Validate and create SQL Server connection string
+    $ConnectionString = createAndTestConnectionString -DBConnectionString $DBConnectionString
+    if (-not $ConnectionString) {
+        ErrorMessage "Failed to create and test connection string"
+        return "Unable to establish connection with any available SQL Server instance. Check SQL Server availability and credentials"
+    }
+    InfoMessage "Successfully established SQL Server connection with connection string: $ConnectionString"
 
-        if (-not $SDPInfo) {
-            ErrorMessage "Failed to get SDP info from Flex"
-            return "Unable to retrieve SDP information from Flex server"
-        }
-
-        $SDPID = $SDPInfo["id"]
-        $SDPVersion = $SDPInfo["version"]
-        $SDPHost = $SDPInfo["mc_floating_ip"]
-        $SDPPort = $SDPInfo["mc_https_port"]
-        InfoMessage "Successfully retrieved SDP info from Flex $SDPID ($SDPVersion) at ${SDPHost}:$SDPPort"
-
-        $SdpConnectionValid = ValidateSDPConnection -SDPHost $SDPHost -SDPPort $SDPPort -Credential $SDPCredential
-        if (-not $SdpConnectionValid) {
-            ErrorMessage "Failed to validate SDP connection"
-            return "Unable to establish connection with SDP at ${SDPHost}:${SDPPort}"
-        }
-
-        $ConnectionString = createAndTestConnectionString -DBConnectionString $DBConnectionString
-
-        if (-not $ConnectionString) {
-            ErrorMessage "Failed to create and test connection string"
-            return "Unable to establish connection with any available SQL Server instance. Check SQL Server availability and credentials"
-        }
-
-        InfoMessage "Successfully established SQL Server connection with connection string: $ConnectionString"
-
-        if (-not (Test-Path $SilkAgentPath)) {
-            ErrorMessage "Silk Node Agent installer not found at $SilkAgentPath"
-            return "Unable to find Silk Node Agent installer at $SilkAgentPath"
-        } else {
-            InfoMessage "Silk Node Agent installer found at $SilkAgentPath"
-        }
-
-        if (-not (Test-Path $SilkVSSPath)) {
-            ErrorMessage "Silk VSS Provider installer not found at $SilkVSSPath"
-            return "Unable to find Silk VSS Provider installer at $SilkVSSPath"
-        } else {
-            InfoMessage "Silk VSS Provider installer found at $SilkVSSPath"
-        }
-
-        if ($IsDryRun) {
-            # stop execution if dry run is enabled
-            InfoMessage "Dry run mode enabled. Skipping actual installation."
-            return $null
-        }
-
-        $AgentToken = RegisterHostAtFlex -FlexIP $FlexIP -FlexToken $FlexToken
-        if (-not $AgentToken) {
-            return "Failed to register host $HostID with Flex and obtain agent token"
-        }
-
-        # Install Silk VSS Provider
-        $vssResult = InstallSilkVSSProvider -InstallerFilePath $SilkVSSPath -SDPID $SDPID -SDPHost $SDPHost -SDPPort $SDPPort -Credential $SDPCredential -InstallDir $Dir
-        if (-not $vssResult.Success) {
-            ErrorMessage "Failed to install Silk VSS Provider: $($vssResult.Reason)"
-            return $vssResult.Message
-        }
-
-        InfoMessage "Temporary directory: $SilkVSSDirectory"
-        if ($IsDryRun) {
-            InfoMessage "Validation completed successfully. No actual installation was performed."
-        } else {
-            InfoMessage "Silk Node Agent and VSS Provider installation completed successfully."
-        }
-
-        $installResult = InstallSilkNodeAgent -InstallerFilePath $SilkAgentPath `
-                                          -SQLConnectionString $ConnectionString `
-                                          -FlexIP $FlexIP `
-                                          -AgentToken $AgentToken `
-                                          -MountPointsDirectory $MountPointsDirectory `
-                                          -InstallDir $Dir
-        if (-not $installResult.Success) {
-            ErrorMessage "Failed to install Silk Node Agent: $($installResult.Reason)"
-            return $installResult.Message
-        }
-
-        # Return $null to indicate success
+    # If dry run, skip actual installation
+    if ($IsDryRun) {
+        InfoMessage "Dry run mode enabled. Skipping Silk Node Agent installation."
         return $null
     }
-    catch {
-        return $_.Exception.Message
+
+    # Register host at Flex to obtain agent token
+    $AgentToken = RegisterHostAtFlex -FlexIP $FlexIP -FlexToken $FlexToken
+    if (-not $AgentToken) {
+        ErrorMessage "Failed to register host at Flex"
+        return "Failed to register host $HostID with Flex and obtain agent token"
     }
+
+    # Install Silk Node Agent
+    $installResult = InstallSilkNodeAgent -InstallerFilePath $SilkAgentPath `
+                                        -SQLConnectionString $ConnectionString `
+                                        -FlexIP $FlexIP `
+                                        -AgentToken $AgentToken `
+                                        -MountPointsDirectory $MountPointsDirectory `
+                                        -InstallDir $Dir
+
+    # Print installation log immediately after installation attempt
+    PrintAgentInstallationLog
+
+    if (-not $installResult.Success) {
+        ErrorMessage "Failed to install Silk Node Agent: $($installResult.Reason)"
+        return $installResult.Message
+    }
+
+    InfoMessage "Silk Node Agent installation completed successfully"
+    return $null
+}
+#endregion setup_agent
+
+
+#region setup_vss
+function setup_vss {
+    <#
+    .SYNOPSIS
+        Sets up and installs the Silk VSS Provider component only.
+
+    .DESCRIPTION
+        This function handles all prerequisites and installation steps for the Silk VSS Provider:
+        - Retrieves SDP information from Flex
+        - Validates SDP connection
+        - Installs the Silk VSS Provider
+
+    .OUTPUTS
+        Returns $null on success, or an error message string on failure.
+    #>
+
+    InfoMessage "Starting Silk VSS Provider setup..."
+
+    # Verify VSS installer exists
+    if (-not (Test-Path $SilkVSSPath)) {
+        ErrorMessage "Silk VSS Provider installer not found at $SilkVSSPath"
+        return "Unable to find Silk VSS Provider installer at $SilkVSSPath"
+    }
+    InfoMessage "Silk VSS Provider installer found at $SilkVSSPath"
+
+    # Get SDP information from Flex
+    $SDPInfo = GetSDPInfo -FlexIP $FlexIP -FlexToken $FlexToken -SDPID $SDPId
+    if (-not $SDPInfo) {
+        ErrorMessage "Failed to get SDP info from Flex"
+        return "Unable to retrieve SDP information from Flex server"
+    }
+
+    $SDPID = $SDPInfo["id"]
+    $SDPVersion = $SDPInfo["version"]
+    $SDPHost = $SDPInfo["mc_floating_ip"]
+    $SDPPort = $SDPInfo["mc_https_port"]
+    InfoMessage "Successfully retrieved SDP info from Flex $SDPID ($SDPVersion) at ${SDPHost}:$SDPPort"
+
+    # Validate SDP connection
+    $SdpConnectionValid = ValidateSDPConnection -SDPHost $SDPHost -SDPPort $SDPPort -Credential $SDPCredential
+    if (-not $SdpConnectionValid) {
+        ErrorMessage "Failed to validate SDP connection"
+        return "Unable to establish connection with SDP at ${SDPHost}:${SDPPort}"
+    }
+    InfoMessage "Successfully validated SDP connection"
+
+    # If dry run, skip actual installation
+    if ($IsDryRun) {
+        InfoMessage "Dry run mode enabled. Skipping Silk VSS Provider installation."
+        return $null
+    }
+
+    # Install Silk VSS Provider
+    $vssResult = InstallSilkVSSProvider -InstallerFilePath $SilkVSSPath `
+                                        -SDPID $SDPID `
+                                        -SDPHost $SDPHost `
+                                        -SDPPort $SDPPort `
+                                        -Credential $SDPCredential `
+                                        -InstallDir $Dir
+
+    # Print installation log immediately after installation attempt
+    PrintSVSSInstallationLog
+
+    if (-not $vssResult.Success) {
+        ErrorMessage "Failed to install Silk VSS Provider: $($vssResult.Reason)"
+        return $vssResult.Message
+    }
+
+    InfoMessage "Silk VSS Provider installation completed successfully"
+    return $null
+}
+#endregion setup_vss
+
+
+#region setup
+function setup{
+    <#
+    .SYNOPSIS
+        Main orchestrator function for Silk Echo component installation.
+
+    .DESCRIPTION
+        This function orchestrates the installation of Silk Echo components based on configuration:
+        - Tests Flex connectivity (common prerequisite)
+        - Calls setup_agent() if InstallAgent is enabled
+        - Calls setup_vss() if InstallVSS is enabled
+
+    .OUTPUTS
+        Returns $null on success, or an error message string on failure.
+    #>
+
+    InfoMessage "Starting Silk Echo installation setup..."
+
+    # Validate that at least one component is enabled
+    if (-not $InstallAgent -and -not $InstallVSS) {
+        ErrorMessage "No components selected for installation. At least one of InstallAgent or InstallVSS must be true."
+        return "No components selected for installation"
+    }
+
+    # Test Flex connectivity (common prerequisite for both components)
+    if (-not (TestFlexConnectivity -FlexIP $FlexIP -FlexToken $FlexToken)) {
+        ErrorMessage "Flex connectivity test failed"
+        return "Failed to establish connection with Flex server at $FlexIP"
+    }
+    InfoMessage "Successfully connected to Flex"
+
+    # Install Agent if enabled
+    $agentError = $null
+    if ($InstallAgent) {
+        InfoMessage "Agent installation is enabled"
+        $agentError = setup_agent
+        if ($agentError) {
+            ErrorMessage "Agent setup failed: $agentError"
+            return $agentError
+        }
+    } else {
+        InfoMessage "Skipping Silk Node Agent installation (InstallAgent=false)"
+    }
+
+    # Install VSS if enabled
+    $vssError = $null
+    if ($InstallVSS) {
+        InfoMessage "VSS installation is enabled"
+        $vssError = setup_vss
+        if ($vssError) {
+            ErrorMessage "VSS setup failed: $vssError"
+            return $vssError
+        }
+    } else {
+        InfoMessage "Skipping Silk VSS Provider installation (InstallVSS=false)"
+    }
+
+    # Success message
+    if ($IsDryRun) {
+        InfoMessage "Dry run validation completed successfully. No actual installation was performed."
+    } else {
+        $installedComponents = @()
+        if ($InstallAgent) { $installedComponents += "Silk Node Agent" }
+        if ($InstallVSS) { $installedComponents += "Silk VSS Provider" }
+        InfoMessage "$($installedComponents -join ' and ') installation completed successfully."
+    }
+
+    # Return $null to indicate success
+    return $null
+
 }
 #endregion setup
 
@@ -905,19 +1029,22 @@ function SetupHost {
     InfoMessage "Starting Silk Node Agent and VSS Provider installation script..."
 
     try {
+        SkipCertificateCheck
         $error = setup
     } catch {
-        $error = $_
+        $error = $_.Exception.Message
+        ErrorMessage "Unexpected error during setup: $error"
     }
 
-    PrintAgentInstallationLog
-    PrintSVSSInstallationLog
-
     if ($error) {
-        ErrorMessage "Process log files located at:"
-        ErrorMessage " - Silk Node Agent installation log: $AgentInstallationLogPath"
-        ErrorMessage " - Silk VSS Provider installation log: $SVSSInstallationLogPath"
         ErrorMessage "Setup completed with errors. Please check the logs for details: $($error)"
+        ErrorMessage "Process log files located at:"
+        if ($InstallAgent) {
+            ErrorMessage " - Silk Node Agent installation log: $AgentInstallationLogPath"
+        }
+        if ($InstallVSS) {
+            ErrorMessage " - Silk VSS Provider installation log: $SVSSInstallationLogPath"
+        }
         throw "Setup failed on Host[$env:COMPUTERNAME]. $($error)"
     } else {
         CleanupInstallerFiles
