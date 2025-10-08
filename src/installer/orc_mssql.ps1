@@ -37,7 +37,7 @@ function UpdateHostSqlConnectionString {
     $goodHost = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
 
     # Check if any hosts need Agent installation
-    $hostsNeedingAgent = @($goodHost | Where-Object { $_.installAgent -eq $true })
+    $hostsNeedingAgent = @($goodHost | Where-Object { $_.install_agent -eq $true })
 
     if ($hostsNeedingAgent.Count -eq 0) {
         InfoMessage "No hosts require Agent installation - skipping SQL credential collection"

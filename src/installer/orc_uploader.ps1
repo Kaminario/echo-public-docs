@@ -12,8 +12,8 @@ function EnsureLocalInstallers {
     $requiredInstallers = @('agent', 'vss')
 
     $installFlags = @{}
-    $installFlags['agent'] = $Config.common.installAgent
-    $installFlags['vss'] = $Config.common.installVSS
+    $installFlags['agent'] = $Config.common.install_agent
+    $installFlags['vss'] = $Config.common.install_vss
 
     # Process all required installers
     foreach ($installerType in $requiredInstallers) {
@@ -154,6 +154,13 @@ function UploadInstallersToHosts {
             # Copy each installer file
             foreach ($installerType in $LocalPaths.Keys) {
                 $localPath = $LocalPaths[$installerType]
+
+                # Skip if path is null (installer not needed)
+                if ($null -eq $localPath) {
+                    $stdErrOut += "Skipping $installerType installer (not required for this host)"
+                    continue
+                }
+
                 $fileName = Split-Path $localPath -Leaf
 
                 $stdErrOut += "Copying $installerType installer to $($HostInfo.host_addr)..."
