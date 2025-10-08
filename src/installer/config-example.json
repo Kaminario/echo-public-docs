@@ -10,8 +10,9 @@
       }
    },
    "common": {
-      "installAgent": true,
-      "installVSS": true,
+      "install_agent": true,
+      "install_vss": true,
+      "install_to_directory": "",
       "sdp_id": "sdp_id",
       "sdp_user": "sdp_user",
       "sdp_pass": "sdp_pass",
@@ -35,8 +36,8 @@
     },
     {
       "host_addr": "10.30.40.51",
-      "installAgent": true,
-      "installVSS": false
+      "install_agent": true,
+      "install_vss": false
     },
     "10.30.40.52"
     ]

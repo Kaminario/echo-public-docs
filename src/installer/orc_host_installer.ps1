@@ -834,6 +834,15 @@ function setup_agent {
     }
     InfoMessage "Silk Node Agent installer found at $SilkAgentPath"
 
+    # Validate installation directory if specified
+    if ($Dir -and $Dir.Trim() -ne "") {
+        if (-not (Test-Path -Path $Dir -PathType Container)) {
+            ErrorMessage "Installation directory does not exist: $Dir"
+            return "Installation directory '$Dir' does not exist or is not a directory"
+        }
+        InfoMessage "Installation directory validated: $Dir"
+    }
+
     # Validate and create SQL Server connection string
     $ConnectionString = createAndTestConnectionString -DBConnectionString $DBConnectionString
     if (-not $ConnectionString) {
@@ -901,6 +910,15 @@ function setup_vss {
         return "Unable to find Silk VSS Provider installer at $SilkVSSPath"
     }
     InfoMessage "Silk VSS Provider installer found at $SilkVSSPath"
+
+    # Validate installation directory if specified
+    if ($Dir -and $Dir.Trim() -ne "") {
+        if (-not (Test-Path -Path $Dir -PathType Container)) {
+            ErrorMessage "Installation directory does not exist: $Dir"
+            return "Installation directory '$Dir' does not exist or is not a directory"
+        }
+        InfoMessage "Installation directory validated: $Dir"
+    }
 
     # Get SDP information from Flex
     $SDPInfo = GetSDPInfo -FlexIP $FlexIP -FlexToken $FlexToken -SDPID $SDPId
