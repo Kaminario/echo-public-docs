@@ -40,6 +40,15 @@ The Silk Echo installer automates the deployment of Silk's data acceleration com
 4. **SQL Server Integration**: Configures database connectivity for the Node Agent
 5. **SDP Integration**: Connects to Silk Data Platform for storage services
 
+### Component Installation Architecture
+
+The installer supports **selective component installation**, allowing Agent and VSS to be installed independently:
+
+- **Independent Components**: Agent and VSS installations have no dependencies on each other
+- **Optimized Prerequisites**: Only required prerequisites are executed based on enabled components
+- **Modular Functions**: `setup_agent()` and `setup_vss()` functions handle component-specific logic
+- **Orchestrated Execution**: Main `setup()` function coordinates component installations
+
 ### Key System Features
 - **Batch Orchestration**: Advanced parallel processing framework with dynamic job scheduling and smart resource management
 - **Dynamic Parallel Processing**: Configurable concurrency with immediate job scheduling when slots become available (no fixed batch waiting)
@@ -113,16 +122,105 @@ The installer follows a modular architecture pattern:
 4. **Parallel Execution**: Concurrent installation across multiple hosts with configurable concurrency
 5. **Production Build**: `make-release.ps1` creates single-file deployment packages
 
+### Selective Component Installation Architecture
+
+The installer has been refactored to support independent installation of Agent and VSS components:
+
+#### Function Decomposition
+
+**`setup()` - Main Orchestrator** (`orc_host_installer.ps1:940-1018`)
+- Validates at least one component is enabled
+- Tests Flex connectivity (shared prerequisite)
+- Calls `setup_agent()` if `InstallAgent=true`
+- Calls `setup_vss()` if `InstallVSS=true`
+- Provides dynamic success messages based on installed components
+
+**`setup_agent()` - Agent Installation** (`orc_host_installer.ps1:806-870`)
+- Validates SQL Server connection
+- Checks Agent installer file exists
+- Registers host at Flex (obtains agent token)
+- Installs Silk Node Agent
+- Prints installation log immediately after installation
+
+**`setup_vss()` - VSS Installation** (`orc_host_installer.ps1:874-944`)
+- Retrieves SDP information from Flex
+- Validates SDP connection
+- Checks VSS installer file exists
+- Installs Silk VSS Provider
+- Prints installation log immediately after installation
+
+#### Component Dependencies
+
+**Agent Prerequisites:**
+- ✅ Flex connectivity (shared)
+- ✅ SQL Server connection validation
+- ✅ Host registration at Flex
+- ✅ Agent installer file
+
+**VSS Prerequisites:**
+- ✅ Flex connectivity (shared)
+- ✅ SDP information retrieval
+- ✅ SDP connection validation
+- ✅ VSS installer file
+
+**No Cross-Dependencies:**
+- Agent installation does NOT require VSS components
+- VSS installation does NOT require Agent components
+- Both can be installed independently or together
+
+#### Installation Flow Optimization
+
+```
+┌─────────────────────────────────────────┐
+│         setup() Orchestrator            │
+├─────────────────────────────────────────┤
+│ 1. Validate component selection         │
+│ 2. Test Flex connectivity (once)        │
+│                                          │
+│ ┌─────────────────┐ ┌────────────────┐ │
+│ │  setup_agent()  │ │  setup_vss()   │ │
+│ │                 │ │                │ │
+│ │ • SQL validate  │ │ • Get SDP info │ │
+│ │ • Register host │ │ • Validate SDP │ │
+│ │ • Install Agent │ │ • Install VSS  │ │
+│ │ • Print logs    │ │ • Print logs   │ │
+│ └─────────────────┘ └────────────────┘ │
+└─────────────────────────────────────────┘
+```
+
+#### Configuration Parameters
+
+**Host-level Configuration:**
+```json
+{
+  "host_addr": "192.168.1.10",
+  "install_agent": true,  // Default: true
+  "install_vss": false    // Default: true
+}
+```
+
+**Global Variables** (`orc_host_installer.ps1:147-148`)
+```powershell
+Set-Variable -Name InstallAgent -Value $InstallAgent -Scope Global
+Set-Variable -Name InstallVSS -Value $InstallVSS -Scope Global
+```
+
+#### Logging Improvements
+
+- **Immediate Log Printing**: Installation logs are printed immediately after each component installs
+- **Component-Specific Logs**: Only logs for installed components are displayed
+- **Better Debugging**: Logs appear in context, making troubleshooting easier
+
 ### Key Development Processes
 
 #### 1. Authentication Flow
 ```
-Host Auth (AD/Credentials) → Flex Login (API Token) → SDP Validation → SQL Validation
+Host Auth (AD/Credentials) → Flex Login (API Token) → SDP Validation (if VSS) → SQL Validation (if Agent)
 ```
 
 #### 2. Installation Pipeline
 ```
-Download → Upload → Connectivity Test → Register → Install Agent → Install VSS → Validate
+Download → Upload → Connectivity Test → Register (if Agent) → Install Agent (optional) → Install VSS (optional) → Validate
 ```
 
 #### 3. Parallel Processing Architecture
@@ -207,6 +305,75 @@ The configuration system uses JSON with inheritance patterns:
 - **SQL Authentication**: Username/password credentials (shown above)
 - **Integrated Authentication**: Uses Windows Authentication when sql_user/sql_pass not provided
 - **Mixed Mode**: Supports both authentication types based on configuration presence
+
+### Selective Installation Usage Examples
+
+#### Example 1: Install Agent Only on Multiple Hosts
+```json
+{
+  "common": {
+    "install_agent": true,
+    "install_vss": false,
+    "flex_host_ip": "192.168.1.100",
+    "sql_user": "sa",
+    "sql_pass": "password",
+    "mount_points_directory": "C:\\MountPoints"
+  },
+  "hosts": [
+    "sql-server-01",
+    "sql-server-02",
+    "sql-server-03"
+  ]
+}
+```
+**Prerequisites executed:** Flex connectivity, SQL validation, Host registration
+**Prerequisites skipped:** SDP info retrieval, SDP validation
+
+#### Example 2: Install VSS Only on Backup Servers
+```json
+{
+  "common": {
+    "install_agent": false,
+    "install_vss": true,
+    "flex_host_ip": "192.168.1.100",
+    "sdp_id": "12506",
+    "sdp_user": "admin",
+    "sdp_pass": "password",
+    "mount_points_directory": "C:\\MountPoints"
+  },
+  "hosts": [
+    "backup-server-01",
+    "backup-server-02"
+  ]
+}
+```
+**Prerequisites executed:** Flex connectivity, SDP info retrieval, SDP validation
+**Prerequisites skipped:** SQL validation, Host registration
+
+#### Example 3: Mixed Installation Across Hosts
+```json
+{
+  "hosts": [
+    {
+      "host_addr": "sql-primary-01",
+      "install_agent": true,
+      "install_vss": true
+    },
+    {
+      "host_addr": "sql-secondary-01",
+      "install_agent": true,
+      "install_vss": false
+    },
+    {
+      "host_addr": "backup-server-01",
+      "install_agent": false,
+      "install_vss": true
+    }
+  ]
+}
+```
+
+**Note:** `orc_host_installer.ps1` is executed remotely by `orchestrator.ps1` and is not meant for direct invocation. The `InstallAgent` and `InstallVSS` parameters are passed automatically based on the configuration.
 
 ### Development Workflow
 

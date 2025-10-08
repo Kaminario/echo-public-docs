@@ -35,9 +35,17 @@ function UpdateHostSqlConnectionString {
     $commonCredentialsNeeded = $false
 
     $goodHost = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
-    
-    # Check if any hosts are missing SQL credentials
-    foreach ($hostInfo in $goodHost) {
+
+    # Check if any hosts need Agent installation
+    $hostsNeedingAgent = @($goodHost | Where-Object { $_.installAgent -eq $true })
+
+    if ($hostsNeedingAgent.Count -eq 0) {
+        InfoMessage "No hosts require Agent installation - skipping SQL credential collection"
+        return $true
+    }
+
+    # Check if any hosts requiring Agent are missing SQL credentials
+    foreach ($hostInfo in $hostsNeedingAgent) {
         if (-not $hostInfo.sql_user -or -not $hostInfo.sql_pass) {
             $commonCredentialsNeeded = $true
             break

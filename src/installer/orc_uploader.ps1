@@ -11,30 +11,41 @@ function EnsureLocalInstallers {
     $localPaths = @{}
     $requiredInstallers = @('agent', 'vss')
 
+    $installFlags = @{}
+    $installFlags['agent'] = $Config.common.installAgent
+    $installFlags['vss'] = $Config.common.installVSS
+
     # Process all required installers
     foreach ($installerType in $requiredInstallers) {
+        if ( -not $installFlags[$installerType]) {
+            InfoMessage "Skipping $installerType installer"
+            $localPaths[$installerType] = $null
+            continue
+        }
+
         $installerConfig = $Config.installers.$installerType
+
         if (-not $installerConfig) {
             ErrorMessage "Missing required $installerType installer configuration in config.installers"
             return $null
         }
 
         # If path is provided and file exists, use it directly
-        if ($InstallerConfig.path) {
-            if (Test-Path $InstallerConfig.path) {
-                InfoMessage "Using existing $InstallerType installer at: $($InstallerConfig.path)"
-                $installerPath = $InstallerConfig.path
+        if ($installerConfig.path) {
+            if (Test-Path $installerConfig.path) {
+                InfoMessage "Using existing $installerType installer at: $($installerConfig.path)"
+                $installerPath = $installerConfig.path
             } else {
                 # If path is provided but doesn't exist
-                ErrorMessage "$InstallerType installer path specified but file not found: $($InstallerConfig.path)"
+                ErrorMessage "$installerType installer path specified but file not found: $($installerConfig.path)"
                 return $null
             }
         } else {
-            if (-not $InstallerConfig.url) {
-                ErrorMessage "No URL specified for $InstallerType installer in configuration"
+            if (-not $installerConfig.url) {
+                ErrorMessage "No URL specified for $installerType installer in configuration"
                 return $null
             }
-            $installerPath = downloadInstaller -InstallerURL $InstallerConfig.url -CacheDir $SilkEchoInstallerCacheDir -InstallerType $installerType
+            $installerPath = downloadInstaller -InstallerURL $installerConfig.url -CacheDir $SilkEchoInstallerCacheDir -InstallerType $installerType
         }
 
         if ($installerPath) {

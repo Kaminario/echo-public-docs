@@ -72,8 +72,16 @@ function UpdateSDPCredentials {
 
     $goodHost = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
 
-    # get all different SDPId from hosts
-    $SDPIDs = $goodHost | ForEach-Object { $_.sdp_id } | Sort-Object -Unique
+    # Check if any hosts need VSS installation
+    $hostsNeedingVSS = @($goodHost | Where-Object { $_.installVSS -eq $true })
+
+    if ($hostsNeedingVSS.Count -eq 0) {
+        InfoMessage "No hosts require VSS installation - skipping SDP credential collection"
+        return
+    }
+
+    # get all different SDPId from hosts that need VSS
+    $SDPIDs = $hostsNeedingVSS | ForEach-Object { $_.sdp_id } | Sort-Object -Unique
 
     # get sdpInfo for each SDPId (floating IP and port from Flex)
     $SDPInfo = @{}
