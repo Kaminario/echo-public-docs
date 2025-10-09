@@ -11,7 +11,9 @@ function Sanitize {
     )
 
     # Reduct password from text, sometimes text contains connection string with password
-    $ReductedText = $Text -replace '(?i)(?<=Password=)[^;]+', '[reducted]'
+    # Updated regex to handle both plain connection strings and JSON-embedded strings
+    # Match password value until semicolon OR quote OR end of line
+    $ReductedText = $Text -replace '(?i)(?<=Password=)[^;"]+', '[reducted]'
 
     # Replace the value of the $FlexToken variable with '[reducted]' only if it exists and is not empty
     if ($Global:FlexToken -and $Global:FlexToken.Length -gt 0) {
