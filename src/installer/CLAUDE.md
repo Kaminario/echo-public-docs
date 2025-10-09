@@ -1,3 +1,3 @@
-read ".conext/context.md"
+read ".context/context.md"
 read ".context/rules.md"
 
