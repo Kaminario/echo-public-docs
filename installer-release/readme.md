@@ -13,6 +13,11 @@ The Silk Echo installer automates the deployment of Silk's data acceleration com
 
 ## Key Features
 
+### 🎯 **Flexible Component Installation**
+- **Selective Installation**: Install Agent only, VSS only, or both components
+- **Independent Components**: Agent and VSS can be installed separately without dependencies
+- **Configuration Control**: Per-host control over which components to install
+- **Optimized Workflow**: Skip unnecessary prerequisites when installing single components
 
 ### 🛡️ **Enterprise-Grade Reliability**
 - **Fault Tolerance**: Continues with valid hosts when some fail validation, upload, or installation
@@ -168,6 +173,18 @@ Contains shared configuration inherited by all hosts unless overridden.
   servers on each host. Port 1433 will be prioritized, and the hostname
   will be used instead of IP address or localhost if the server is
   listening on 0.0.0.0.
+- `install_to_directory`: Target directory for component installations. If
+  empty or not specified, system default installation paths are used. If
+  set to a custom path (e.g., `"C:\\CustomPath"`), both Silk Node Agent
+  and VSS Provider will be installed to that directory. The directory must
+  exist on the target host before installation begins, or the installation
+  will fail with a validation error. This setting is primarily configured
+  in the `common` section for all hosts but can be overridden at the host
+  level for specific deployment scenarios.
+
+  **Version Requirements**: Custom installation directory is supported only
+  from Agent version 1.0.27 and VSS version 2.0.17. Earlier versions will
+  ignore this parameter and install to default system paths.
 
 **Authentication Fields:**
 - `host_auth`: Either `"active_directory"` or `"credentials"`
@@ -294,6 +311,124 @@ Uses explicit username/password for each target host.
 }
 ```
 
+## Selective Component Installation
+
+You can control which components to install using the `install_agent` and `install_vss` configuration options. These are **primarily configured in the `common` section** to apply to all hosts, with optional host-level overrides for specific deployment scenarios.
+
+### Configuration Options
+
+| Property | Type | Description | Default |
+|----------|------|-------------|---------|
+| `install_agent` | Boolean | Install Silk Node Agent component | `true` |
+| `install_vss` | Boolean | Install Silk VSS Provider component | `true` |
+
+### Common Section Configuration (Primary Method)
+
+The recommended approach is to set component installation options in the `common` section, which applies to all hosts.
+
+#### Install Both Components (Default)
+If neither `install_agent` nor `install_vss` is specified in the common section, both components will be installed on all hosts:
+
+```json
+{
+  "common": {
+    "flex_host_ip": "192.168.1.100",
+    "mount_points_directory": "C:\\MountPoints"
+  },
+  "hosts": [
+    "192.168.1.10",
+    "192.168.1.11",
+    "192.168.1.12"
+  ]
+}
+```
+
+#### Install Agent Only on All Hosts
+Useful when you need database manipulation capabilities without VSS integration across your entire environment:
+
+```json
+{
+  "common": {
+    "install_agent": true,
+    "install_vss": false,
+    "flex_host_ip": "192.168.1.100",
+    "sql_user": "sa",
+    "sql_pass": "password",
+    "mount_points_directory": "C:\\MountPoints"
+  },
+  "hosts": [
+    "192.168.1.10",
+    "192.168.1.11",
+    "192.168.1.12"
+  ]
+}
+```
+
+**Prerequisites skipped when VSS is disabled:**
+- SDP information retrieval
+- SDP connection validation
+- VSS installer download/upload
+
+#### Install VSS Only on All Hosts
+Useful when you only need Volume Shadow Copy Service integration across your entire environment:
+
+```json
+{
+  "common": {
+    "install_agent": false,
+    "install_vss": true,
+    "flex_host_ip": "192.168.1.100",
+    "sdp_id": "12506",
+    "sdp_user": "admin",
+    "sdp_pass": "password",
+    "mount_points_directory": "C:\\MountPoints"
+  },
+  "hosts": [
+    "192.168.1.10",
+    "192.168.1.11",
+    "192.168.1.12"
+  ]
+}
+```
+
+**Prerequisites skipped when Agent is disabled:**
+- SQL Server connection validation
+- Host registration at Flex
+- Agent installer download/upload
+
+### Host-Level Overrides (Advanced)
+
+For specific hosts that need different component configurations, you can override the common section settings at the host level.
+
+#### Override for Specific Hosts
+Common section sets defaults, individual hosts override as needed:
+
+```json
+{
+  "common": {
+    "install_agent": true,
+    "install_vss": false,
+    "flex_host_ip": "192.168.1.100",
+    "mount_points_directory": "C:\\MountPoints"
+  },
+  "hosts": [
+    "192.168.1.10",  // Installs only Agent (inherits from common)
+    "192.168.1.11",  // Installs only Agent (inherits from common)
+    {
+      "host_addr": "192.168.1.12",
+      "install_vss": true  // Override: installs both Agent and VSS
+    }
+  ]
+}
+```
+
+### Validation Rules
+
+- At least one component (`install_agent` or `install_vss`) must be enabled for each host
+- Setting both to `false` will result in a validation error
+- Installers are only downloaded/uploaded for enabled components
+- Credential validation is skipped for disabled components (e.g., no SQL validation if Agent is disabled)
+
 ## Host Configuration Options
 
 ### Property Inheritance
@@ -304,13 +439,14 @@ All hosts inherit properties from the `common` section. Object-format hosts can 
   "common": {
     "sql_user": "default-sql-user",
     "sql_pass": "default-sql-password",
-    "mount_points_directory": "C:\\MountPoints"
+    "mount_points_directory": "C:\\MountPoints",
+    "install_to_directory": "C:\\SilkComponents"
   },
   "hosts": [
     // Inherits all common properties
     "192.168.1.10",
 
-    // Overrides SQL credentials, inherits mount_points_directory
+    // Overrides SQL credentials, inherits mount_points_directory and install_to_directory
     {
       "host_addr": "192.168.1.11",
       "sql_user": "special-sql-user",
@@ -321,6 +457,12 @@ All hosts inherit properties from the `common` section. Object-format hosts can 
     {
       "host_addr": "192.168.1.12",
       "mount_points_directory": "F:\\AlternateMountPoints"
+    },
+
+    // Overrides installation directory (uses system defaults)
+    {
+      "host_addr": "192.168.1.13",
+      "install_to_directory": ""
     }
   ]
 }
@@ -372,7 +514,8 @@ Here's a full example configuration file for Active Directory authentication wit
     "flex_user": "flex",
     "flex_pass": "FlexAdminPassword789!",
     "host_auth": "active_directory",
-    "mount_points_directory": "C:\\SilkMountPoints"
+    "mount_points_directory": "C:\\SilkMountPoints",
+    "install_to_directory": ""
   },
   "hosts": [
     "sql-server-01",
@@ -388,6 +531,7 @@ This configuration:
 - Includes all required passwords in the configuration
 - Uses simple string format for all hosts (inherits all common settings)
 - Sets consistent mount points directory for all hosts
+- Uses system default installation paths (empty install_to_directory)
 
 #### Credentials Authentication
 
@@ -407,7 +551,8 @@ Here's a full example configuration file for credential-based authentication wit
     "sdp_id": "12506",
     "flex_host_ip": "10.10.1.100",
     "host_auth": "credentials",
-    "mount_points_directory": "C:\\SilkMountPoints"
+    "mount_points_directory": "C:\\SilkMountPoints",
+    "install_to_directory": ""
   },
   "hosts": [
     "192.168.1.10",
@@ -428,6 +573,7 @@ This configuration:
 - Uses IP addresses (required for credential authentication)
 - Uses simple string format for all hosts (inherits all common settings)
 - Sets consistent mount points directory for all hosts
+- Uses system default installation paths (empty install_to_directory)
 
 ## Installation Process
 
