@@ -358,6 +358,7 @@ function MainOrchestrator {
 
     # log all variables before call
     DebugMessage "Final configuration before installation:"
+
     $safeConfig = @{
         remoteComputers = $remoteComputers
         MaxConcurrency  = $script:MaxConcurrency
@@ -366,7 +367,8 @@ function MainOrchestrator {
         processedHostsFile = $script:processedHostsFile
         HostSetupScript = if ($HostSetupScript) { "Loaded $($HostSetupScript.Length) bytes" } else { "Not Loaded" }
     }
-    DebugMessage "Configuration is: $($safeConfig | ConvertTo-Json -Depth 4)"
+
+    DebugMessage "Configuration is: $($safeConfig | ConvertTo-Json -Depth 10)"
 
     # Start batch installation process
     $results = StartBatchInstallation `

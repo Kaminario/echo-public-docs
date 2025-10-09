@@ -570,7 +570,7 @@ function InstallSilkNodeAgent {
 
     # Add /D parameter if InstallDir is provided
     if ($InstallDir -and $InstallDir.Trim() -ne "") {
-        $arguments += "/Directory='$InstallDir\\SilkAgent'"
+        $arguments += "/Directory='$InstallDir\SilkAgent'"
     }
     DebugMessage "Arguments array: $($arguments -join ' ')"
 
@@ -603,16 +603,11 @@ function InstallSilkNodeAgent {
     # if "Installation process succeeded." in log means we are ok
     if (Test-Path -Path $AgentInstallationLogPath) {
         $logContent = Get-Content -Path $AgentInstallationLogPath
+        $successMsgFound = $false
         if ($logContent -match "Installation process succeeded.") {
-            DebugMessage "Installation log indicates success."
-            return @{
-                Success = $true
-                Reason = "Completed"
-                Message = "Silk Node Agent installed successfully"
-                ExitCode = $installResult.ExitCode
-            }
+            $successMsgFound = $true
         }
-        if ($logContent -match "(?i)error") {
+        if (-not $successMsgFound -and $logContent -match "(?i)error") {
             ErrorMessage "Installation log contains errors. Please check the log file at $AgentInstallationLogPath"
             return @{
                 Success = $false
@@ -751,7 +746,7 @@ function InstallSilkVSSProvider {
 
     # Add /DIR parameter if InstallDir is provided
     if ($InstallDir -and $InstallDir.Trim() -ne "") {
-        $arguments += "/DIR=$InstallDir\\SilkVSS"
+        $arguments += "/DIR=$InstallDir\SilkVSS"
     }
 
     InfoMessage "Silk VSS Provider installation arguments: $arguments"
@@ -784,8 +779,12 @@ function InstallSilkVSSProvider {
     # test log file do not contain "error"
     if (Test-Path -Path $SVSSInstallationLogPath) {
         $logContent = Get-Content -Path $SVSSInstallationLogPath
+        $successMsgFound = $false
+        if ($logContent -match "Installation process succeeded.") {
+            $successMsgFound = $true
+        }
         # split log content into lines and find all lines containing "error" or "out of memory" (case insensitive)
-        if ($logContent -match "(?i)error") {
+        if ( -not $successMsgFound -and $logContent -match "(?i)error") {
             ErrorMessage "Installation log contains errors. Please check the log file at $SVSSInstallationLogPath"
             return @{
                 Success = $false
@@ -839,15 +838,6 @@ function setup_agent {
         return "Unable to find Silk Node Agent installer at $SilkAgentPath"
     }
     InfoMessage "Silk Node Agent installer found at $SilkAgentPath"
-
-    # Validate installation directory if specified
-    if ($DirectoryToInstall -and $DirectoryToInstall.Trim() -ne "") {
-        if (-not (Test-Path -Path $DirectoryToInstall -PathType Container)) {
-            ErrorMessage "Installation directory does not exist: $DirectoryToInstall"
-            return "Installation directory '$DirectoryToInstall' does not exist or is not a directory"
-        }
-        InfoMessage "Installation directory validated: $DirectoryToInstall"
-    }
 
     # Validate and create SQL Server connection string
     $ConnectionString = createAndTestConnectionString -DBConnectionString $DBConnectionString
@@ -916,15 +906,6 @@ function setup_vss {
         return "Unable to find Silk VSS Provider installer at $SilkVSSPath"
     }
     InfoMessage "Silk VSS Provider installer found at $SilkVSSPath"
-
-    # Validate installation directory if specified
-    if ($DirectoryToInstall -and $DirectoryToInstall.Trim() -ne "") {
-        if (-not (Test-Path -Path $DirectoryToInstall -PathType Container)) {
-            ErrorMessage "Installation directory does not exist: $DirectoryToInstall"
-            return "Installation directory '$DirectoryToInstall' does not exist or is not a directory"
-        }
-        InfoMessage "Installation directory validated: $DirectoryToInstall"
-    }
 
     # Get SDP information from Flex
     $SDPInfo = GetSDPInfo -FlexIP $FlexIP -FlexToken $FlexToken -SDPID $SDPId
@@ -1005,6 +986,15 @@ function setup{
         return "Failed to establish connection with Flex server at $FlexIP"
     }
     InfoMessage "Successfully connected to Flex"
+
+    # Validate installation directory if specified
+    if ($DirectoryToInstall -and $DirectoryToInstall.Trim() -ne "") {
+        if (-not (Test-Path -Path $DirectoryToInstall -PathType Container)) {
+            ErrorMessage "Installation directory does not exist: $DirectoryToInstall"
+            return "Installation directory '$DirectoryToInstall' does not exist or is not a directory"
+        }
+        InfoMessage "Installation directory validated: $DirectoryToInstall"
+    }
 
     # Install Agent if enabled
     $agentError = $null
