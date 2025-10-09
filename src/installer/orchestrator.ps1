@@ -83,7 +83,9 @@
     Author         : Ilya.Levin@Silk.US
     Organization   : Silk.us, Inc.
     Version        : {{VERSION_PLACEHOLDER}}
-    Copyright      : (c) 2024 Silk.us, Inc.
+    Copyright      : Copyright (c) 2025 Silk Technologies, Inc.
+                     This source code is licensed under the MIT license found in the
+                     LICENSE file in the root directory of this source tree.
     Host Types     : Valid for Windows environments
 
     Prerequisites:
@@ -107,7 +109,7 @@
     ```
 
 .LINK
-    https://github.com/silk-us/echo-public-docs
+    https://github.com/Kaminario/echo-public-docs
 
 .FUNCTIONALITY
     Remote installation, System administration, Silk Echo deployment
@@ -130,6 +132,14 @@ param (
     [Parameter(Mandatory=$false, HelpMessage="Force reprocessing of all hosts, ignoring completed hosts tracking")]
     [switch]$Force
 )
+
+Write-Host @"
+Copyright (c) 2025 Silk Technologies, Inc.
+
+This source code is licensed under the MIT license found in the
+LICENSE file in the root directory of this source tree.
+https://github.com/Kaminario/echo-public-docs
+"@
 
 # Set error action preference to stop on any error
 $ErrorActionPreference = "Stop"
