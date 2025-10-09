@@ -1061,7 +1061,7 @@ function SetupHost {
         }
         throw "Setup failed on Host[$env:COMPUTERNAME]. $($error)"
     } else {
-        # CleanupInstallerFiles
+        CleanupInstallerFiles
         InfoMessage "Setup completed successfully."
     }
 }
