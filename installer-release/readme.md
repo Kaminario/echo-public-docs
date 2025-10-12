@@ -188,7 +188,7 @@ Contains shared configuration inherited by all hosts unless overridden.
   level for specific deployment scenarios.
 
   **Version Requirements**: Custom installation directory is supported only
-  from Agent version 1.0.27 and VSS version 2.0.17. Earlier versions will
+  from Agent version 1.0.28 and VSS version 2.0.17. Earlier versions will
   ignore this parameter and install to default system paths.
 
 **Authentication Fields:**
