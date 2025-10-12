@@ -57,7 +57,7 @@
     File Name      : orchestrator.ps1
     Author         : Ilya.Levin@Silk.US
     Organization   : Silk.us, Inc.
-    Version        : 0.1.5
+    Version        : 0.1.6
     Copyright      : Copyright (c) 2025 Silk Technologies, Inc.
                      This source code is licensed under the MIT license found in the
                      LICENSE file in the root directory of this source tree.
@@ -119,7 +119,7 @@ if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
 # Constants
 #region orc_constants
 #region Constants
-Set-Variable -Name InstallerProduct -Value "0.1.5" -Option AllScope -Scope Script
+Set-Variable -Name InstallerProduct -Value "0.1.6" -Option AllScope -Scope Script
 Set-Variable -Name MessageCurrentObject -Value "Silk Echo Installer" -Option AllScope -Scope Script
 Set-Variable -Name ENUM_ACTIVE_DIRECTORY -Value "active_directory" -Option AllScope -Scope Script
 Set-Variable -Name ENUM_CREDENTIALS -Value "credentials" -Option AllScope -Scope Script
@@ -806,6 +806,16 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
 #region orc_config
 #region ConfigFile
 function GenerateConfigTemplate {
+    $configPath = Join-Path $PSScriptRoot "config.json"
+    # Check if config.json already exists and ask for confirmation
+    if (Test-Path -Path $configPath) {
+        WarningMessage "Configuration file already exists: $configPath"
+        $overwrite = Read-Host "Do you want to overwrite the existing config.json file? (y/N)"
+        if ($overwrite -ne 'y' -and $overwrite -ne 'Y') {
+            InfoMessage "Configuration template creation cancelled."
+            Exit 0
+        }
+    }
     $useKerberos = Read-Host "Would you like to use Active Directory authentication for the hosts? (Y/n)"
     if ($useKerberos -eq 'Y' -or $useKerberos -eq 'y' -or $useKerberos -eq '') {
         $UseKerberos = $true
@@ -824,7 +834,7 @@ function GenerateConfigTemplate {
     Write-Host "  - Provide a path (e.g., 'C:\CustomPath') to install components to a custom directory"
     $installDir = Read-Host "Target installation directory (press Enter for default)"
     $InstallToDirectory = $installDir.Trim()
-    $templateConfigJson = '{"installers":{"agent":{"path": "local_path"},"vss": {"path": "local_path"}},"common":{"install_agent":true,"install_vss":true,"install_to_directory":"","sdp_id":"sdp_id","sdp_user":"sdp_user","sdp_pass":"sdp_pass","sql_user":"sql_user","sql_pass":"sql_pass","sql_server":"host,port","flex_host_ip":"flex-ip","flex_user":"flex_user","flex_pass":"flex_pass","host_user":"host_user","host_pass":"host_pass","host_auth":"unset","mount_points_directory":"C:\\MountPoints"},"hosts":[{"host_addr":"host_ip","sql_user":"sql_user_1","sql_pass":"sql_pass_1"},"host_ip","host_ip"]}'
+    $templateConfigJson = '{"installers":{"agent":{"path": ""},"vss": {"path": ""}},"common":{"install_agent":true,"install_vss":true,"install_to_directory":"","sdp_id":"sdp_id","sdp_user":"sdp_user","sdp_pass":"sdp_pass","sql_user":"sql_user","sql_pass":"sql_pass","sql_server":"host,port","flex_host_ip":"flex-ip","flex_user":"flex_user","flex_pass":"flex_pass","host_user":"host_user","host_pass":"host_pass","host_auth":"unset","mount_points_directory":"C:\\MountPoints"},"hosts":[{"host_addr":"host_ip","sql_user":"sql_user_1","sql_pass":"sql_pass_1"},"host_ip","host_ip"]}'
     # load template as json, make chages, and dump in a pretty way
     $ConfObj = $templateConfigJson | ConvertFrom-Json
     $ConfObj.common.install_vss = $InstallVSS
@@ -856,16 +866,6 @@ function GenerateConfigTemplate {
         }
     } else {
         $ConfObj.common.host_auth = $ENUM_CREDENTIALS
-    }
-    $configPath = Join-Path $PSScriptRoot "config.json"
-    # Check if config.json already exists and ask for confirmation
-    if (Test-Path -Path $configPath) {
-        WarningMessage "Configuration file already exists: $configPath"
-        $overwrite = Read-Host "Do you want to overwrite the existing config.json file? (y/N)"
-        if ($overwrite -ne 'y' -and $overwrite -ne 'Y') {
-            InfoMessage "Configuration template creation cancelled."
-            Exit 0
-        }
     }
     try {
         $formattedJson = $ConfObj | ConvertTo-Json -Depth 2
@@ -958,11 +958,11 @@ function ReadConfigFile {
     # "installers": {
     #     "agent": {
     #         "url": "remote_url",
-    #         "path": "local_path"
+    #         "path": ""
     #     },
     #     "vss": {
     #         "url": "remote_url",
-    #         "path": "local_path"
+    #         "path": ""
     #     }
     # },
     # "common": {
