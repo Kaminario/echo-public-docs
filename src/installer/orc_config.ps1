@@ -2,6 +2,18 @@
 
 function GenerateConfigTemplate {
 
+    $configPath = Join-Path $PSScriptRoot "config.json"
+
+    # Check if config.json already exists and ask for confirmation
+    if (Test-Path -Path $configPath) {
+        WarningMessage "Configuration file already exists: $configPath"
+        $overwrite = Read-Host "Do you want to overwrite the existing config.json file? (y/N)"
+        if ($overwrite -ne 'y' -and $overwrite -ne 'Y') {
+            InfoMessage "Configuration template creation cancelled."
+            Exit 0
+        }
+    }
+
     $useKerberos = Read-Host "Would you like to use Active Directory authentication for the hosts? (Y/n)"
     if ($useKerberos -eq 'Y' -or $useKerberos -eq 'y' -or $useKerberos -eq '') {
         $UseKerberos = $true
@@ -23,7 +35,7 @@ function GenerateConfigTemplate {
     $installDir = Read-Host "Target installation directory (press Enter for default)"
     $InstallToDirectory = $installDir.Trim()
 
-    $templateConfigJson = '{"installers":{"agent":{"path": "local_path"},"vss": {"path": "local_path"}},"common":{"install_agent":true,"install_vss":true,"install_to_directory":"","sdp_id":"sdp_id","sdp_user":"sdp_user","sdp_pass":"sdp_pass","sql_user":"sql_user","sql_pass":"sql_pass","sql_server":"host,port","flex_host_ip":"flex-ip","flex_user":"flex_user","flex_pass":"flex_pass","host_user":"host_user","host_pass":"host_pass","host_auth":"unset","mount_points_directory":"C:\\MountPoints"},"hosts":[{"host_addr":"host_ip","sql_user":"sql_user_1","sql_pass":"sql_pass_1"},"host_ip","host_ip"]}'
+    $templateConfigJson = '{"installers":{"agent":{"path": ""},"vss": {"path": ""}},"common":{"install_agent":true,"install_vss":true,"install_to_directory":"","sdp_id":"sdp_id","sdp_user":"sdp_user","sdp_pass":"sdp_pass","sql_user":"sql_user","sql_pass":"sql_pass","sql_server":"host,port","flex_host_ip":"flex-ip","flex_user":"flex_user","flex_pass":"flex_pass","host_user":"host_user","host_pass":"host_pass","host_auth":"unset","mount_points_directory":"C:\\MountPoints"},"hosts":[{"host_addr":"host_ip","sql_user":"sql_user_1","sql_pass":"sql_pass_1"},"host_ip","host_ip"]}'
 
     # load template as json, make chages, and dump in a pretty way
     $ConfObj = $templateConfigJson | ConvertFrom-Json
@@ -59,18 +71,6 @@ function GenerateConfigTemplate {
         }
     } else {
         $ConfObj.common.host_auth = $ENUM_CREDENTIALS
-    }
-
-    $configPath = Join-Path $PSScriptRoot "config.json"
-
-    # Check if config.json already exists and ask for confirmation
-    if (Test-Path -Path $configPath) {
-        WarningMessage "Configuration file already exists: $configPath"
-        $overwrite = Read-Host "Do you want to overwrite the existing config.json file? (y/N)"
-        if ($overwrite -ne 'y' -and $overwrite -ne 'Y') {
-            InfoMessage "Configuration template creation cancelled."
-            Exit 0
-        }
     }
 
     try {
@@ -182,11 +182,11 @@ function ReadConfigFile {
     # "installers": {
     #     "agent": {
     #         "url": "remote_url",
-    #         "path": "local_path"
+    #         "path": ""
     #     },
     #     "vss": {
     #         "url": "remote_url",
-    #         "path": "local_path"
+    #         "path": ""
     #     }
     # },
     # "common": {
