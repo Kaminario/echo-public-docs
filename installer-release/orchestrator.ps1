@@ -12,6 +12,8 @@
 .PARAMETER MaxConcurrency
     Number of hosts to install in parallel. Default value is 10.
     This helps manage resource usage and provides better progress tracking for large deployments.
+.PARAMETER Dir
+    The target directory for the installers. This parameter will be passed to both the SilkAgent installer (using /D flag) and VSS installer (using /DIR flag).
 .PARAMETER DryRun
     Perform validation of connectivity before running actual installation.
     It will validate connectivity from this host to the hosts defined in configuration file.
@@ -55,8 +57,10 @@
     File Name      : orchestrator.ps1
     Author         : Ilya.Levin@Silk.US
     Organization   : Silk.us, Inc.
-    Version        : 0.1.4
-    Copyright      : (c) 2024 Silk.us, Inc.
+    Version        : 0.1.5
+    Copyright      : Copyright (c) 2025 Silk Technologies, Inc.
+                     This source code is licensed under the MIT license found in the
+                     LICENSE file in the root directory of this source tree.
     Host Types     : Valid for Windows environments
     Prerequisites:
     - PowerShell version 5 or higher
@@ -75,7 +79,7 @@
     WinRM enumerate winrm/config/listener
     ```
 .LINK
-    https://github.com/silk-us/echo-public-docs
+    https://github.com/Kaminario/echo-public-docs
 .FUNCTIONALITY
     Remote installation, System administration, Silk Echo deployment
 #>
@@ -92,6 +96,12 @@ param (
     [Parameter(Mandatory=$false, HelpMessage="Force reprocessing of all hosts, ignoring completed hosts tracking")]
     [switch]$Force
 )
+Write-Host @"
+Copyright (c) 2025 Silk Technologies, Inc.
+This source code is licensed under the MIT license found in the
+LICENSE file in the root directory of this source tree.
+https://github.com/Kaminario/echo-public-docs
+"@
 # Set error action preference to stop on any error
 $ErrorActionPreference = "Stop"
 # ConvertTo-SecureString should be available by default in PowerShell
@@ -109,7 +119,7 @@ if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
 # Constants
 #region orc_constants
 #region Constants
-Set-Variable -Name InstallerProduct -Value "0.1.4" -Option AllScope -Scope Script
+Set-Variable -Name InstallerProduct -Value "0.1.5" -Option AllScope -Scope Script
 Set-Variable -Name MessageCurrentObject -Value "Silk Echo Installer" -Option AllScope -Scope Script
 Set-Variable -Name ENUM_ACTIVE_DIRECTORY -Value "active_directory" -Option AllScope -Scope Script
 Set-Variable -Name ENUM_CREDENTIALS -Value "credentials" -Option AllScope -Scope Script
@@ -126,9 +136,6 @@ Set-Variable -Name processedHostsFile -Value $processedHostsFile -Option AllScop
 Set-Variable -Name HOSTSETUP_START_MARKER -Value ("MARKER: " + "HOST_INSTALLER_STARTS_HERE") -Option AllScope -Scope Script
 # Remote Installation Timeout (2 minutes = 120 seconds)
 Set-Variable -Name REMOTE_INSTALL_TIMEOUT_SECONDS -Value 120 -Option AllScope -Scope Script
-# Installation report file path
-$reportFilePath = Join-Path $cacheDir "installation_report_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
-Set-Variable -Name SilkEchoReportFilePath -Value $reportFilePath -Option AllScope -Scope Script
 # Full execution log file path
 $fullLogPath = Join-Path $cacheDir "orchestrator_full_log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
 Set-Variable -Name SilkEchoFullLogPath -Value $fullLogPath -Option AllScope -Scope Script
@@ -237,7 +244,9 @@ function Sanitize {
         [string]$Text
     )
     # Reduct password from text, sometimes text contains connection string with password
-    $ReductedText = $Text -replace '(?i)(?<=Password=)[^;]+', '[reducted]'
+    # Updated regex to handle both plain connection strings and JSON-embedded strings
+    # Match password value until semicolon OR quote OR end of line
+    $ReductedText = $Text -replace '(?i)(?<=Password=)[^;"]+', '[reducted]'
     # Replace the value of the $FlexToken variable with '[reducted]' only if it exists and is not empty
     if ($Global:FlexToken -and $Global:FlexToken.Length -gt 0) {
         $ReductedText = $ReductedText -replace [regex]::Escape($Global:FlexToken), '[reducted]'
@@ -284,7 +293,7 @@ Function WarningMessage {
 	Write-Host "$(LogTimeStamp) - Host[$env:COMPUTERNAME] - $MessageCurrentObject - [WARN] $msg" -ForegroundColor Yellow
 }
 #region HostsSummaryReport
-function WriteHostsSummaryToFile {
+function WriteHostsSummary {
     <#
     .SYNOPSIS
         Writes a summary of all hosts with their issues and results to a file.
@@ -301,22 +310,20 @@ function WriteHostsSummaryToFile {
     .PARAMETER Hosts
         Array of host objects to write
     .PARAMETER OutputPath
-        Path to the output file where summary will be written
-    .PARAMETER Stdout
-        If specified, prints the report to console instead of writing to file
+        Path to the output file where summary will be written. Use "STDOUT" to print to console instead of writing to file
     .EXAMPLE
-        WriteHostsSummaryToFile -Hosts $config.hosts -OutputPath "hosts_summary.txt"
+        WriteHostsSummary -Hosts $config.hosts -OutputPath "hosts_summary.txt"
+    .EXAMPLE
+        WriteHostsSummary -Hosts $config.hosts -OutputPath "STDOUT"
     #>
     param (
         [Parameter(Mandatory=$true)]
         [Array]$Hosts,
         [Parameter(Mandatory=$true)]
-        [string]$OutputPath,
-        [Parameter(Mandatory=$false)]
-        [switch]$Stdout = $false
+        [string]$OutputPath
     )
     if ($Hosts.Count -eq 0) {
-        if ($Stdout) {
+        if ($OutputPath -eq "STDOUT") {
             Write-Host "No hosts to display"
         } else {
             "No hosts to display" | Out-File -FilePath $OutputPath -Encoding UTF8
@@ -404,7 +411,7 @@ function WriteHostsSummaryToFile {
         }
     }
     # Output to console or file
-    if ($Stdout) {
+    if ($OutputPath -eq "STDOUT") {
         # Print to console
         foreach ($line in $outputLines) {
             Write-Host $line
@@ -421,7 +428,7 @@ function DisplayInstallationSummary {
         Displays a short summary of installation results to console.
     .DESCRIPTION
         Shows only the counts - how many hosts succeeded, failed, etc.
-        For detailed information, use WriteHostsSummaryToFile.
+        For detailed information, use WriteHostsSummary.
     .PARAMETER Hosts
         Array of host objects to summarize
     .EXAMPLE
@@ -464,7 +471,7 @@ try {
     # Add trap to ensure transcript is stopped on script termination
     trap {
         try {
-            WriteHostsSummaryToFile -Hosts $config.hosts -OutputPath $script:SilkEchoFullLogPath -Stdout
+            WriteHostsSummary -Hosts $config.hosts -OutputPath "STDOUT"
             Stop-Transcript
         } catch { }
         break
@@ -805,9 +812,23 @@ function GenerateConfigTemplate {
     } else {
         $UseKerberos = $false
     }
-    $templateConfigJson = '{"installers":{"agent":{"path": "local_path"},"vss": {"path": "local_path"}},"common":{"sdp_id":"sdp_id","sdp_user":"sdp_user","sdp_pass":"sdp_pass","sql_user":"sql_user","sql_pass":"sql_pass","sql_server":"host,port","flex_host_ip":"flex-ip","flex_user":"flex_user","flex_pass":"flex_pass","host_user":"host_user","host_pass":"host_pass","host_auth":"unset","mount_points_directory":"C:\\MountPoints"},"hosts":[{"host_addr":"host_ip","sql_user":"sql_user_1","sql_pass":"sql_pass_1"},"host_ip","host_ip"]}'
+    $installVss = Read-Host "Would you like to install Silk VSS Provider on the hosts? (Y/n)"
+    if ($installVss -eq 'Y' -or $installVss -eq 'y' -or $installVss -eq '') {
+        $InstallVSS = $true
+    } else {
+        $InstallVSS = $false
+    }
+    Write-Host ""
+    Write-Host "Installation Directory Configuration:" -ForegroundColor Yellow
+    Write-Host "  - Leave empty to use system default installation paths"
+    Write-Host "  - Provide a path (e.g., 'C:\CustomPath') to install components to a custom directory"
+    $installDir = Read-Host "Target installation directory (press Enter for default)"
+    $InstallToDirectory = $installDir.Trim()
+    $templateConfigJson = '{"installers":{"agent":{"path": "local_path"},"vss": {"path": "local_path"}},"common":{"install_agent":true,"install_vss":true,"install_to_directory":"","sdp_id":"sdp_id","sdp_user":"sdp_user","sdp_pass":"sdp_pass","sql_user":"sql_user","sql_pass":"sql_pass","sql_server":"host,port","flex_host_ip":"flex-ip","flex_user":"flex_user","flex_pass":"flex_pass","host_user":"host_user","host_pass":"host_pass","host_auth":"unset","mount_points_directory":"C:\\MountPoints"},"hosts":[{"host_addr":"host_ip","sql_user":"sql_user_1","sql_pass":"sql_pass_1"},"host_ip","host_ip"]}'
     # load template as json, make chages, and dump in a pretty way
     $ConfObj = $templateConfigJson | ConvertFrom-Json
+    $ConfObj.common.install_vss = $InstallVSS
+    $ConfObj.common.install_to_directory = $InstallToDirectory
     if ($UseKerberos) {
         $ConfObj.common.host_auth = $ENUM_ACTIVE_DIRECTORY
         if ($ConfObj.common.PSObject.Properties['host_user']) {
@@ -847,7 +868,7 @@ function GenerateConfigTemplate {
         }
     }
     try {
-        $formattedJson = $ConfObj | ConvertTo-Json -Depth 4
+        $formattedJson = $ConfObj | ConvertTo-Json -Depth 2
         $formattedJson | Out-File -FilePath $configPath -Encoding UTF8
         Write-Host "Configuration template created successfully: $configPath" -ForegroundColor Green
         Write-Host ""
@@ -897,6 +918,18 @@ function constructHosts {
         }
         if ($hostObject.flex_pass) {
             $hostObject.flex_pass = ConvertTo-SecureString $hostObject.flex_pass -AsPlainText -Force
+        }
+        # Convert to boolean if host overrides with non-boolean value (inherited values are already boolean from common)
+        if ($hostObject.install_agent -isnot [bool]) {
+            $hostObject.install_agent = [bool]$hostObject.install_agent
+        }
+        if ($hostObject.install_vss -isnot [bool]) {
+            $hostObject.install_vss = [bool]$hostObject.install_vss
+        }
+        # Validate that at least one component is being installed (after any host-level overrides)
+        if (-not $hostObject.install_agent -and -not $hostObject.install_vss) {
+            ErrorMessage "Host '$($hostObject.host_addr)' has both install_agent and install_vss set to false. At least one component must be installed."
+            return $null
         }
         # Initialize issues field for tracking connectivity and upload problems
         Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "issues" -Value @() -Force
@@ -990,6 +1023,27 @@ function ReadConfigFile {
         ErrorMessage "flex_host_ip must be a valid IP address"
         return $null
     }
+    # Set default values in common section before constructing hosts (so hosts inherit these defaults)
+    if (-not $commonConfig.PSObject.Properties['install_agent']) {
+        Add-Member -InputObject $commonConfig -MemberType NoteProperty -Name "install_agent" -Value $true
+    } elseif ($commonConfig.install_agent -isnot [bool]) {
+        # Convert to boolean only if not already boolean
+        $commonConfig.install_agent = [bool]$commonConfig.install_agent
+    }
+    if (-not $commonConfig.PSObject.Properties['install_vss']) {
+        Add-Member -InputObject $commonConfig -MemberType NoteProperty -Name "install_vss" -Value $true
+    } elseif ($commonConfig.install_vss -isnot [bool]) {
+        # Convert to boolean only if not already boolean
+        $commonConfig.install_vss = [bool]$commonConfig.install_vss
+    }
+    if (-not $commonConfig.PSObject.Properties['install_to_directory']) {
+        Add-Member -InputObject $commonConfig -MemberType NoteProperty -Name "install_to_directory" -Value ""
+    }
+    # Validate at least one component is enabled in common section
+    if (-not $commonConfig.install_agent -and -not $commonConfig.install_vss) {
+        ErrorMessage "Both install_agent and install_vss are set to false in common section. At least one component must be enabled."
+        return $null
+    }
     $config.hosts = constructHosts -CommonConfig $commonConfig -HostEntries $config.hosts
     # convert all common.pass to ConvertTo-SecureString
     if ($commonConfig.sdp_pass) {
@@ -1004,9 +1058,31 @@ function ReadConfigFile {
     if ($commonConfig.host_pass) {
         $commonConfig.host_pass = ConvertTo-SecureString -String $commonConfig.host_pass -AsPlainText -Force
     }
-    # Ensure installer configuration has default values
-    ensureInstallerDefault -Config $config -InstallerName "agent" -DefaultUrl $SilkAgentURL
-    ensureInstallerDefault -Config $config -InstallerName "vss" -DefaultUrl $SilkVSSURL
+    # Check common section for installation flags (default to true if not specified)
+    $installAgent = $true
+    $installVSS = $true
+    if ($commonConfig.PSObject.Properties['install_agent']) {
+        $installAgent = [bool]$commonConfig.install_agent
+    }
+    if ($commonConfig.PSObject.Properties['install_vss']) {
+        $installVSS = [bool]$commonConfig.install_vss
+    }
+    # Validate at least one component is enabled at common level
+    if (-not $installAgent -and -not $installVSS) {
+        ErrorMessage "Both install_agent and install_vss are set to false in common section. At least one component must be enabled."
+        return $null
+    }
+    # Only ensure installer defaults for components that might be installed
+    if ($installAgent) {
+        ensureInstallerDefault -Config $config -InstallerName "agent" -DefaultUrl $SilkAgentURL
+    } else {
+        InfoMessage "Agent installation disabled in common config - skipping agent installer validation"
+    }
+    if ($installVSS) {
+        ensureInstallerDefault -Config $config -InstallerName "vss" -DefaultUrl $SilkVSSURL
+    } else {
+        InfoMessage "VSS installation disabled in common config - skipping VSS installer validation"
+    }
     # the sql connection script is optional.
     # Validate that all hosts have unique addresses
     $hostAddresses = @()
@@ -1136,14 +1212,20 @@ function UpdateHostSqlConnectionString {
     $defaultSqlPass = $null
     $commonCredentialsNeeded = $false
     $goodHost = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
-    # Check if any hosts are missing SQL credentials
-    foreach ($hostInfo in $goodHost) {
+    # Check if any hosts need Agent installation
+    $hostsNeedingAgent = @($goodHost | Where-Object { $_.install_agent -eq $true })
+    if ($hostsNeedingAgent.Count -eq 0) {
+        InfoMessage "No hosts require Agent installation - skipping SQL credential collection"
+        return $true
+    }
+    # Check if any hosts requiring Agent are missing SQL credentials
+    foreach ($hostInfo in $hostsNeedingAgent) {
         if (-not $hostInfo.sql_user -or -not $hostInfo.sql_pass) {
             $commonCredentialsNeeded = $true
             break
         }
     }
-    DebugMessage "Common SQL credentials needed: $commonCredentialsNeeded"
+    InfoMessage "Common SQL credentials needed: $commonCredentialsNeeded"
     # If any hosts are missing credentials, ask for default credentials to use
     if ($commonCredentialsNeeded) {
         $commonSqlPass = if ($Config.common.sql_pass) {
@@ -1272,8 +1354,14 @@ function UpdateSDPCredentials {
         [string]$flexToken
     )
     $goodHost = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
-    # get all different SDPId from hosts
-    $SDPIDs = $goodHost | ForEach-Object { $_.sdp_id } | Sort-Object -Unique
+    # Check if any hosts need VSS installation
+    $hostsNeedingVSS = @($goodHost | Where-Object { $_.install_vss -eq $true })
+    if ($hostsNeedingVSS.Count -eq 0) {
+        InfoMessage "No hosts require VSS installation - skipping SDP credential collection"
+        return
+    }
+    # get all different SDPId from hosts that need VSS
+    $SDPIDs = $hostsNeedingVSS | ForEach-Object { $_.sdp_id } | Sort-Object -Unique
     # get sdpInfo for each SDPId (floating IP and port from Flex)
     $SDPInfo = @{}
     foreach ($SDPID in $SDPIDs) {
@@ -1360,29 +1448,37 @@ function EnsureLocalInstallers {
     # Ensure installers present in local directory
     $localPaths = @{}
     $requiredInstallers = @('agent', 'vss')
+    $installFlags = @{}
+    $installFlags['agent'] = $Config.common.install_agent
+    $installFlags['vss'] = $Config.common.install_vss
     # Process all required installers
     foreach ($installerType in $requiredInstallers) {
+        if ( -not $installFlags[$installerType]) {
+            InfoMessage "Skipping $installerType installer"
+            $localPaths[$installerType] = $null
+            continue
+        }
         $installerConfig = $Config.installers.$installerType
         if (-not $installerConfig) {
             ErrorMessage "Missing required $installerType installer configuration in config.installers"
             return $null
         }
         # If path is provided and file exists, use it directly
-        if ($InstallerConfig.path) {
-            if (Test-Path $InstallerConfig.path) {
-                InfoMessage "Using existing $InstallerType installer at: $($InstallerConfig.path)"
-                $installerPath = $InstallerConfig.path
+        if ($installerConfig.path) {
+            if (Test-Path $installerConfig.path) {
+                InfoMessage "Using existing $installerType installer at: $($installerConfig.path)"
+                $installerPath = $installerConfig.path
             } else {
                 # If path is provided but doesn't exist
-                ErrorMessage "$InstallerType installer path specified but file not found: $($InstallerConfig.path)"
+                ErrorMessage "$installerType installer path specified but file not found: $($installerConfig.path)"
                 return $null
             }
         } else {
-            if (-not $InstallerConfig.url) {
-                ErrorMessage "No URL specified for $InstallerType installer in configuration"
+            if (-not $installerConfig.url) {
+                ErrorMessage "No URL specified for $installerType installer in configuration"
                 return $null
             }
-            $installerPath = downloadInstaller -InstallerURL $InstallerConfig.url -CacheDir $SilkEchoInstallerCacheDir -InstallerType $installerType
+            $installerPath = downloadInstaller -InstallerURL $installerConfig.url -CacheDir $SilkEchoInstallerCacheDir -InstallerType $installerType
         }
         if ($installerPath) {
             $localPaths[$installerType] = $installerPath
@@ -1474,6 +1570,11 @@ function UploadInstallersToHosts {
             # Copy each installer file
             foreach ($installerType in $LocalPaths.Keys) {
                 $localPath = $LocalPaths[$installerType]
+                # Skip if path is null (installer not needed)
+                if ($null -eq $localPath) {
+                    $stdErrOut += "Skipping $installerType installer (not required for this host)"
+                    continue
+                }
                 $fileName = Split-Path $localPath -Leaf
                 $stdErrOut += "Copying $installerType installer to $($HostInfo.host_addr)..."
                 $remotePath = "$remoteDir\$fileName"
@@ -1525,8 +1626,6 @@ function UploadInstallersToHosts {
             $hostInfo.issues += "Error while receiving job output: $(_.Exception.Message)"
             ErrorMessage "Upload job failed for $($hostInfo.host_addr): State $($job.State), $issue"
         }
-        # Write report after updating host
-        WriteHostsSummaryToFile -Hosts $HostInfos -OutputPath $SilkEchoReportFilePath
         Remove-Job -Job $job -Force
     }
     # Enhanced job script that includes constants and LocalPaths
@@ -1747,16 +1846,21 @@ function StartBatchInstallation {
             $agentPath = $hostInfo.remote_installer_paths.agent
             $vssPath = $hostInfo.remote_installer_paths.vss
             DebugMessageIJS "Installer paths: $($hostInfo.remote_installer_paths | ConvertTo-Json -Depth 3)"
-            # Validate that remote installer paths are not null
-            if (-not $agentPath) {
-                ErrorMessageIJS "Agent path is null or empty. Remote installer paths may not be properly set."
+            $agentPath = if ($hostInfo.install_agent) { $agentPath } else { "none" }
+            $vssPath = if ($hostInfo.install_vss) { $vssPath } else { "none" }
+            # Validate that required installer paths are not null
+            $missingPaths = @()
+            if ($hostInfo.install_agent -and -not $agentPath) {
+                ErrorMessageIJS "Agent path is null or empty but agent installation is required."
+                $missingPaths += "agent"
             }
-            if (-not $vssPath) {
-                ErrorMessageIJS "VSS path is null or empty. Remote installer paths may not be properly set."
+            if ($hostInfo.install_vss -and -not $vssPath) {
+                ErrorMessageIJS "VSS path is null or empty but VSS installation is required."
+                $missingPaths += "vss"
             }
-            # do not continue if the paths are null, add issue and return
-            if (-not $agentPath -or -not $vssPath) {
-                $hostInfo.issues += "Failed to upload installers. $issue"
+            # do not continue if required paths are missing
+            if ($missingPaths.Count -gt 0) {
+                $hostInfo.issues += "Missing required installer paths: $($missingPaths -join ', ')"
                 return
             }
             DebugMessageIJS "Preparing to run installation script on $HostAddress"
@@ -1770,83 +1874,78 @@ function StartBatchInstallation {
             DebugMessageIJS "Using SDP Password: [REDACTED]"
             DebugMessageIJS "Dry Run Mode: $IsDryRun"
             DebugMessageIJS "Mount Points Directory: $($hostInfo.mount_points_directory)"
+            DebugMessageIJS "Install Directory: $($hostInfo.install_to_directory)"
             # Create the remote scriptblock for installation
             $remoteInstallationScript = {
-                param($FlexIP, 
-                      $FlexToken,
-                      $DBConnectionString,
-                      $SilkAgentPath,
-                      $SilkVSSPath,
-                      $SDPId,
-                      $SDPUsername,
-                      $SDPPassword,
-                      $DebugMode,
-                      $DryRunMode,
-                      $MountPointsDirectory,
-                      $Script)
+                param($ConfigJson, $Script)
                 function InfoMessageRIS { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [INFO] $message"}
                 function DebugMessageRIS { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [DEBUG] $message"}
                 function ErrorMessageRIS { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [ERROR] $message"}
-                # Set debug preferences in the remote session based on the debug mode
-                if ($DebugMode) {
-                    $DebugPreference = 'Continue'
-                    $VerbosePreference = 'Continue'
-                } else {
-                    $DebugPreference = 'SilentlyContinue'
-                    $VerbosePreference = 'SilentlyContinue'
-                }
-                # Create a new function with the script content
-                $function = [ScriptBlock]::Create($Script)
-                InfoMessageRIS "Running installation script... (Debug: $DebugMode, DryRun: $DryRunMode)"
-                # Prepare base arguments
-                $functionArgs = @{
-                    FlexIP = $FlexIP
-                    FlexToken = $FlexToken
-                    DBConnectionString = $DBConnectionString
-                    SilkAgentPath = $SilkAgentPath
-                    SilkVSSPath = $SilkVSSPath
-                    SDPId = $SDPId
-                    SDPUsername = $SDPUsername
-                    SDPPassword = $SDPPassword
-                    MountPointsDirectory = $MountPointsDirectory
-                }
-                # Add DryRun parameter if in dry run mode
-                if ($DryRunMode) {
-                    $functionArgs.Add('DryRun', $true)
-                    InfoMessageRIS "Dry run mode is enabled, no changes will be made."
-                }
-                # Execute function with prepared arguments using splatting
+                # Parse config to set debug preferences
                 try {
-                    $result = & $function @functionArgs
+                    $config = $ConfigJson | ConvertFrom-Json
+                    if ($config.is_debug) {
+                        $DebugPreference = 'Continue'
+                        $VerbosePreference = 'Continue'
+                    } else {
+                        $DebugPreference = 'SilentlyContinue'
+                        $VerbosePreference = 'SilentlyContinue'
+                    }
+                    InfoMessageRIS "Running installation script... (Debug: $($config.is_debug), DryRun: $($config.is_dry_run))"
+                } catch {
+                    ErrorMessageRIS "Failed to parse ConfigJson: $_"
+                    return @{ Success = $false; Output = $null; Error = "Failed to parse configuration" }
+                }
+                # Create a new function with the script content and pass ConfigJson directly
+                $function = [ScriptBlock]::Create($Script)
+                # Execute function with ConfigJson parameter
+                try {
+                    $result = & $function -ConfigJson $ConfigJson
                     return @{ Success = $true; Output = $result; Error = $null }
                 } catch {
                     ErrorMessageRIS "Installation script execution failed: $_"
                     return @{ Success = $false; Output = $null; Error = $_.Exception.Message }
                 }
             }
-            # Prepare argument list with null checks
-            $ArgumentList = @(
-                $hostInfo.flex_host_ip,
-                $hostInfo.flex_access_token,
-                $hostInfo.sql_connection_string,
-                $agentPath,
-                $vssPath,
-                $hostInfo.sdp_id,
-                $hostInfo.sdp_credential.UserName,
-                $hostInfo.sdp_credential.GetNetworkCredential().Password,
-                $IsDebug,
-                $IsDryRun,
-                $hostInfo.mount_points_directory,
-                $HostSetupScript
-            )
-            # Validate ArgumentList for null values
-            for ($i = 0; $i -lt $ArgumentList.Count; $i++) {
-                if ($null -eq $ArgumentList[$i]) {
-                    $paramNames = @('flex_host_ip', 'flex_access_token', 'sql_connection_string', 'agentPath', 'vssPath', 'sdp_id', 'sdp_username', 'sdp_password', 'IsDebug', 'IsDryRun', 'mount_points_directory', 'HostSetupScript')
-                    ErrorMessageIJS "Null value found in ArgumentList at index $i (parameter: $($paramNames[$i]))"
-                    return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Null parameter: $($paramNames[$i])" }
+            # Build configuration JSON with conditional fields
+            $installConfig = @{
+                flex_host_ip = $hostInfo.flex_host_ip
+                flex_access_token = $hostInfo.flex_access_token
+                sql_connection_string = $hostInfo.sql_connection_string
+                agent_path = $agentPath
+                vss_path = $vssPath
+                sdp_id = $hostInfo.sdp_id
+                sdp_username = if ($hostInfo.sdp_credential) { $hostInfo.sdp_credential.UserName } else { $null }
+                sdp_password = if ($hostInfo.sdp_credential) { $hostInfo.sdp_credential.GetNetworkCredential().Password } else { $null }
+                mount_points_directory = $hostInfo.mount_points_directory
+                install_to_directory = $hostInfo.install_to_directory
+                is_debug = $IsDebug
+                is_dry_run = $IsDryRun
+                install_agent = $hostInfo.install_agent
+                install_vss = $hostInfo.install_vss
+            }
+            # Validate required fields based on what's being installed
+            if ($hostInfo.install_agent) {
+                $agentFields = @('flex_host_ip', 'flex_access_token', 'sql_connection_string', 'agent_path')
+                foreach ($field in $agentFields) {
+                    if ($null -eq $installConfig[$field] -or $installConfig[$field] -eq '') {
+                        ErrorMessageIJS "Required field for agent installation '$field' is null or empty"
+                        return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Missing required field: $field" }
+                    }
                 }
             }
+            if ($hostInfo.install_vss) {
+                $vssFields = @('vss_path', 'sdp_id', 'sdp_username', 'sdp_password')
+                foreach ($field in $vssFields) {
+                    if ($null -eq $installConfig[$field] -or $installConfig[$field] -eq '') {
+                        ErrorMessageIJS "Required field for VSS installation '$field' is null or empty"
+                        return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Missing required field: $field" }
+                    }
+                }
+            }
+            $ConfigJson = $installConfig | ConvertTo-Json -Compress
+            # Prepare argument list with ConfigJson and Script
+            $ArgumentList = @($ConfigJson, $HostSetupScript)
             # Prepare invoke command parameters - DIRECT EXECUTION (NO -AsJob)
             $invokeParams = @{
                 ComputerName = $HostAddress
@@ -1901,8 +2000,6 @@ function StartBatchInstallation {
                 if ($configHostToUpdate) {
                     $configHostToUpdate.result = $result
                 }
-                # Write report after updating host
-                WriteHostsSummaryToFile -Hosts $script:config.hosts -OutputPath $SilkEchoReportFilePath
                 $script:NumOfSuccessHosts++
                 # Mark host as completed immediately (only in live mode)
                 if (-not $DryRun.IsPresent) {
@@ -1941,8 +2038,6 @@ function StartBatchInstallation {
                 if ($configHostToUpdate) {
                     $configHostToUpdate.result = $result
                 }
-                # Write report after updating host
-                WriteHostsSummaryToFile -Hosts $script:config.hosts -OutputPath $SilkEchoReportFilePath
                 $script:NumOfFailedHosts++
             }
         } else {
@@ -1964,8 +2059,6 @@ function StartBatchInstallation {
             if ($configHostToUpdate) {
                 $configHostToUpdate.result = $result
             }
-            # Write report after updating host
-            WriteHostsSummaryToFile -Hosts $script:config.hosts -OutputPath $SilkEchoReportFilePath
             $script:NumOfFailedHosts++
         }
         Remove-Job -Job $job -Force
@@ -2003,13 +2096,9 @@ function SaveInstallationResults {
         [Parameter(Mandatory=$true)]
         [string]$CacheDirectory,
         [Parameter(Mandatory=$true)]
-        [string]$ReportFilePath,
-        [Parameter(Mandatory=$true)]
         [string]$ProcessedHostsPath
     )
     try {
-        # Final checkpoint: Save complete installation report
-        WriteHostsSummaryToFile -Hosts $Config.hosts -OutputPath $ReportFilePath
         # Display short summary to console
         DisplayInstallationSummary -Hosts $Config.hosts
         InfoMessage ""
@@ -2354,15 +2443,11 @@ function testHostsConnectivityInParallel {
             } else {
                 $errorMsg = if ($testResult.Error) { $testResult.Error } else { "Unknown connectivity error" }
                 $hostInfo.issues += "Failed to connect to host using $($hostInfo.host_auth) authentication: $errorMsg"
-                # Write report after updating host
-                WriteHostsSummaryToFile -Hosts $hostEntries -OutputPath $SilkEchoReportFilePath
-            }
+                }
         } else {
             $stdErrOut = Receive-Job -Job $job -ErrorAction SilentlyContinue | Out-String
             $errorMsg = "Connectivity test job failed for $($hostInfo.host_addr). State: $($job.State). $stdErrOut"
             $hostInfo.issues += $errorMsg
-            # Write report after updating host
-            WriteHostsSummaryToFile -Hosts $hostEntries -OutputPath $SilkEchoReportFilePath
         }
         Remove-Job -Job $job -Force
     }
@@ -2754,7 +2839,7 @@ function MainOrchestrator {
         processedHostsFile = $script:processedHostsFile
         HostSetupScript = if ($HostSetupScript) { "Loaded $($HostSetupScript.Length) bytes" } else { "Not Loaded" }
     }
-    DebugMessage "Configuration is: $($safeConfig | ConvertTo-Json -Depth 4)"
+    DebugMessage "Configuration is: $($safeConfig | ConvertTo-Json -Depth 10)"
     # Start batch installation process
     $results = StartBatchInstallation `
         -RemoteComputers   $remoteComputers `
@@ -2769,7 +2854,6 @@ function MainOrchestrator {
             -Results $results `
             -Config $config `
             -CacheDirectory $SilkEchoInstallerCacheDir `
-            -ReportFilePath $SilkEchoReportFilePath `
             -ProcessedHostsPath $script:processedHostsFile
     }
     catch {
@@ -2869,7 +2953,7 @@ if ($DryRun) {
 }
 # Stop transcript logging
 try {
-    WriteHostsSummaryToFile -Hosts $config.hosts -OutputPath $script:SilkEchoFullLogPath -Stdout
+    WriteHostsSummary -Hosts $config.hosts -OutputPath "STDOUT"
     Stop-Transcript
     InfoMessage "Full execution log saved to: $script:SilkEchoFullLogPath"
 } catch {
@@ -2904,6 +2988,8 @@ exit 0
     The password for SDP authentication.
 .PARAMETER MountPointsDirectory
     The directory where mount points for the Silk Node Agent will be created.
+.PARAMETER DirectoryToInstall
+    The target directory for the installers. This parameter will be passed to both the SilkAgent installer (using /D flag) and VSS installer (using /DIR flag).
 .PARAMETER DryRun
     Perform validation and connectivity tests without actually installing the components.
     When enabled, the script will verify downloads, connections, and prerequisites but skip the actual installation steps.
@@ -2932,29 +3018,38 @@ exit 0
 param (
     [Parameter(Mandatory=$true)]
     [ValidateNotNullOrEmpty()]
-    [string]$FlexIP,
-    [Parameter(Mandatory=$true)]
-    [ValidateNotNullOrEmpty()]
-    [string]$FlexToken,
-    [Parameter(Mandatory=$true)]
-    [string]$DBConnectionString,
-    [Parameter(Mandatory=$true)]
-    [ValidateNotNullOrEmpty()]
-    [string]$SilkAgentPath,
-    [Parameter(Mandatory=$true)]
-    [ValidateNotNullOrEmpty()]
-    [string]$SilkVSSPath,
-    [Parameter(Mandatory=$true)]
-    [string]$SDPId,
-    [Parameter(Mandatory=$true)]
-    [ValidateNotNullOrEmpty()]
-    [string]$SDPUsername,
-    [Parameter(Mandatory=$true)]
-    [ValidateNotNullOrEmpty()]
-    [string]$SDPPassword,
-    [string]$MountPointsDirectory = "",
-    [switch]$DryRun
+    [string]$ConfigJson
 )
+# Parse JSON configuration
+try {
+    $Config = $ConfigJson | ConvertFrom-Json
+} catch {
+    Write-Error "Failed to parse ConfigJson parameter: $_"
+    throw
+}
+# Extract parameters from config
+$FlexIP = $Config.flex_host_ip
+$FlexToken = $Config.flex_access_token
+$DBConnectionString = $Config.sql_connection_string
+$SilkAgentPath = $Config.agent_path
+$SilkVSSPath = $Config.vss_path
+$SDPId = $Config.sdp_id
+$SDPUsername = $Config.sdp_username
+$SDPPassword = $Config.sdp_password
+$MountPointsDirectory = $Config.mount_points_directory
+$DirectoryToInstall = $Config.install_to_directory
+$DryRun = [switch]$Config.is_dry_run
+$InstallAgent = [bool]$Config.install_agent
+$InstallVSS = [bool]$Config.install_vss
+# print info about params
+Write-Host "Parameters:"
+Write-Host "  FlexIP: $FlexIP"
+Write-Host "  DryRun: $DryRun"
+Write-Host "  SilkAgentPath: $SilkAgentPath"
+Write-Host "  SilkVSSPath: $SilkVSSPath"
+Write-Host "  InstallAgent: $InstallAgent"
+Write-Host "  InstallVSS: $InstallVSS"
+Write-Host "  DirectoryToInstall: $DirectoryToInstall"
 if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
     Write-Host "Debug and Verbose output enabled."
     $DebugPreference = 'Continue'
@@ -3153,10 +3248,16 @@ Set-Variable -Name INTERNAL_INSTALL_TIMEOUT_SECONDS -Value 110 -Option AllScope 
 #endregion orc_constants_installer
 # global variables
 # ============================================================================
-# Create SDP credential from passed parameters
-$SDPCredential = New-Object System.Management.Automation.PSCredential($SDPUsername, (ConvertTo-SecureString $SDPPassword -AsPlainText -Force))
+# Create SDP credential from passed parameters (only if installing VSS)
+if ($InstallVSS -and $SDPUsername -and $SDPPassword) {
+    $SDPCredential = New-Object System.Management.Automation.PSCredential($SDPUsername, (ConvertTo-SecureString $SDPPassword -AsPlainText -Force))
+} else {
+    $SDPCredential = $null
+}
 Set-Variable -Name SDPCredential -Value $SDPCredential -Scope Global
 Set-Variable -Name IsDryRun -Value $DryRun.IsPresent -Scope Global
+Set-Variable -Name InstallAgent -Value $InstallAgent -Scope Global
+Set-Variable -Name InstallVSS -Value $InstallVSS -Scope Global
 Set-Variable -Name AgentInstallationLogPath -Scope Global
 Set-Variable -Name SVSSInstallationLogPath -Scope Global
 Set-Variable -Name HostID -Value "$(hostname)" -Scope Global
@@ -3307,6 +3408,11 @@ function createAndTestConnectionString {
     }
     # Set application name to SilkAgent
     $baseParams['Application Name'] = 'SilkAgent'
+    # currently we support only credentials authentication and will failed if there is no User ID and Password
+    if (-not $baseParams.ContainsKey('User ID') -or -not $baseParams.ContainsKey('Password')) {
+        ErrorMessage "Connection string must include User ID and Password for SQL authentication"
+        return $null
+    }
     # If Server is already specified, test that connection first
     if ($baseParams.ContainsKey('Server') -and $baseParams['Server'] -ne '') {
         $connectionStringParts = $baseParams.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }
@@ -3388,7 +3494,8 @@ function PrintSVSSInstallationLog {
 #region CleanupInstallerFiles
 function CleanupInstallerFiles {
     # Remove all files in the directory including the directory itself
-    if (Test-Path -Path $SilkAgentDirectory) {
+    # if install_agent is true remove SilkAgentDirectory
+    if ($InstallAgent -and (Test-Path -Path $SilkAgentDirectory)) {
         try {
             Remove-Item -Path $SilkAgentDirectory -Recurse -Force
             InfoMessage "Cleaned up installer files in directory: $SilkAgentDirectory"
@@ -3396,7 +3503,7 @@ function CleanupInstallerFiles {
             WarningMessage "Failed to cleanup installer files in directory $SilkAgentDirectory`: $_"
         }
     }
-    if (Test-Path -Path $SilkVSSDirectory) {
+    if ($InstallVSS -and (Test-Path -Path $SilkVSSDirectory)) {
         try {
             Remove-Item -Path $SilkVSSDirectory -Recurse -Force
             InfoMessage "Cleaned up installer files in directory: $SilkVSSDirectory"
@@ -3494,7 +3601,8 @@ function InstallSilkNodeAgent {
         [string]$SQLConnectionString,
         [string]$FlexIP,
         [string]$AgentToken,
-        [string]$MountPointsDirectory
+        [string]$MountPointsDirectory,
+        [string]$InstallDir
     )
     InfoMessage "InstallSilkNodeAgent: executable $InstallerFilePath"
     # execute InstallerFilePath
@@ -3503,7 +3611,7 @@ function InstallSilkNodeAgent {
         return $false
     }
     # pass argumnets as /DbConnStr='"$sqlConn"'
-    InfoMessage "Building arguments with SQLConnectionString='$SQLConnectionString', FlexIP='$FlexIP', AgentToken='[REDACTED]', MountPointsDirectory='$MountPointsDirectory'"
+    InfoMessage "Building arguments with SQLConnectionString='$SQLConnectionString', FlexIP='$FlexIP', AgentToken='[REDACTED]', MountPointsDirectory='$MountPointsDirectory', InstallDir='$InstallDir'"
     $arguments = @(
         '/S', # Silent installation
         "/DbConnStr='$SQLConnectionString'",
@@ -3511,6 +3619,10 @@ function InstallSilkNodeAgent {
         "/Token='$AgentToken'",
         "/MountPointsDirectory='$MountPointsDirectory'"
     )
+    # Add /D parameter if InstallDir is provided
+    if ($InstallDir -and $InstallDir.Trim() -ne "") {
+        $arguments += "/Directory='$InstallDir\SilkAgent'"
+    }
     DebugMessage "Arguments array: $($arguments -join ' ')"
     # Run installation with timeout
     $installResult = StartProcessWithTimeout `
@@ -3537,16 +3649,11 @@ function InstallSilkNodeAgent {
     # if "Installation process succeeded." in log means we are ok
     if (Test-Path -Path $AgentInstallationLogPath) {
         $logContent = Get-Content -Path $AgentInstallationLogPath
+        $successMsgFound = $false
         if ($logContent -match "Installation process succeeded.") {
-            DebugMessage "Installation log indicates success."
-            return @{
-                Success = $true
-                Reason = "Completed"
-                Message = "Silk Node Agent installed successfully"
-                ExitCode = $installResult.ExitCode
-            }
+            $successMsgFound = $true
         }
-        if ($logContent -match "(?i)error") {
+        if (-not $successMsgFound -and $logContent -match "(?i)error") {
             ErrorMessage "Installation log contains errors. Please check the log file at $AgentInstallationLogPath"
             return @{
                 Success = $false
@@ -3646,7 +3753,8 @@ function InstallSilkVSSProvider {
         [string]$SDPID,
         [string]$SDPHost,
         [string]$SDPPort,
-        [System.Management.Automation.PSCredential]$Credential
+        [System.Management.Automation.PSCredential]$Credential,
+        [string]$InstallDir
     )
     InfoMessage "Installing Silk VSS Provider from $InstallerFilePath"
     # execute InstallerFilePath
@@ -3655,7 +3763,7 @@ function InstallSilkVSSProvider {
         return $false
     }
     $arguments = @(
-        '/silent',
+        '/VERYSILENT',
         "/external_ip=$SDPHost",
         "/host_name=$(hostname)",
         "/username=$($Credential.UserName)",
@@ -3666,8 +3774,12 @@ function InstallSilkVSSProvider {
         '/check_vg_full=false',
         '/snap_prefix=snap',
         '/retention_policy=Best_Effort_Retention',
-        "/log=$SVSSInstallationLogPath"
+        "/LOG=$SVSSInstallationLogPath"
     )
+    # Add /DIR parameter if InstallDir is provided
+    if ($InstallDir -and $InstallDir.Trim() -ne "") {
+        $arguments += "/DIR=$InstallDir\SilkVSS"
+    }
     InfoMessage "Silk VSS Provider installation arguments: $arguments"
     # Run installation with timeout
     $installResult = StartProcessWithTimeout `
@@ -3694,8 +3806,12 @@ function InstallSilkVSSProvider {
     # test log file do not contain "error"
     if (Test-Path -Path $SVSSInstallationLogPath) {
         $logContent = Get-Content -Path $SVSSInstallationLogPath
+        $successMsgFound = $false
+        if ($logContent -match "Installation process succeeded.") {
+            $successMsgFound = $true
+        }
         # split log content into lines and find all lines containing "error" or "out of memory" (case insensitive)
-        if ($logContent -match "(?i)error") {
+        if ( -not $successMsgFound -and $logContent -match "(?i)error") {
             ErrorMessage "Installation log contains errors. Please check the log file at $SVSSInstallationLogPath"
             return @{
                 Success = $false
@@ -3723,102 +3839,210 @@ function InstallSilkVSSProvider {
     }
 }
 #endregion InstallSilkVSSProvider
-#region setup
-function setup{
-    try {
-        SkipCertificateCheck
-        if (-not (TestFlexConnectivity -FlexIP $FlexIP -FlexToken $FlexToken)) {
-            InfoMessage "Flex connectivity test failed"
-            return "Failed to establish connection with Flex server at $FlexIP"
-        }
-        InfoMessage "Successfully connected to Flex"
-        # get sdp username and password from flex
-        $SDPInfo = GetSDPInfo -FlexIP $FlexIP -FlexToken $FlexToken -SDPID $SDPId
-        if (-not $SDPInfo) {
-            ErrorMessage "Failed to get SDP info from Flex"
-            return "Unable to retrieve SDP information from Flex server"
-        }
-        $SDPID = $SDPInfo["id"]
-        $SDPVersion = $SDPInfo["version"]
-        $SDPHost = $SDPInfo["mc_floating_ip"]
-        $SDPPort = $SDPInfo["mc_https_port"]
-        InfoMessage "Successfully retrieved SDP info from Flex $SDPID ($SDPVersion) at ${SDPHost}:$SDPPort"
-        $SdpConnectionValid = ValidateSDPConnection -SDPHost $SDPHost -SDPPort $SDPPort -Credential $SDPCredential
-        if (-not $SdpConnectionValid) {
-            ErrorMessage "Failed to validate SDP connection"
-            return "Unable to establish connection with SDP at ${SDPHost}:${SDPPort}"
-        }
-        $ConnectionString = createAndTestConnectionString -DBConnectionString $DBConnectionString
-        if (-not $ConnectionString) {
-            ErrorMessage "Failed to create and test connection string"
-            return "Unable to establish connection with any available SQL Server instance. Check SQL Server availability and credentials"
-        }
-        InfoMessage "Successfully established SQL Server connection with connection string: $ConnectionString"
-        if (-not (Test-Path $SilkAgentPath)) {
-            ErrorMessage "Silk Node Agent installer not found at $SilkAgentPath"
-            return "Unable to find Silk Node Agent installer at $SilkAgentPath"
-        } else {
-            InfoMessage "Silk Node Agent installer found at $SilkAgentPath"
-        }
-        if (-not (Test-Path $SilkVSSPath)) {
-            ErrorMessage "Silk VSS Provider installer not found at $SilkVSSPath"
-            return "Unable to find Silk VSS Provider installer at $SilkVSSPath"
-        } else {
-            InfoMessage "Silk VSS Provider installer found at $SilkVSSPath"
-        }
-        if ($IsDryRun) {
-            # stop execution if dry run is enabled
-            InfoMessage "Dry run mode enabled. Skipping actual installation."
-            return $null
-        }
-        $AgentToken = RegisterHostAtFlex -FlexIP $FlexIP -FlexToken $FlexToken
-        if (-not $AgentToken) {
-            return "Failed to register host $HostID with Flex and obtain agent token"
-        }
-        # Install Silk VSS Provider
-        $vssResult = InstallSilkVSSProvider -InstallerFilePath $SilkVSSPath -SDPID $SDPID -SDPHost $SDPHost -SDPPort $SDPPort -Credential $SDPCredential
-        if (-not $vssResult.Success) {
-            ErrorMessage "Failed to install Silk VSS Provider: $($vssResult.Reason)"
-            return $vssResult.Message
-        }
-        InfoMessage "Temporary directory: $SilkVSSDirectory"
-        if ($IsDryRun) {
-            InfoMessage "Validation completed successfully. No actual installation was performed."
-        } else {
-            InfoMessage "Silk Node Agent and VSS Provider installation completed successfully."
-        }
-        $installResult = InstallSilkNodeAgent -InstallerFilePath $SilkAgentPath `
-                                          -SQLConnectionString $ConnectionString `
-                                          -FlexIP $FlexIP `
-                                          -AgentToken $AgentToken `
-                                          -MountPointsDirectory $MountPointsDirectory
-        if (-not $installResult.Success) {
-            ErrorMessage "Failed to install Silk Node Agent: $($installResult.Reason)"
-            return $installResult.Message
-        }
-        # Return $null to indicate success
+#region setup_agent
+function setup_agent {
+    <#
+    .SYNOPSIS
+        Sets up and installs the Silk Node Agent component only.
+    .DESCRIPTION
+        This function handles all prerequisites and installation steps for the Silk Node Agent:
+        - Creates and validates SQL Server connection string
+        - Registers host at Flex to obtain agent token
+        - Installs the Silk Node Agent
+    .OUTPUTS
+        Returns $null on success, or an error message string on failure.
+    #>
+    InfoMessage "Starting Silk Node Agent setup..."
+    # Verify Agent installer exists
+    if (-not (Test-Path $SilkAgentPath)) {
+        ErrorMessage "Silk Node Agent installer not found at $SilkAgentPath"
+        return "Unable to find Silk Node Agent installer at $SilkAgentPath"
+    }
+    InfoMessage "Silk Node Agent installer found at $SilkAgentPath"
+    # Validate and create SQL Server connection string
+    $ConnectionString = createAndTestConnectionString -DBConnectionString $DBConnectionString
+    if (-not $ConnectionString) {
+        ErrorMessage "Failed to create and test connection string"
+        return "Unable to establish connection with any available SQL Server instance. Check SQL Server availability and credentials"
+    }
+    InfoMessage "Successfully established SQL Server connection with connection string: $ConnectionString"
+    # If dry run, skip actual installation
+    if ($IsDryRun) {
+        InfoMessage "Dry run mode enabled. Skipping Silk Node Agent installation."
         return $null
     }
-    catch {
-        return $_.Exception.Message
+    # Register host at Flex to obtain agent token
+    $AgentToken = RegisterHostAtFlex -FlexIP $FlexIP -FlexToken $FlexToken
+    if (-not $AgentToken) {
+        ErrorMessage "Failed to register host at Flex"
+        return "Failed to register host $HostID with Flex and obtain agent token"
     }
+    # Install Silk Node Agent
+    $installResult = InstallSilkNodeAgent -InstallerFilePath $SilkAgentPath `
+                                        -SQLConnectionString $ConnectionString `
+                                        -FlexIP $FlexIP `
+                                        -AgentToken $AgentToken `
+                                        -MountPointsDirectory $MountPointsDirectory `
+                                        -InstallDir $DirectoryToInstall
+    # Print installation log immediately after installation attempt
+    PrintAgentInstallationLog
+    if (-not $installResult.Success) {
+        ErrorMessage "Failed to install Silk Node Agent: $($installResult.Reason)"
+        return $installResult.Message
+    }
+    InfoMessage "Silk Node Agent installation completed successfully"
+    return $null
+}
+#endregion setup_agent
+#region setup_vss
+function setup_vss {
+    <#
+    .SYNOPSIS
+        Sets up and installs the Silk VSS Provider component only.
+    .DESCRIPTION
+        This function handles all prerequisites and installation steps for the Silk VSS Provider:
+        - Retrieves SDP information from Flex
+        - Validates SDP connection
+        - Installs the Silk VSS Provider
+    .OUTPUTS
+        Returns $null on success, or an error message string on failure.
+    #>
+    InfoMessage "Starting Silk VSS Provider setup..."
+    # Verify VSS installer exists
+    if (-not (Test-Path $SilkVSSPath)) {
+        ErrorMessage "Silk VSS Provider installer not found at $SilkVSSPath"
+        return "Unable to find Silk VSS Provider installer at $SilkVSSPath"
+    }
+    InfoMessage "Silk VSS Provider installer found at $SilkVSSPath"
+    # Get SDP information from Flex
+    $SDPInfo = GetSDPInfo -FlexIP $FlexIP -FlexToken $FlexToken -SDPID $SDPId
+    if (-not $SDPInfo) {
+        ErrorMessage "Failed to get SDP info from Flex"
+        return "Unable to retrieve SDP information from Flex server"
+    }
+    $SDPID = $SDPInfo["id"]
+    $SDPVersion = $SDPInfo["version"]
+    $SDPHost = $SDPInfo["mc_floating_ip"]
+    $SDPPort = $SDPInfo["mc_https_port"]
+    InfoMessage "Successfully retrieved SDP info from Flex $SDPID ($SDPVersion) at ${SDPHost}:$SDPPort"
+    # Validate SDP connection
+    $SdpConnectionValid = ValidateSDPConnection -SDPHost $SDPHost -SDPPort $SDPPort -Credential $SDPCredential
+    if (-not $SdpConnectionValid) {
+        ErrorMessage "Failed to validate SDP connection"
+        return "Unable to establish connection with SDP at ${SDPHost}:${SDPPort}"
+    }
+    InfoMessage "Successfully validated SDP connection"
+    # If dry run, skip actual installation
+    if ($IsDryRun) {
+        InfoMessage "Dry run mode enabled. Skipping Silk VSS Provider installation."
+        return $null
+    }
+    # Install Silk VSS Provider
+    $vssResult = InstallSilkVSSProvider -InstallerFilePath $SilkVSSPath `
+                                        -SDPID $SDPID `
+                                        -SDPHost $SDPHost `
+                                        -SDPPort $SDPPort `
+                                        -Credential $SDPCredential `
+                                        -InstallDir $DirectoryToInstall
+    # Print installation log immediately after installation attempt
+    PrintSVSSInstallationLog
+    if (-not $vssResult.Success) {
+        ErrorMessage "Failed to install Silk VSS Provider: $($vssResult.Reason)"
+        return $vssResult.Message
+    }
+    InfoMessage "Silk VSS Provider installation completed successfully"
+    return $null
+}
+#endregion setup_vss
+#region setup
+function setup{
+    <#
+    .SYNOPSIS
+        Main orchestrator function for Silk Echo component installation.
+    .DESCRIPTION
+        This function orchestrates the installation of Silk Echo components based on configuration:
+        - Tests Flex connectivity (common prerequisite)
+        - Calls setup_agent() if InstallAgent is enabled
+        - Calls setup_vss() if InstallVSS is enabled
+    .OUTPUTS
+        Returns $null on success, or an error message string on failure.
+    #>
+    InfoMessage "Starting Silk Echo installation setup..."
+    # Validate that at least one component is enabled
+    if (-not $InstallAgent -and -not $InstallVSS) {
+        ErrorMessage "No components selected for installation. At least one of InstallAgent or InstallVSS must be true."
+        return "No components selected for installation"
+    }
+    # Test Flex connectivity (common prerequisite for both components)
+    if (-not (TestFlexConnectivity -FlexIP $FlexIP -FlexToken $FlexToken)) {
+        ErrorMessage "Flex connectivity test failed"
+        return "Failed to establish connection with Flex server at $FlexIP"
+    }
+    InfoMessage "Successfully connected to Flex"
+    # Validate installation directory if specified
+    if ($DirectoryToInstall -and $DirectoryToInstall.Trim() -ne "") {
+        if (-not (Test-Path -Path $DirectoryToInstall -PathType Container)) {
+            ErrorMessage "Installation directory does not exist: $DirectoryToInstall"
+            return "Installation directory '$DirectoryToInstall' does not exist or is not a directory"
+        }
+        InfoMessage "Installation directory validated: $DirectoryToInstall"
+    }
+    # Install Agent if enabled
+    $agentError = $null
+    if ($InstallAgent) {
+        InfoMessage "Agent installation is enabled"
+        $agentError = setup_agent
+        if ($agentError) {
+            ErrorMessage "Agent setup failed: $agentError"
+            return $agentError
+        }
+    } else {
+        InfoMessage "Skipping Silk Node Agent installation (InstallAgent=false)"
+    }
+    # Install VSS if enabled
+    $vssError = $null
+    if ($InstallVSS) {
+        InfoMessage "VSS installation is enabled"
+        $vssError = setup_vss
+        if ($vssError) {
+            ErrorMessage "VSS setup failed: $vssError"
+            return $vssError
+        }
+    } else {
+        InfoMessage "Skipping Silk VSS Provider installation (InstallVSS=false)"
+    }
+    # Success message
+    if ($IsDryRun) {
+        InfoMessage "Dry run validation completed successfully. No actual installation was performed."
+    } else {
+        $installedComponents = @()
+        if ($InstallAgent) { $installedComponents += "Silk Node Agent" }
+        if ($InstallVSS) { $installedComponents += "Silk VSS Provider" }
+        InfoMessage "$($installedComponents -join ' and ') installation completed successfully."
+    }
+    # Return $null to indicate success
+    return $null
 }
 #endregion setup
 #region SetupHost
 function SetupHost {
     InfoMessage "Starting Silk Node Agent and VSS Provider installation script..."
     try {
+        SkipCertificateCheck
         $error = setup
     } catch {
-        $error = $_
+        $error = $_.Exception.Message
+        ErrorMessage "Unexpected error during setup: $error"
     }
-    PrintAgentInstallationLog
-    PrintSVSSInstallationLog
     if ($error) {
-        ErrorMessage "Process log files located at:"
-        ErrorMessage " - Silk Node Agent installation log: $AgentInstallationLogPath"
-        ErrorMessage " - Silk VSS Provider installation log: $SVSSInstallationLogPath"
         ErrorMessage "Setup completed with errors. Please check the logs for details: $($error)"
+        ErrorMessage "Process log files located at:"
+        if ($InstallAgent) {
+            ErrorMessage " - Silk Node Agent installation log: $AgentInstallationLogPath"
+        }
+        if ($InstallVSS) {
+            ErrorMessage " - Silk VSS Provider installation log: $SVSSInstallationLogPath"
+        }
         throw "Setup failed on Host[$env:COMPUTERNAME]. $($error)"
     } else {
         CleanupInstallerFiles
