@@ -157,6 +157,9 @@ function constructHosts {
         # sql_connection_string
         Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "sql_connection_string" -Value $null -Force
 
+        # sql_connection_params (parsed connection parameters hashtable)
+        Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "sql_connection_params" -Value $null -Force
+
         # sdp_credentials
         Add-Member -InputObject $hostObject -MemberType NoteProperty -Name "sdp_credential" -Value $null -Force
 

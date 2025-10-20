@@ -58,6 +58,7 @@ The installer supports **selective component installation**, allowing Agent and 
 - **Batch Orchestration**: Advanced parallel processing framework with dynamic job scheduling and smart resource management
 - **Dynamic Parallel Processing**: Configurable concurrency with immediate job scheduling when slots become available (no fixed batch waiting)
 - **Real-time Progress Tracking**: Live progress updates with detailed host status during upload, connectivity testing, and installation phases
+- **Early SQL Credential Validation**: Tests SQL credentials on remote hosts before file uploads, with automatic retry prompts on failure
 - **Fault Tolerance**: Gracefully continues with valid hosts when some fail validation, upload, or installation
 - **State Persistence**: Comprehensive tracking in `processing.json` to prevent duplicate installations and enable safe resumption
 - **Timeout Protection**: Multi-tier timeout system (110s internal, 120s orchestrator) with enhanced error reporting
@@ -96,7 +97,7 @@ This installer is organized as a modular PowerShell system with the following co
 |--------|----------|-------------|
 | **orc_web_client.ps1** | HTTP/API client | REST calls to Flex/SDP APIs |
 | **orc_host_communication.ps1** | Host connectivity | PowerShell remoting, WinRM validation |
-| **orc_mssql.ps1** | SQL Server integration | Connection strings, credential validation |
+| **orc_mssql.ps1** | SQL Server integration | Connection strings, remote credential validation, retry logic |
 | **orc_sdp.ps1** | SDP integration | Silk Data Platform API connectivity |
 
 ### Installation Management
@@ -220,12 +221,12 @@ Set-Variable -Name InstallVSS -Value $InstallVSS -Scope Global
 
 #### 1. Authentication Flow
 ```
-Host Auth (AD/Credentials) → Flex Login (API Token) → SDP Validation (if VSS) → SQL Validation (if Agent)
+Host Auth (AD/Credentials) → Flex Login (API Token) → SQL Validation (if Agent) → SDP Validation (if VSS)
 ```
 
 #### 2. Installation Pipeline
 ```
-Download → Upload → Connectivity Test → Register (if Agent) → Install Agent (optional) → Install VSS (optional) → Validate
+Download → Connectivity Test → SQL Validation (if Agent) → Upload → Register (if Agent) → Install Agent (optional) → Install VSS (optional) → Validate
 ```
 
 #### 3. Parallel Processing Architecture
@@ -260,6 +261,27 @@ The configuration system uses JSON with inheritance patterns:
   ]
 }
 ```
+
+### SQL Credential Validation
+
+The installer validates SQL credentials **before** uploading files to remote hosts, providing early failure detection:
+
+#### Validation Flow
+1. **Connection String Preparation**: SQL connection strings are built with credentials from configuration
+2. **Remote Testing**: Each host requiring Agent installation has its SQL credentials tested on the remote host
+3. **Smart Retry**: Failed hosts are isolated and retested with new credentials, while successful hosts are not retested
+4. **Interactive Prompts**: On failure, the installer prompts for new credentials until successful or user cancels (Ctrl+C)
+
+#### Key Features
+- **Remote Execution**: SQL connection tests run on the actual remote host where SQL Server is installed (solving localhost resolution issues)
+- **Efficient Retry**: Only failed hosts are retested after credential updates
+- **Connection String Reuse**: Parsed connection parameters are stored and reused for efficient credential updates
+- **Early Validation**: Credentials are validated before file uploads, saving time and network bandwidth
+
+#### Implementation Details
+- **TestSQLConnectionRemote** (`orc_mssql.ps1:22-99`): Tests SQL connection on remote host via PowerShell remoting
+- **ValidateHostSQLCredentials** (`orc_mssql.ps1:101-199`): Orchestrates validation with retry logic
+- **Integration Point** (`orchestrator.ps1:315-321`): Called after `UpdateHostSqlConnectionString`, before file uploads
 
 ### Authentication Modes
 

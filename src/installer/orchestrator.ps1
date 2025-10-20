@@ -312,6 +312,14 @@ function MainOrchestrator {
         return
     }
 
+    # Validate SQL credentials by testing connection on each remote host
+    InfoMessage "Validating SQL credentials on remote hosts..."
+    $ok = ValidateHostSQLCredentials -Config $config
+    if (-not $ok) {
+        ErrorMessage "SQL credential validation failed. Cannot proceed with installation."
+        return
+    }
+
     # Login to Silk Flex and get the token
     $flexToken = UpdateFlexAuthToken -Config $config
 
