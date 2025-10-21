@@ -85,6 +85,7 @@ Edit the generated `config.json` file with your environment-specific values:
 | `MaxConcurrency` | Number of hosts to process in parallel | No | 10 |
 | `DryRun` | Validation mode - checks connectivity without making changes | No | false |
 | `Force` | Force reprocessing all hosts, ignore completed tracking | No | false |
+| `Log` | Optional path to a log file for full transcript of script execution | No | Default cache directory |
 | `Verbose/Debug` | Enable verbose output for detailed logging | No | false |
 
 *Required unless using `-CreateConfigTemplate`
@@ -109,6 +110,12 @@ Edit the generated `config.json` file with your environment-specific values:
 
 # Run with verbose logging
 .\orchestrator.ps1 -ConfigPath "config.json" -Verbose
+
+# Save transcript to custom log file location
+.\orchestrator.ps1 -ConfigPath "config.json" -Log "C:\Logs\installation.log"
+
+# Use relative path for log file
+.\orchestrator.ps1 -ConfigPath "config.json" -Log ".\my-installation.log"
 
 # Get detailed help
 Get-Help .\orchestrator.ps1 -Full
@@ -171,13 +178,12 @@ Contains shared configuration inherited by all hosts unless overridden.
 - `mount_points_directory`: Directory for mount points (must not be empty)
 
 **Optional Fields:**
-- `sql_server`: SQL Server instance to use for all host connections. If
-  set, this server will be used in all host connection strings unless
-  overridden in the host section itself. If not set, the installer will
-  auto-discover SQL Server instances by scanning for listening SQL
-  servers on each host. Port 1433 will be prioritized, and the hostname
-  will be used instead of IP address or localhost if the server is
-  listening on 0.0.0.0.
+- `sql_server`: SQL Server instance to use for all host connections (format: `"hostname,port"` or `"hostname"`).
+  - **If specified**: The installer will test ONLY this server and fail if the connection fails (no fallback to auto-discovery)
+  - **If not specified or empty**: The installer will auto-discover SQL Server instances by scanning for listening SQL Server processes on each host
+  - **Auto-discovery behavior**: Port 1433 is prioritized; hostname is used instead of IP address or localhost when the server listens on 0.0.0.0
+  - Can be overridden per-host in the hosts section
+  - During validation, credentials are tested in parallel across all hosts to ensure database connectivity before installation begins
 - `install_to_directory`: Target directory for component installations. If
   empty or not specified, system default installation paths are used. If
   set to a custom path (e.g., `"C:\\CustomPath"`), both Silk Node Agent
@@ -597,24 +603,30 @@ The installer follows this enhanced workflow with advanced batch orchestration:
    - **Fault-tolerant**: Failed hosts are logged but script continues with valid hosts
    - **Dynamic Scheduling**: New tests start immediately as slots become available
    - Only terminates if no valid hosts remain
-7. **Authentication Setup** (for valid hosts only):
+7. **SQL Credential Validation** (for hosts requiring Agent installation):
+   - Prepares SQL connection strings with automatic endpoint discovery
+   - **Parallel validation**: Tests SQL credentials on all remote hosts concurrently
+   - **Auto-discovery support**: If `sql_server` is not specified, discovers SQL Server endpoints on each host
+   - **Retry mechanism**: If validation fails, prompts for new credentials and retries
+   - **Empty credential detection**: Properly detects empty string credentials (`""`) and prompts for input
+   - Only continues with hosts that pass SQL credential validation
+8. **Authentication Setup** (for valid hosts only):
    - Logs into Silk Flex server and obtains access token
    - Validates SDP credentials
-   - Prepares SQL connection strings with automatic endpoint discovery
-8. **Parallel File Distribution**: Uploads installer files to target hosts using dynamic batch processing
+9. **Parallel File Distribution**: Uploads installer files to target hosts using dynamic batch processing
    - **Progress Updates**: Shows upload status and completion
    - Creates temporary directory on each target host (`C:\Temp\silk-echo-install-<timestamp>`)
    - Copies both agent and VSS installer files to each host
    - Uses PowerShell remoting for file transfer
    - **Dynamic Scheduling**: New uploads start immediately as slots become available
    - **Fault-tolerant**: Failed uploads are logged but script continues with successful hosts
-9. **Parallel Installation Execution**: Runs installations across hosts using dynamic batch processing
+10. **Parallel Installation Execution**: Runs installations across hosts using dynamic batch processing
    - **Progress Updates**: Shows installation status and completion
    - Uses the uploaded installer files from each host's temporary directory
    - **Multi-tier Timeout Protection**: 110s internal timeout, 120s orchestrator timeout
    - **Dynamic Scheduling**: New installations start immediately as slots become available
    - **Immediate State Persistence**: Successful installations tracked immediately in `processing.json`
-10. **Results Collection and Reporting**:
+11. **Results Collection and Reporting**:
     - **Real-time Result Processing**: Job results processed immediately upon completion
     - **Comprehensive Logging**: All output saved to transcript and report files
     - **Final Summary**: Console display with success/failure counts and log file locations
@@ -667,9 +679,9 @@ Get-Service -Name WinRM -ComputerName "192.168.1.10"
 ```
 
 **"Failed to add hosts to TrustedHosts"**
-- The script needs to add target IPs to PowerShell's TrustedHosts list
-- Run PowerShell as Administrator
-- Confirm the prompt to add hosts to TrustedHosts
+- The script automatically adds target IPs to PowerShell's TrustedHosts list for credential-based authentication
+- This requires Administrator privileges
+- If this fails, ensure you are running PowerShell as Administrator
 ```powershell
 # Check current TrustedHosts list
 Get-Item WSMan:\localhost\Client\TrustedHosts
@@ -730,17 +742,30 @@ The installer provides comprehensive logging and state tracking:
 - **Credential Sanitization**: Passwords are automatically redacted from all log output
 
 ### **File Logging**
-- **Full Execution Transcript**: Complete session log saved to `SilkEchoInstallerArtifacts\orchestrator_full_log_<timestamp>.txt`
+- **Full Execution Transcript**: Complete session log saved to a transcript file
+  - **Default location**: `SilkEchoInstallerArtifacts\orchestrator_full_log_<timestamp>.txt`
+  - **Custom location**: Use `-Log` parameter to specify an alternate path (e.g., `-Log "C:\Logs\install.log"`)
+  - **Path validation**: Write access is verified before starting the transcript
 - **Installation Report**: Detailed per-host results saved to `SilkEchoInstallerArtifacts\installation_report_<timestamp>.txt`
 - **Processing State**: Progress tracking saved to `SilkEchoInstallerArtifacts\processing.json`
 - **Remote Host Logs**: All remote execution output is captured and echoed to the orchestrator console
 
 ### **Log Locations**
 The installer creates a cache directory `SilkEchoInstallerArtifacts` in the script location containing:
-- `orchestrator_full_log_<timestamp>.txt` - Complete execution transcript
+- `orchestrator_full_log_<timestamp>.txt` - Complete execution transcript (default location, can be overridden with `-Log` parameter)
 - `installation_report_<timestamp>.txt` - Final installation results per host
 - `processing.json` - Completed hosts tracking for resume capability
 - Downloaded installer files (cached for reuse)
+
+**Custom Log File Location:**
+Use the `-Log` parameter to save the transcript to any location:
+```powershell
+# Save to a specific directory
+.\orchestrator.ps1 -ConfigPath "config.json" -Log "C:\Logs\silk-install-2025-01-15.log"
+
+# Save to current directory
+.\orchestrator.ps1 -ConfigPath "config.json" -Log ".\my-installation.log"
+```
 
 ### **After Installation**
 Once installation completes, you can find:
