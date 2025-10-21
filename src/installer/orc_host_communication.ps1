@@ -21,24 +21,14 @@ function addHostsToTrustedHosts {
     if ($newHosts.Count -eq 0) {
         InfoMessage "All hosts are already in TrustedHosts list"
         return
-    } else {
-        InfoMessage "Not all hosts are in TrustedHosts list."
-        InfoMessage "The following hosts will be added to TrustedHosts:"
-        foreach ($hostAddr in $newHosts) {
-            InfoMessage "$hostAddr"
-        }
     }
 
-    # ask user if they want to add hosts to TrustedHosts or process without it
-    $confirmation = Read-Host "Do you want to add these hosts to TrustedHosts? (Y/n)"
-    if ($confirmation -eq 'N' -or $confirmation -eq 'n') {
-        InfoMessage "User declined to add hosts to TrustedHosts. Unable to proceed with installation."
-        Exit 1
+    InfoMessage "Adding the following hosts to TrustedHosts:"
+    foreach ($hostAddr in $newHosts) {
+        InfoMessage "  - $hostAddr"
     }
 
     $hostsToAddString = $newHosts -join ','
-    InfoMessage "The following hosts need to be added to TrustedHosts:"
-    InfoMessage $hostsToAddString
 
     if ($currentTrustedHosts.Value) {
         $newValue = "$($currentTrustedHosts.Value),$hostsToAddString"
@@ -59,7 +49,9 @@ function ensureHostCredentials {
 
     # Check if any hosts with credentials auth are missing username or password
     $missingCredHosts = @($hostEntries | Where-Object {
-        $_.host_auth -eq $ENUM_CREDENTIALS -and (-not $_.host_user -or -not $_.host_pass)
+        $_.host_auth -eq $ENUM_CREDENTIALS -and (
+            [string]::IsNullOrEmpty($_.host_user) -or [string]::IsNullOrEmpty($_.host_pass)
+        )
     })
 
     # return if no missing

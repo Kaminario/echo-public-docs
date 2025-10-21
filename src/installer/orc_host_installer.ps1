@@ -136,6 +136,8 @@ $ProgressPreference = 'SilentlyContinue'
 . ./orc_web_client.ps1
 # Constants for installer
 . ./orc_constants_installer.ps1
+# GetMSSQLHostPorts
+. ./orc_mssql_discovery.ps1
 
 # global variables
 # ============================================================================
@@ -231,82 +233,6 @@ function RegisterHostAtFlex {
     }
 }
 #endregion RegisterHostAtFlex
-
-#region GetMSSQLHostPorts
-function GetMSSQLHostPorts {
-    $listener = Get-NetTCPConnection -State Listen | Where-Object {
-        (Get-Process -Id $_.OwningProcess).ProcessName -eq "sqlservr" -and
-        $_.LocalAddress -match '^\d{1,3}(\.\d{1,3}){3}$'
-    }
-
-    if (-not $listener) {
-        DebugMessage "No SQL Server listener found. Please ensure SQL Server is running."
-        return @()
-    }
-
-    # write all options to the log
-    foreach ($item in $listener) {
-        DebugMessage "Found SQL Server listener: LocalAddress=$($item.LocalAddress), LocalPort=$($item.LocalPort)"
-    }
-
-    # Get hostname and resolve it to IP
-    $hostname = $env:COMPUTERNAME
-    $hostnameIP = $null
-    try {
-        $hostnameIP = [System.Net.Dns]::GetHostAddresses($hostname) | Where-Object { $_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1 -ExpandProperty IPAddressToString
-        InfoMessage "Resolved hostname '$hostname' to IP: $hostnameIP"
-    } catch {
-        WarningMessage "Failed to resolve hostname '$hostname' to IP: $_"
-    }
-
-    # Phase 1: Filter listeners - prioritize standard ports 1433
-    $standardPortListeners = $listener | Where-Object { $_.LocalPort -eq 1433 }
-    $candidateListeners = if ($standardPortListeners) {
-        InfoMessage "Found SQL Server listeners on standard ports, prioritizing them"
-        $standardPortListeners
-    } else {
-        InfoMessage "No standard ports found, using all available listeners"
-        $listener
-    }
-
-    # Phase 2: Build prioritized list of all potential server addresses
-    $prioritizedServers = @()
-
-    # Priority 1: loopback addresses
-    $loopbackListeners = $candidateListeners | Where-Object { $_.LocalAddress -like "127.*" }
-    foreach ($listener in $loopbackListeners) {
-        $prioritizedServers += "localhost,$($listener.LocalPort)"
-    }
-
-    # Priority 2: wildcard listeners (0.0.0.0) - use hostname
-    $wildcardListeners = $candidateListeners | Where-Object { $_.LocalAddress -eq "0.0.0.0" }
-    foreach ($listener in $wildcardListeners) {
-        $prioritizedServers += "${hostname},$($listener.LocalPort)"
-    }
-
-    # Priority 3: hostname IP listeners - use hostname
-    if ($hostnameIP) {
-        $hostnameIPListeners = $candidateListeners | Where-Object { $_.LocalAddress -eq $hostnameIP }
-        foreach ($listener in $hostnameIPListeners) {
-            $prioritizedServers += "${hostname},$($listener.LocalPort)"
-        }
-    }
-
-    # Priority 4: all other listeners - use actual IP
-    $otherListeners = $candidateListeners | Where-Object {
-        $_.LocalAddress -notlike "127.*" -and
-        $_.LocalAddress -ne "0.0.0.0" -and
-        $_.LocalAddress -ne $hostnameIP
-    }
-    foreach ($listener in $otherListeners) {
-        $prioritizedServers += "$($listener.LocalAddress),$($listener.LocalPort)"
-    }
-
-    InfoMessage "Discovered $($prioritizedServers.Count) SQL Server endpoints to try"
-    return $prioritizedServers
-}
-#endregion GetMSSQLHostPorts
-
 
 #region createAndTestConnectionString
 function createAndTestConnectionString {

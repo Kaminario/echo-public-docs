@@ -1,24 +1,5 @@
 #region SQL
 
-#region getSqlCredentials
-function getSqlCredentials {
-    param (
-        [string]$Username,
-        [string]$Password
-    )
-    # Check if user id is set, and ask for credentials if not
-    while (-not $Username -or -not $Password) {
-        WarningMessage "Please provide SQL credentials for the connection string."
-        $cred = Get-Credential -Message "Enter your SQL Server credentials"
-        if ($cred) {
-            return $cred
-        } else {
-            ErrorMessage "No credentials provided. Cannot proceed without valid SQL Server credentials."
-        }
-    }
-}
-#endregion getSqlCredentials
-
 #region TestSQLConnectionRemote
 function TestSQLConnectionRemote {
     <#
@@ -98,6 +79,215 @@ function TestSQLConnectionRemote {
 }
 #endregion TestSQLConnectionRemote
 
+#region TestSQLCredentialsInParallel
+function TestSQLCredentialsInParallel {
+    <#
+    .SYNOPSIS
+        Tests SQL credentials in parallel across multiple hosts.
+
+    .DESCRIPTION
+        Executes SQL connection tests concurrently using the batch job processor.
+        Updates host issues array with connection failures.
+
+    .PARAMETER HostEntries
+        Array of host objects to test
+
+    .PARAMETER MaxConcurrency
+        Maximum number of concurrent tests (default: 10)
+    #>
+    param (
+        [Parameter(Mandatory=$true)]
+        [Array]$HostEntries,
+        [Parameter(Mandatory=$false)]
+        [int]$MaxConcurrency = 10
+    )
+
+    # SQL connection test job logic
+    $sqlTestJobScript = {
+        param($HostInfo, $ENUM_ACTIVE_DIRECTORY, $ENUM_CREDENTIALS, $GetMSSQLHostPortsScript)
+
+        function InfoMessageSQL { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - SQLJob - [INFO] $message"}
+        function DebugMessageSQL { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - SQLJob - [DEBUG] $message"}
+        function WarningMessageSQL { param($message) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - SQLJob - [WARN] $message"}
+
+        # Remote script that will execute on target host
+        $remoteTestScript = {
+            param($ConnectionString, $GetMSSQLHostPortsScript)
+
+            # Define logging functions (used by both this script and GetMSSQLHostPorts)
+            function InfoMessage { param($m) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [INFO] $m" }
+            function DebugMessage { param($m) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [DEBUG] $m" }
+            function WarningMessage { param($m) Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') - Host[$env:COMPUTERNAME] - [WARN] $m" }
+
+            # Define GetMSSQLHostPorts in remote scope
+            $GetMSSQLHostPortsFunc = [ScriptBlock]::Create($GetMSSQLHostPortsScript)
+            function GetMSSQLHostPorts { & $GetMSSQLHostPortsFunc }
+
+            # Parse connection string
+            $baseParams = @{}
+            $parts = $ConnectionString.Trim() -split ';'
+            foreach ($part in $parts) {
+                if ($part.Trim()) {
+                    $key, $value = $part -split '=', 2
+                    $baseParams[$key.Trim()] = $value.Trim()
+                }
+            }
+
+            # Build list of servers to test
+            $serversToTest = @()
+
+            if ($baseParams.ContainsKey('Server') -and $baseParams['Server'] -ne '') {
+                # Case 1: Server specified - list with only one item
+                InfoMessage "Server specified: $($baseParams['Server'])"
+                $serversToTest = @($baseParams['Server'])
+            } else {
+                # Case 2: Server missing - discover and return list
+                InfoMessage "No server specified, performing auto-discovery..."
+                try {
+                    $serversToTest = GetMSSQLHostPorts
+                } catch {
+                    return @{ Success = $false; Error = "Auto-discovery failed: $($_.Exception.Message)"; ErrorType = 'connection_error' }
+                }
+            }
+
+            if ($serversToTest.Count -eq 0) {
+                return @{ Success = $false; Error = "No SQL Server endpoints found"; ErrorType = 'connection_error' }
+            }
+
+            InfoMessage "Testing $($serversToTest.Count) endpoint(s)..."
+
+            # Test each server in the list
+            $lastError = $null
+            $lastErrorType = 'unknown'
+
+            foreach ($serverEndpoint in $serversToTest) {
+                $testParams = $baseParams.Clone()
+                $testParams['Server'] = $serverEndpoint
+                $testConnString = ($testParams.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ';'
+
+                DebugMessage "Testing: $serverEndpoint"
+                try {
+                    $sqlConn = New-Object System.Data.SqlClient.SqlConnection($testConnString)
+                    $sqlConn.Open()
+                    $sqlConn.Close()
+                    InfoMessage "Success at: $serverEndpoint"
+                    return @{ Success = $true; Error = $null; ErrorType = $null; ConnectionString = $testConnString }
+                } catch {
+                    $errorMessage = $_.Exception.Message
+                    DebugMessage "Failed: $errorMessage"
+
+                    # Categorize error type
+                    if ($errorMessage -match 'Login failed|password|authentication|user') {
+                        $lastErrorType = 'credential_error'
+                        DebugMessage "Error categorized as: credential_error"
+                    } elseif ($errorMessage -match 'server|timeout|network|could not open a connection|connection|host|address|endpoint') {
+                        $lastErrorType = 'connection_error'
+                        DebugMessage "Error categorized as: connection_error"
+                    } else {
+                        $lastErrorType = 'unknown'
+                        DebugMessage "Error categorized as: unknown"
+                    }
+
+                    $lastError = $errorMessage
+                }
+            }
+
+            return @{ Success = $false; Error = "Failed to connect to any SQL Server endpoint. Last error: $lastError"; ErrorType = $lastErrorType }
+        }
+
+        try {
+            InfoMessageSQL "Testing SQL credentials for host $($HostInfo.host_addr)..."
+
+            # Execute remote test
+            $result = $null
+            if ($HostInfo.host_auth -eq $ENUM_ACTIVE_DIRECTORY) {
+                $result = Invoke-Command -ComputerName $HostInfo.host_addr `
+                                         -ScriptBlock $remoteTestScript `
+                                         -ArgumentList $HostInfo.sql_connection_string, $GetMSSQLHostPortsScript `
+                                         -ErrorAction Stop
+            }
+            elseif ($HostInfo.host_auth -eq $ENUM_CREDENTIALS) {
+                $credential = New-Object System.Management.Automation.PSCredential($HostInfo.host_user, $HostInfo.host_pass)
+                $sessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
+                $result = Invoke-Command -ComputerName $HostInfo.host_addr `
+                                         -Credential $credential `
+                                         -SessionOption $sessionOption `
+                                         -ScriptBlock $remoteTestScript `
+                                         -ArgumentList $HostInfo.sql_connection_string, $GetMSSQLHostPortsScript `
+                                         -ErrorAction Stop
+            }
+            else {
+                return @{ Success = $false; Error = "Invalid host_auth value"; ErrorType = 'connection_error' }
+            }
+
+            if ($result.Success) {
+                InfoMessageSQL "SQL validation successful for $($HostInfo.host_addr)"
+                return @{ Success = $true; Error = $null; ErrorType = $null; ConnectionString = $result.ConnectionString }
+            } else {
+                return @{ Success = $false; Error = $result.Error; ErrorType = $result.ErrorType }
+            }
+        } catch {
+            return @{ Success = $false; Error = "Remote test failed: $($_.Exception.Message)"; ErrorType = 'connection_error' }
+        }
+    }
+
+    # Result processor
+    $resultProcessor = {
+        param($JobInfo)
+
+        $job = $JobInfo.Job
+        $hostInfo = $JobInfo.Item
+
+        if ($job.State -eq 'Completed') {
+            $testResult = Receive-Job -Job $job
+            if ($testResult -and $testResult.Success) {
+                $sanitizedConnString = Sanitize $testResult.ConnectionString
+                DebugMessage "SQL validation succeeded for $($hostInfo.host_addr), returned connection string: $sanitizedConnString"
+                InfoMessage "SQL credential validation successful for $($hostInfo.host_addr)"
+            } else {
+                $errorMsg = if ($testResult.Error) { $testResult.Error } else { "Unknown SQL connection error" }
+                $errorType = if ($testResult.ErrorType) { $testResult.ErrorType } else { "unknown" }
+                DebugMessage "SQL validation failed for $($hostInfo.host_addr) - ErrorType: $errorType, Error: $errorMsg"
+
+                # ALWAYS add to issues with error type embedded in the message
+                # Format: "SQL validation failed [error_type]: error message"
+                $issueMsg = "SQL validation failed [$errorType]: $errorMsg"
+                DebugMessage "Adding to issues: $issueMsg"
+                $hostInfo.issues += $issueMsg
+
+                # Log appropriate message based on error type
+                if ($errorType -eq 'connection_error') {
+                    WarningMessage "SQL connection failed for $($hostInfo.host_addr) due to server configuration issue: $errorMsg"
+                } else {
+                    WarningMessage "SQL credential validation failed for $($hostInfo.host_addr): $errorMsg"
+                }
+            }
+        } else {
+            $stdErrOut = Receive-Job -Job $job -ErrorAction SilentlyContinue | Out-String
+            $errorMsg = "SQL validation job failed for $($hostInfo.host_addr). State: $($job.State). $stdErrOut"
+            DebugMessage "Job state is $($job.State), adding to issues"
+            $hostInfo.issues += "SQL validation failed [unknown]: $errorMsg"
+        }
+        DebugMessage ">>>>>>>>>>>>Removing job $($job.Id)"
+        Remove-Job -Job $job -Force
+        DebugMessage "<<<<<<<<<<<<Job $($job.Id) removed"
+    }
+
+    # Get GetMSSQLHostPorts function definition as string to pass to remote job
+    $getMSSQLHostPortsFunc = Get-Command GetMSSQLHostPorts
+    $getMSSQLHostPortsScript = $getMSSQLHostPortsFunc.Definition
+
+    # Enhanced job script that includes constants and discovery function
+    $jobScriptWithConstants = {
+        param($hostInfo)
+        & ([ScriptBlock]::Create($using:sqlTestJobScript)) $hostInfo $using:ENUM_ACTIVE_DIRECTORY $using:ENUM_CREDENTIALS $using:getMSSQLHostPortsScript
+    }
+
+    # Use generic batch processor
+    Start-BatchJobProcessor -Items $HostEntries -JobScriptBlock $jobScriptWithConstants -ResultProcessor $resultProcessor -MaxConcurrency $MaxConcurrency -JobDescription "SQLValidation"
+}
+#endregion TestSQLCredentialsInParallel
+
 #region ValidateHostSQLCredentials
 function ValidateHostSQLCredentials {
     <#
@@ -136,25 +326,76 @@ function ValidateHostSQLCredentials {
     $attempt = 1
 
     while ($hostsNeedingAgent.Count -gt 0) {
-        $failedHosts = @()
+        # Test SQL credentials in parallel for remaining hosts
+        InfoMessage "Testing SQL credentials in parallel (Attempt $attempt)..."
+        TestSQLCredentialsInParallel -HostEntries $hostsNeedingAgent -MaxConcurrency $script:MaxConcurrency
 
-        # Test SQL credentials for remaining hosts
-        foreach ($hostInfo in $hostsNeedingAgent) {
-            InfoMessage "Testing SQL credentials for host $($hostInfo.host_addr) (Attempt $attempt)..."
+        # Collect hosts that failed validation (have issues)
+        $failedHosts = @($hostsNeedingAgent | Where-Object { $_.issues.Count -gt 0 })
+        $successfulHosts = @($hostsNeedingAgent | Where-Object { $_.issues.Count -eq 0 })
+        
+        # Show progress after each attempt
+        InfoMessage "SQL validation attempt $attempt results: $($successfulHosts.Count) successful, $($failedHosts.Count) failed"
 
-            $isValid = TestSQLConnectionRemote -HostInfo $hostInfo -ConnectionString $hostInfo.sql_connection_string
+        # Only clear issues and retry for hosts with credential_error
+        # All other errors (connection_error, unknown) are not retriable
+        $hostsToRetry = @()
+        foreach ($hostInfo in $failedHosts) {
+            $hasCredentialError = $false
+            foreach ($issue in $hostInfo.issues) {
+                if ($issue -match '\[credential_error\]') {
+                    $hasCredentialError = $true
+                    break
+                }
+            }
 
-            if (-not $isValid) {
-                $failedHosts += $hostInfo
+            if ($hasCredentialError) {
+                # Credential error - clear issues and retry
+                DebugMessage "Host $($hostInfo.host_addr) has credential_error, clearing issues for retry"
+                $hostInfo.issues = @()
+                $hostsToRetry += $hostInfo
+            } else {
+                # Non-retriable error - keep issues, don't retry
+                DebugMessage "Host $($hostInfo.host_addr) has non-retriable error, keeping issue - host will be skipped"
+                WarningMessage "Host $($hostInfo.host_addr) has non-retriable SQL validation error and will be skipped"
             }
         }
 
-        # Update to only test failed hosts in next iteration
-        $hostsNeedingAgent = @($failedHosts)
+        # Update to only retry hosts with credential errors
+        $hostsNeedingAgent = @($hostsToRetry)
 
         # If all hosts passed, we're done
         if ($hostsNeedingAgent.Count -eq 0) {
-            ImportantMessage "SQL credential validation successful for all hosts"
+            # Generate comprehensive validation summary
+            $allHostsNeedingAgent = @($Config.hosts | Where-Object { $_.install_agent -eq $true })
+            $successfulHosts = @($allHostsNeedingAgent | Where-Object { $_.issues.Count -eq 0 })
+            $failedHosts = @($allHostsNeedingAgent | Where-Object { $_.issues.Count -gt 0 })
+            
+            if ($failedHosts.Count -eq 0) {
+                ImportantMessage "SQL credential validation completed successfully for all hosts"
+            } else {
+                ImportantMessage "SQL credential validation completed with some failures"
+            }
+            InfoMessage "Validation Summary:"
+            InfoMessage "  Successful hosts: $($successfulHosts.Count)"
+            InfoMessage "  Failed hosts: $($failedHosts.Count)"
+            InfoMessage "  Total hosts requiring Agent: $($allHostsNeedingAgent.Count)"
+            
+            if ($successfulHosts.Count -gt 0) {
+                InfoMessage "Hosts with successful SQL validation:"
+                foreach ($h in $successfulHosts) {
+                    InfoMessage "  - $($h.host_addr)"
+                }
+            }
+            
+            if ($failedHosts.Count -gt 0) {
+                WarningMessage "Hosts with SQL validation failures (will be skipped):"
+                foreach ($h in $failedHosts) {
+                    $issues = $h.issues -join '; '
+                    WarningMessage "  - $($h.host_addr) - $issues"
+                }
+            }
+            
             return $true
         }
 
@@ -165,7 +406,7 @@ function ValidateHostSQLCredentials {
 
         $newCred = Get-Credential -Message "Enter SQL Server credentials"
         if (-not $newCred) {
-            ErrorMessage "No credentials provided. Cannot proceed without valid SQL Server credentials."
+            ErrorMessage "User cancelled SQL credential prompt. Cannot proceed without valid SQL Server credentials."
             return $false
         }
 
@@ -211,7 +452,7 @@ function UpdateHostSqlConnectionString {
 
     $defaultSqlUser = $null
     $defaultSqlPass = $null
-    $commonCredentialsNeeded = $false
+    $shouldPromptForCredentials = $false
 
     $goodHost = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
 
@@ -225,36 +466,37 @@ function UpdateHostSqlConnectionString {
 
     # Check if any hosts requiring Agent are missing SQL credentials
     foreach ($hostInfo in $hostsNeedingAgent) {
-        if (-not $hostInfo.sql_user -or -not $hostInfo.sql_pass) {
-            $commonCredentialsNeeded = $true
+        DebugMessage "Checking host $($hostInfo.host_addr) - sql_user='$($hostInfo.sql_user)' sql_pass='$($hostInfo.sql_pass)'"
+        if ([string]::IsNullOrEmpty($hostInfo.sql_user) -or [string]::IsNullOrEmpty($hostInfo.sql_pass)) {
+            DebugMessage "Host $($hostInfo.host_addr) missing credentials, setting shouldPromptForCredentials=true"
+            $shouldPromptForCredentials = $true
             break
         }
     }
 
-    InfoMessage "Common SQL credentials needed: $commonCredentialsNeeded"
-    # If any hosts are missing credentials, ask for default credentials to use
-    if ($commonCredentialsNeeded) {
-        $commonSqlPass = if ($Config.common.sql_pass) {
-            ConvertSecureStringToPlainText -SecureString $Config.common.sql_pass
-        } else {
-            $null
-        }
-        $credSQL = getSqlCredentials -Username $Config.common.sql_user -Password $commonSqlPass
-        if ($credSQL) {
-            $defaultSqlUser = $credSQL.UserName
-            $defaultSqlPass = $credSQL.GetNetworkCredential().Password
-        } else {
-            ErrorMessage "Failed to get SQL credentials"
+    InfoMessage "Should prompt for SQL credentials: $shouldPromptForCredentials"
+    # If any hosts are missing credentials, prompt user for credentials
+    if ($shouldPromptForCredentials) {
+        DebugMessage "Prompting user for SQL credentials"
+        WarningMessage "Some hosts are missing SQL credentials. Please provide credentials to use for all hosts with missing credentials."
+        $credSQL = Get-Credential -Message "Enter SQL Server credentials"
+
+        if (-not $credSQL) {
+            DebugMessage "User cancelled credential prompt"
+            ErrorMessage "No credentials provided. Cannot proceed without valid SQL Server credentials."
             return $false
         }
-         # Create connection string for each host
+
+        DebugMessage "Credentials received, extracting username and password"
+        $defaultSqlUser = $credSQL.UserName
+        $defaultSqlPass = $credSQL.GetNetworkCredential().Password
+        DebugMessage "Applying credentials to hosts with missing sql_user or sql_pass"
+
+        # Apply credentials to all hosts that are missing either username or password
         foreach ($hostInfo in $Config.hosts) {
-            # Use host-specific credentials if available, otherwise use default
-            # the sql_user/pass fields is always exist but may be null
-            if (-not $hostInfo.sql_user) {
+            if ([string]::IsNullOrEmpty($hostInfo.sql_user) -or [string]::IsNullOrEmpty($hostInfo.sql_pass)) {
+                DebugMessage "Updating both sql_user and sql_pass for host $($hostInfo.host_addr)"
                 $hostInfo.sql_user = $defaultSqlUser
-            }
-            if (-not $hostInfo.sql_pass) {
                 $hostInfo.sql_pass = $defaultSqlPass
             }
         }

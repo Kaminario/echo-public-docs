@@ -70,6 +70,8 @@ function UpdateSDPCredentials {
         [string]$flexToken
     )
 
+    InfoMessage "Processing SDP credentials..."
+
     $goodHost = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
 
     # Check if any hosts need VSS installation

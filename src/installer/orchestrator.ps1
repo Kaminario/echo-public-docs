@@ -35,6 +35,11 @@
     When this parameter is used, all hosts in the configuration will be processed regardless of their previous completion status.
     This is useful for troubleshooting or when you want to reinstall on all hosts.
 
+.PARAMETER Log
+    Optional path to a log file where a full transcript of the script execution will be saved.
+    If not specified, the default log file location in the cache directory will be used.
+    The log file will contain all console output, including debug messages if enabled.
+
 .EXAMPLE
     .\orchestrator.ps1 -ConfigPath ".\config.json"
 
@@ -69,6 +74,11 @@
     .\orchestrator.ps1 -ConfigPath "config.json" -Force
 
     Processes all hosts in configuration, ignoring any previously completed installations.
+
+.EXAMPLE
+    .\orchestrator.ps1 -ConfigPath "config.json" -Log "C:\Logs\installation.log"
+
+    Runs the installation and saves a full transcript of all output to the specified log file.
 
 .INPUTS
     JSON configuration file with the following structure like generated with parameter -CreateConfigTemplate
@@ -130,7 +140,10 @@ param (
     [switch]$CreateConfigTemplate,
 
     [Parameter(Mandatory=$false, HelpMessage="Force reprocessing of all hosts, ignoring completed hosts tracking")]
-    [switch]$Force
+    [switch]$Force,
+
+    [Parameter(Mandatory=$false, HelpMessage="Optional path to a log file for full transcript of script execution")]
+    [string]$Log
 )
 
 Write-Host @"
@@ -175,9 +188,26 @@ if (-not (EnsureOutputDirectory -OutputDir $SilkEchoInstallerCacheDir)) {
 
 # Start transcript logging to capture all output
 try {
-    # Ensure cache directory exists
-    Start-Transcript -Path $script:SilkEchoFullLogPath -Append
-    Write-Host "Full execution log will be saved to: $script:SilkEchoFullLogPath" -ForegroundColor Green
+    # Determine log path: use -Log parameter if provided, otherwise use default
+    $script:TranscriptPath = if ($Log) {
+        # Convert to absolute path (PS 5.1+ compatible)
+        $resolvedLog = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Log)
+
+        # Truncate the log file (remove existing content)
+        try {
+            Set-Content -Path $resolvedLog -Value "" -ErrorAction Stop
+        } catch {
+            Write-Warning "Cannot write to log file: $resolvedLog"
+            throw "No write access to specified log file location"
+        }
+
+        $resolvedLog
+    } else {
+        $script:SilkEchoFullLogPath
+    }
+
+    Start-Transcript -Path $script:TranscriptPath -Append
+    Write-Host "Full execution log will be saved to: $script:TranscriptPath" -ForegroundColor Green
 
     # Add trap to ensure transcript is stopped on script termination
     trap {
@@ -226,6 +256,8 @@ $script:processedHostsFile = $processedHostsFile
 . ./orc_import_expander.ps1
 # LoadCompletedHosts, SaveCompletedHosts, IsHostCompleted, MarkHostCompleted
 . ./orc_tracking.ps1
+# GetMSSQLHostPorts
+. ./orc_mssql_discovery.ps1
 
 #region MainOrchestrator
 function MainOrchestrator {
@@ -523,7 +555,7 @@ if ($DryRun) {
 try {
     WriteHostsSummary -Hosts $config.hosts -OutputPath "STDOUT"
     Stop-Transcript
-    InfoMessage "Full execution log saved to: $script:SilkEchoFullLogPath"
+    InfoMessage "Full execution log saved to: $script:TranscriptPath"
 } catch {
     # Transcript may not have been started successfully
 }

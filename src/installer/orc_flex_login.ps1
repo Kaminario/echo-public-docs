@@ -76,6 +76,7 @@ function UpdateFlexAuthToken {
     )
 
     # Use flex credentials from common section or prompt user
+    InfoMessage "Processing Flex credentials..."
 
     $flexIP = $Config.common.flex_host_ip
     $flexUser = $Config.common.flex_user
