@@ -1,6 +1,6 @@
 # Silk Echo
 
-Silk Echo offers a powerful solution for creating application-consistent or crash-consistent snapshots of databases. 
+Silk Echo offers a powerful solution for creating application-consistent or crash-consistent snapshots of databases.
 
 With silk, you can capture application-consistent state of a database on one host with precision and reliability. These snapshots can then be used to create an identical copy of the database on a different host. The process is flexible, allowing you to perform it manually for specific needs or integrate it into automated workflows to streamline operations. This ensures consistent, efficient, and error-free database replication.
 
@@ -60,46 +60,46 @@ curl -XGET "http://{flex}/{path}" -H "hs-ref-id: Hy6f50Ki"
 
 ### **Topology API**
 
-| Method | Path                  | Description                                       |
-| ------ | --------------------- | ------------------------------------------------- |
-| GET    | /api/ocie/v1/topology | Retrieve the full "host > db > snapshot" topology |
+| Method | Path                    | Description                                       |
+| ------ | ----------------------- | ------------------------------------------------- |
+| GET    | /api/echo/v1/topology   | Retrieve the full "host > db > snapshot" topology |
 
 ### **Host APIs**
 
 | Method | Path                         | Description                   |
 | ------ | ---------------------------- | ----------------------------- |
-| PUT    | /flex/api/v1/hosts/{host_id} | Register a host               |
-| DELETE | /flex/api/v1/hosts/{host_id} | Unregister a host             |
-| GET    | /flex/api/v1/hosts/{host_id} | Retrieve host info            |
-| GET    | /flex/api/v1/hosts           | Get all registered hosts info |
+| PUT    | /api/v1/hosts/{id}           | Register a host               |
+| DELETE | /api/v1/hosts/{id}           | Unregister a host             |
+| GET    | /api/v1/hosts/{id}           | Retrieve host info            |
+| GET    | /api/v1/hosts                | Get all registered hosts info |
 
 ### **Refresh APIs**
 
 | Method | Path                                            | Description                                 |
 | ------ | ----------------------------------------------- | ------------------------------------------- |
-| POST   | /flex/api/v1/hosts/{host_id}/databases/_replace | replaces host dbs with dbs from a snapshot  |
+| POST   | /api/echo/v1/hosts/{id}/databases/_refresh | replaces host dbs with dbs from a snapshot  |
 
 ### **Clone APIs**
 
-| Method | Path                    | Description                                          |
-| ------ | ----------------------- | ---------------------------------------------------- |
-| POST   | /flex/api/v1/ocie/clone | Create a snapshot and clone it to a destination host |
-| DELETE | /flex/api/v1/ocie/clone | Delete a clone                                       |
+| Method | Path                        | Description                                          |
+| ------ | --------------------------- | ---------------------------------------------------- |
+| POST   | /api/echo/v1/echo_dbs       | Create a snapshot and clone it to a destination host |
+| DELETE | /api/echo/v1/echo_dbs       | Delete a clone                                       |
 
 ### **Snapshot APIs**
 
 | Method | Path                                 | Description                                          |
 | ------ | ------------------------------------ | ---------------------------------------------------- |
-| POST   | /flex/api/v1/db_snapshots            | Create a snapshot                                    |
-| DELETE | /flex/api/v1/db_snapshots/{id}       | Delete a snapshot                                    |
-| POST   | /flex/api/v1/db_snapshots/{id}/clone | Clone a database from an existing snapshot to a host |
+| POST   | /api/echo/v1/db_snapshots            | Create a snapshot                                    |
+| DELETE | /api/echo/v1/db_snapshots/{id}       | Delete a snapshot                                    |
+| POST   | /api/echo/v1/db_snapshots/{id}/echo_db | Clone a database from an existing snapshot to a host |
 
 ### **Tasks APIs**
 
 | Method | Path                         | Description                   |
 | ------ | ---------------------------- | ----------------------------- |
-| GET    | /flex/api/v1/tasks/echo/{id} | Retrieve task info            |
-| GET    | /flex/api/v1/tasks/echo      | Get all registered tasks info |
+| GET    | /api/echo/v1/tasks/{id}      | Retrieve task info            |
+| GET    | /api/echo/v1/tasks           | Get all registered tasks info |
 
 ## Host APIs
 
@@ -107,7 +107,7 @@ curl -XGET "http://{flex}/{path}" -H "hs-ref-id: Hy6f50Ki"
 
 #### Endpoint:
 
-`PUT /flex/api/v1/hosts/{host_id}`
+`PUT /api/v1/hosts/{id}`
 
 #### Request Body:
 
@@ -119,7 +119,7 @@ curl -XGET "http://{flex}/{path}" -H "hs-ref-id: Hy6f50Ki"
 
 #### Parameters:
 
-- `host_id` (string): The unique identifier for the host, typically the hostname. Must:
+- `id` (string): The unique identifier for the host in the URL path, typically the hostname. Must:
   - Start with a letter and end with a letter or number.
   - Only contain letters, numbers, underscores, and hyphens.
   - Be 3-32 characters in length.
@@ -131,7 +131,7 @@ curl -XGET "http://{flex}/{path}" -H "hs-ref-id: Hy6f50Ki"
 #### Example:
 
 ```bash
-curl -XPUT "http://{flex}/flex/api/v1/hosts/{host_id}" \
+curl -XPUT "http://{flex}/api/v1/hosts/{id}" \
 -H "Authorization: Bearer {token}" \
 -d'{"db_vendor": "mssql"}' \
 ```
@@ -157,7 +157,7 @@ curl -XPUT "http://{flex}/flex/api/v1/hosts/{host_id}" \
 
 #### Endpoint:
 
-`DELETE /flex/api/v1/hosts/{host_id}`
+`DELETE /api/v1/hosts/{id}`
 
 #### Responses:
 
@@ -168,7 +168,7 @@ curl -XPUT "http://{flex}/flex/api/v1/hosts/{host_id}" \
 #### Example:
 
 ```bash
-curl -XDELETE "http://{flex}/flex/api/v1/hosts/{host_id}" \
+curl -XDELETE "http://{flex}/api/v1/hosts/{id}" \
 -H "Authorization: Bearer {token}"
 ```
 
@@ -176,7 +176,7 @@ curl -XDELETE "http://{flex}/flex/api/v1/hosts/{host_id}" \
 
 #### Endpoint:
 
-`GET /flex/api/v1/hosts/{host_id}`
+`GET /api/v1/hosts/{id}`
 
 #### Responses:
 
@@ -203,7 +203,7 @@ curl -XDELETE "http://{flex}/flex/api/v1/hosts/{host_id}" \
 #### Example:
 
 ```bash
-curl -XGET "http://{flex}/flex/api/v1/hosts/{host_id}" \
+curl -XGET "http://{flex}/api/v1/hosts/{id}" \
 -H "Authorization: Bearer {token}"
 ```
 
@@ -211,7 +211,7 @@ curl -XGET "http://{flex}/flex/api/v1/hosts/{host_id}" \
 
 #### Endpoint:
 
-`GET /flex/api/v1/hosts`
+`GET /api/v1/hosts`
 
 #### Responses:
 
@@ -240,7 +240,7 @@ curl -XGET "http://{flex}/flex/api/v1/hosts/{host_id}" \
 #### Example:
 
 ```bash
-curl -XGET "http://{flex}/flex/api/v1/hosts" \
+curl -XGET "http://{flex}/api/v1/hosts" \
 -H "Authorization: Bearer {token}"
 ```
 
@@ -252,13 +252,13 @@ Takes a snapshot of a database located on host A and creates a copy on one or mo
 
 #### Endpoint
 
-`POST /flex/api/v1/ocie/clone`
+`POST /api/echo/v1/echo_dbs`
 
 ##### Validate
 The request can be validated without actually being executed,
 by calling the same request with "/__validate" at the end of the endpoint
 
-`POST /flex/api/v1/ocie/clone/__validate`
+`POST /api/echo/v1/echo_dbs/__validate`
 
 #### Request Body
 
@@ -320,7 +320,7 @@ by calling the same request with "/__validate" at the end of the endpoint
               }
           ]
       },
-      "location": "/flex/api/v1/tasks/echo/Fj3U7QTsDDWL45ikk0bvk2tsanfC3H"
+      "location": "/api/echo/v1/tasks/Fj3U7QTsDDWL45ikk0bvk2tsanfC3H"
   }
   ```
   - `state` (string): The task state. Possible values: `running`, `completed`, `failed`, `aborted`.
@@ -383,7 +383,7 @@ All validation responses come with the identical format:
 #### Example
 
 ```bash
-curl -XPOST "http://{flex}/flex/api/v1/ocie/clone" \
+curl -XPOST "http://{flex}/api/echo/v1/echo_dbs" \
 -H 'Content-Type: application/json' \
 -H "Authorization: Bearer {token}" \
 -d'{
@@ -410,11 +410,11 @@ by calling the same request with "/__validate" at the end of the endpoint
 
 #### Endpoint
 
-`DELETE /flex/api/v1/ocie/clone`
+`DELETE /api/echo/v1/echo_dbs`
 
 ##### Validate
 
-`DELETE /flex/api/v1/ocie/clone/__validate`
+`DELETE /api/echo/v1/echo_dbs/__validate`
 
 #### Request Body
 
@@ -443,14 +443,14 @@ by calling the same request with "/__validate" at the end of the endpoint
     "ref_id":"592855db",
     "error":"",
     "result":null,
-    "location":"/flex/api/v1/tasks/echo/1GUQEnC1fk3sQCc0BHTpFseyB8PfUaS51_lD3iPaRP4"
+    "location":"/api/echo/v1/tasks/1GUQEnC1fk3sQCc0BHTpFseyB8PfUaS51_lD3iPaRP4"
   }
   ```
 
 #### Example
 
 ```bash
-curl -XDELETE "http://{flex}/flex/api/v1/ocie/clone" -H 'Content-Type: application/json' -H 'Authorization: Bearer {token}' -d'{"host_id":"dev-2","database_id":"6"}'
+curl -XDELETE "http://{flex}/api/echo/v1/echo_dbs" -H 'Content-Type: application/json' -H 'Authorization: Bearer {token}' -d'{"host_id":"dev-2","database_id":"6"}'
 ```
 
 ## Refresh API
@@ -471,11 +471,11 @@ fin-db => fin-db_bkp_20250216T143521Z
 
 ### Endpoint:
 
-`POST /flex/api/v1/hosts/{host_id}/databases/_replace`
+`POST /api/echo/v1/hosts/{id}/databases/_refresh`
 
 ### Validate
 
-`POST /flex/api/v1/hosts/{host_id}/databases/_replace/__validate`
+`POST /api/echo/v1/hosts/{id}/databases/_refresh/__validate`
 
 #### Request Body:
 
@@ -491,7 +491,7 @@ fin-db => fin-db_bkp_20250216T143521Z
 
 #### Parameters:
 
-- `host_id` (string): The unique identifier for the host, typically the hostname. Must:
+- `id` (string): The unique identifier for the host in the URL path, typically the hostname. Must:
   - Start with a letter and end with a letter or number.
   - Only contain letters, numbers, underscores, and hyphens.
   - Be 3-32 characters in length.
@@ -505,7 +505,7 @@ fin-db => fin-db_bkp_20250216T143521Z
 #### Example:
 
 ```bash
-curl -XPUT "http://{flex}/flex/api/v1/hosts/{host_id}/databases/_replace" \
+curl -XPOST "http://{flex}/api/echo/v1/hosts/{id}/databases/_refresh" \
 -H "Authorization: Bearer {token}" \
 -d'{"snapshot_id":"snap_1735025906","db_names": ["dev_db","dev_db2"],"keep_backup":true}'
 ```
@@ -536,7 +536,7 @@ Following response example has a result field. This field will have a value only
             "source_db_name": "source_db_name"
         }]
       },
-      "location": "/flex/api/v1/tasks/echo/Gm9X2VpqAZNY78sjl5cwRbPfKtoQ6B"
+      "location": "/api/echo/v1/tasks/Gm9X2VpqAZNY78sjl5cwRbPfKtoQ6B"
   }
   ```
 
@@ -548,13 +548,13 @@ Create a snapshot of a database.
 
 #### Endpoint
 
-`POST /flex/api/v1/db_snapshots`
+`POST /api/echo/v1/db_snapshots`
 
 ##### Validate
 The request can be validated without actually being executed,
 by calling the same request with "/__validate" at the end of the endpoint
 
-`POST /flex/api/v1/db_snapshots/__validate`
+`POST /api/echo/v1/db_snapshots/__validate`
 
 #### Request Body
 
@@ -591,14 +591,14 @@ by calling the same request with "/__validate" at the end of the endpoint
       "ref_id": "ADD62kMoLB",
       "error": "",
       "result": {"db_snapshot": {"id": "primary__5__1735025906"}},
-      "location": "/flex/api/v1/tasks/echo/Fj3U7QTsDDWL45ikk0bvk2tsanfC3H"
+      "location": "/api/echo/v1/tasks/Fj3U7QTsDDWL45ikk0bvk2tsanfC3H"
   }
   ```
 
 #### Example
 
 ```bash
-curl -XPOST "http://{flex}/flex/api/v1/db_snapshots" \
+curl -XPOST "http://{flex}/api/echo/v1/db_snapshots" \
 -H 'Content-Type: application/json' \
 -H "Authorization: Bearer {token}" \
 -d'{"source_host_id":"host01","database_ids":["5","6"],"name_prefix":"snap_v10", "consistency_level": "application"}'
@@ -610,13 +610,13 @@ Clone a database from an existing snapshot to a host.
 
 #### Endpoint
 
-`POST /flex/api/v1/db_snapshots/{db_snapshot_id}/clone`
+`POST /api/echo/v1/db_snapshots/{id}/echo_db`
 
 ##### Validate
 The request can be validated without actually being executed,
 by calling the same request with "/__validate" at the end of the endpoint
 
-`POST /flex/api/v1/db_snapshots/{db_snapshot_id}/clone/__validate`
+`POST /api/echo/v1/db_snapshots/{id}/echo_db/__validate`
 
 #### Request Body
 
@@ -634,7 +634,7 @@ by calling the same request with "/__validate" at the end of the endpoint
 
 #### Parameters
 
-- `db_snapshot_id` (string): The unique identifier for the database snapshot.
+- `id` (string): The unique identifier for the database snapshot in the URL path.
 - `destinations` (array of objects): A list of objects detailing the destination databases:
   - `host_id` (string): The unique identifier for the destination host.
   - `db_id` (string): The unique identifier for the database.
@@ -655,7 +655,7 @@ by calling the same request with "/__validate" at the end of the endpoint
       "ref_id": "asdasda",
       "error": "",
       "result": null,
-      "location": "/flex/api/v1/tasks/echo/YUiQ_S3SstXXtBQhCuyYUzDws"
+      "location": "/api/echo/v1/tasks/YUiQ_S3SstXXtBQhCuyYUzDws"
   }
   ```
 
@@ -681,14 +681,14 @@ by calling the same request with "/__validate" at the end of the endpoint
               }
           ]
       },
-      "location": "/flex/api/v1/tasks/echo/YUiQ_S3SstXXtBQhCuyYUzDws"
+      "location": "/api/echo/v1/tasks/YUiQ_S3SstXXtBQhCuyYUzDws"
   }
   ```
 
 #### Example
 
 ```bash
-curl -XPOST "http://{flex}/flex/api/v1/db_snapshots/primary__10__1735028786/clone" \
+curl -XPOST "http://{flex}/api/echo/v1/db_snapshots/primary__10__1735028786/echo_db" \
 -H 'Content-Type: application/json' \
 -d'{"destinations":[{"host_id":"dev-2","db_name":"alala"}]}'
 ```
@@ -701,13 +701,13 @@ Note that this endpoint does not create a task. A successful status code indicat
 
 #### Endpoint
 
-`DELETE /flex/api/v1/db_snapshots/{db_snapshot_id}`
+`DELETE /api/echo/v1/db_snapshots/{id}`
 
 ##### Validate
 The request can be validated without actually being executed,
 by calling the same request with "/__validate" at the end of the endpoint
 
-`DELETE /flex/api/v1/db_snapshots/{db_snapshot_id}/__validate`
+`DELETE /api/echo/v1/db_snapshots/{id}/__validate`
 
 #### Responses
 
@@ -716,7 +716,7 @@ by calling the same request with "/__validate" at the end of the endpoint
 #### Example
 
 ```bash
-curl -XDELETE "http://{flex}/flex/api/v1/db_snapshots/primary__10__1735028786" -H 'Authorization: Bearer {token}'
+curl -XDELETE "http://{flex}/api/echo/v1/db_snapshots/primary__10__1735028786" -H 'Authorization: Bearer {token}'
 ```
 
 ## Task State APIs
@@ -727,11 +727,11 @@ Retrieve the current state of a task by ID.
 
 #### Endpoint
 
-`GET /flex/api/v1/tasks/echo/{request_id}`
+`GET /api/echo/v1/tasks/{id}`
 
 #### Parameters
 
-- `request_id` (string): The unique identifier for the task.
+- `id` (string): The unique identifier for the task in the URL path.
 
 #### Responses
 
@@ -748,7 +748,7 @@ Retrieve the current state of a task by ID.
       "ref_id": "bjGP9ygRMew",
       "error": "",
       "result": null,
-      "location": "/flex/api/v1/tasks/echo/KscTYPMYiMUjCjJleHLauR0y"
+      "location": "/api/echo/v1/tasks/KscTYPMYiMUjCjJleHLauR0y"
   }
   ```
 - 404 Not Found
@@ -756,7 +756,7 @@ Retrieve the current state of a task by ID.
 #### Example
 
 ```bash
-curl -XGET "http://{flex}/flex/api/v1/tasks/echo/KscTYPMYiMUjCjJleHLauR0y"
+curl -XGET "http://{flex}/api/echo/v1/tasks/KscTYPMYiMUjCjJleHLauR0y"
 ```
 
 ### List Tasks
@@ -765,7 +765,7 @@ Retrieve all tasks.
 
 #### Endpoint
 
-`GET /flex/api/v1/tasks/echo`
+`GET /api/echo/v1/tasks`
 
 #### Responses
 
@@ -794,7 +794,7 @@ Retrieve all tasks.
                   }
               ]
           },
-          "location": "/flex/api/v1/tasks/echo/KscTYPMYiMUjCjJleHLauR0y"
+          "location": "/api/echo/v1/tasks/KscTYPMYiMUjCjJleHLauR0y"
       }
   ]
   ```
@@ -802,5 +802,5 @@ Retrieve all tasks.
 #### Example
 
 ```bash
-curl -XGET "http://{flex}/flex/api/v1/ocie/tasks"
+curl -XGET "http://{flex}/api/echo/v1/tasks"
 ```

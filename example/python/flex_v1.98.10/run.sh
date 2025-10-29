@@ -31,4 +31,3 @@ python3 make_echo_db.py --host-ids  developing --db-names "analytics,AIVault,Neu
 
 # delete echo databases analytics_clone1, AIVault_clone1, and NeuroStack_clone1
 python3 delete_echo_db.py --host-id developing --db-names "analytics_clone1,AIVault_clone1,NeuroStack_clone1"
-
