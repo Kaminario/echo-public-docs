@@ -143,8 +143,50 @@ param (
     [switch]$Force,
 
     [Parameter(Mandatory=$false, HelpMessage="Optional path to a log file for full transcript of script execution")]
-    [string]$Log
+    [string]$Log,
+
+    [Parameter(Mandatory=$false, HelpMessage="Upload a file to Flex and exit (requires ConfigPath)")]
+    [string]$UploadFile
 )
+
+# Handle UploadFile parameter early - upload file and exit without trapping or stdout output
+if ($UploadFile) {
+    if (-not $ConfigPath) {
+        Write-Error "ConfigPath is required when using -UploadFile parameter"
+        exit 1
+    }
+
+    if (-not (Test-Path $UploadFile)) {
+        Write-Error "File not found: $UploadFile"
+        exit 1
+    }
+
+    # Load minimal required modules for file upload
+    . ./orc_constants.ps1
+    . ./orc_common.ps1
+    . ./orc_logging.ps1
+    . ./orc_web_client.ps1
+    . ./orc_flex_login.ps1
+    . ./orc_log_uploader.ps1
+    . ./orc_config.ps1
+
+    # Read config
+    $config = ReadConfigFile -ConfigFile $ConfigPath
+    if (-not $config) {
+        Write-Error "Failed to read configuration file"
+        exit 1
+    }
+
+    # Upload file silently (no stdout output, errors go to stderr)
+    # Redirect stdout to null to suppress all output, but keep stderr for errors
+    $success = UploadFile -FlexIP $config.common.flex_host_ip -FilePath $UploadFile -Config $config >$null
+
+    if ($success) {
+        exit 0
+    } else {
+        exit 1
+    }
+}
 
 Write-Host @"
 Copyright (c) 2025 Silk Technologies, Inc.
@@ -209,16 +251,61 @@ try {
     Start-Transcript -Path $script:TranscriptPath -Append
     Write-Host "Full execution log will be saved to: $script:TranscriptPath" -ForegroundColor Green
 
-    # Add trap to ensure transcript is stopped on script termination
-    trap {
-        try {
-            WriteHostsSummary -Hosts $config.hosts -OutputPath "STDOUT"
-            Stop-Transcript
-        } catch { }
-        break
-    }
+
 } catch {
     Write-Warning "Could not start transcript logging: $_"
+}
+
+#region cleanup_and_upload_logs
+function cleanup_and_upload_logs {
+    <#
+    .SYNOPSIS
+        Performs cleanup operations and uploads execution log.
+
+    .DESCRIPTION
+        Writes host summary, stops transcript logging, and uploads log file to Flex.
+        All errors are handled gracefully and never propagated.
+
+    .PARAMETER Config
+        Configuration object containing Flex host IP and credentials.
+
+    .PARAMETER TranscriptPath
+        Path to the transcript log file to upload.
+    #>
+    param (
+        [Parameter(Mandatory=$true)]
+        [PSCustomObject]$Config,
+
+        [Parameter(Mandatory=$true)]
+        [string]$TranscriptPath
+    )
+
+    try {
+        WriteHostsSummary -Hosts $Config.hosts -OutputPath "STDOUT"
+    } catch {
+        # Ignore errors in summary
+    }
+
+    try {
+        Stop-Transcript
+        InfoMessage "Full execution log saved to: $TranscriptPath"
+    } catch {
+        # Transcript may not have been started successfully
+    }
+
+    try {
+        # Upload log file to Flex (optional feature - failures are handled gracefully)
+        upload_logs -Config $Config -TranscriptPath $TranscriptPath
+    } catch {
+        # Ignore errors during log upload
+    }
+}
+#endregion cleanup_and_upload_logs
+
+# Add trap to ensure transcript is stopped on script termination
+trap {
+    cleanup_and_upload_logs -Config $config -TranscriptPath $script:TranscriptPath
+    break
 }
 
 # Set script-scope variables for parameter passing
@@ -232,6 +319,8 @@ $script:processedHostsFile = $processedHostsFile
 . ./orc_web_client.ps1
 # UpdateFlexAuthToken
 . ./orc_flex_login.ps1
+# UploadFile
+. ./orc_log_uploader.ps1
 # SkipCertificateCheck
 . ./orc_no_verify_cert.ps1
 # ReadConfigFile, GenerateConfigTemplate
@@ -258,6 +347,61 @@ $script:processedHostsFile = $processedHostsFile
 . ./orc_tracking.ps1
 # GetMSSQLHostPorts
 . ./orc_mssql_discovery.ps1
+
+#region upload_logs
+function upload_logs {
+    <#
+    .SYNOPSIS
+        Uploads execution log to Flex.
+
+    .DESCRIPTION
+        Attempts to upload the orchestrator execution transcript log to Flex.
+        This function never fails - all errors are handled gracefully and logged as warnings.
+        The script execution continues regardless of upload success or failure.
+
+    .PARAMETER Config
+        Configuration object containing Flex host IP and credentials.
+
+    .PARAMETER TranscriptPath
+        Path to the transcript log file to upload.
+    #>
+    param (
+        [Parameter(Mandatory=$true)]
+        [PSCustomObject]$Config,
+
+        [Parameter(Mandatory=$true)]
+        [string]$TranscriptPath
+    )
+
+    try {
+        # Check if Flex host IP is configured
+        if (-not $Config.common.flex_host_ip) {
+            DebugMessage "Skipping log upload: Flex host IP not configured"
+            return
+        }
+
+        # Check if transcript file exists
+        if (-not (Test-Path $TranscriptPath)) {
+            DebugMessage "Skipping log upload: Transcript file not found at $TranscriptPath"
+            return
+        }
+
+        # Try to get token from first host if available, otherwise will be obtained by UploadFile
+        $flexToken = $null
+        if ($Config.hosts.Count -gt 0 -and $Config.hosts[0].flex_access_token) {
+            $flexToken = $Config.hosts[0].flex_access_token
+            DebugMessage "Using Flex token from host configuration"
+        }
+
+        # Attempt upload - UploadFile handles all errors internally
+        UploadFile -FlexIP $Config.common.flex_host_ip -FilePath $TranscriptPath -FlexToken $flexToken -Config $Config
+    } catch {
+        # Catch any unexpected errors - should never happen due to UploadFile error handling
+        # but added as extra safety
+        WarningMessage "Unexpected error during log upload: $_"
+    }
+}
+#endregion upload_logs
 
 #region MainOrchestrator
 function MainOrchestrator {
@@ -551,14 +695,8 @@ if ($DryRun) {
     ImportantMessage "DryRun mode is enabled. No changes were made."
 }
 
-# Stop transcript logging
-try {
-    WriteHostsSummary -Hosts $config.hosts -OutputPath "STDOUT"
-    Stop-Transcript
-    InfoMessage "Full execution log saved to: $script:TranscriptPath"
-} catch {
-    # Transcript may not have been started successfully
-}
+# Stop transcript logging and upload logs
+cleanup_and_upload_logs -Config $config -TranscriptPath $script:TranscriptPath
 
 exit 0
 

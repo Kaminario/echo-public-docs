@@ -68,8 +68,11 @@ function loginToFlex {
     }
 
 }
-#endregion UpdateFlexAuthToken
-function UpdateFlexAuthToken {
+
+#endregion loginToFlex
+
+#region RetrieveFlexAuthToken
+function RetrieveFlexAuthToken {
     param (
         [Parameter(Mandatory=$true)]
         [PSCustomObject]$Config
@@ -97,12 +100,27 @@ function UpdateFlexAuthToken {
         }
     }
 
+    InfoMessage "Successfully obtained Flex token for $flexIP"
+    return $flexToken
+}
+#endregion RetrieveFlexAuthToken
+
+#region UpdateFlexAuthToken
+function UpdateFlexAuthToken {
+    param (
+        [Parameter(Mandatory=$true)]
+        [PSCustomObject]$Config
+    )
+
+    # Retrieve the access token
+    $flexToken = RetrieveFlexAuthToken -Config $Config
+
     # Apply the access token to all hosts
     foreach ($hostInfo in $Config.hosts) {
         $hostInfo | Add-Member -MemberType NoteProperty -Name "flex_access_token" -Value $flexToken -Force
     }
 
-    InfoMessage "Successfully obtained and assigned Flex token for $flexIP to $($Config.hosts.Count) host(s)"
+    InfoMessage "Successfully assigned Flex token to $($Config.hosts.Count) host(s)"
     return $flexToken
 }
 #endregion UpdateFlexAuthToken
