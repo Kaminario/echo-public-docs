@@ -124,19 +124,89 @@ function Write-Info {
     }
 }
 
-# Disables SSL certificate validation for self-signed certs
-try {
-    # Allow self-signed certificates when Flex environments use private CAs
-    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
-    # Ensure TLS 1.2 is enabled for older environments
-    if ([System.Net.ServicePointManager]::SecurityProtocol -band [System.Net.SecurityProtocolType]::Tls12 -ne [System.Net.SecurityProtocolType]::Tls12) {
-        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+#region Certificate and TLS Configuration
+
+function Set-TlsConfiguration {
+    <#
+    .SYNOPSIS
+        Configures TLS settings and disables certificate validation for self-signed certs.
+    #>
+    $IsPowerShell7 = $PSVersionTable.PSVersion.Major -ge 7
+
+    # Configure TLS protocols
+    try {
+        if ($IsPowerShell7) {
+            # PowerShell 7+ supports TLS 1.3
+            try {
+                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
+                Write-Verbose "Enabled TLS 1.2 and TLS 1.3."
+            }
+            catch {
+                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+                Write-Verbose "Enabled TLS 1.2."
+            }
+        }
+        else {
+            # PowerShell 5.1 - Force TLS 1.2
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+            Write-Verbose "Enabled TLS 1.2 for PowerShell 5.1."
+        }
     }
-    Write-Verbose "Disabled SSL certificate validation and enforced TLS 1.2."
+    catch {
+        Write-Warning "Could not configure TLS protocol. This may cause connection issues."
+    }
+
+    # Disable certificate validation
+    if ($IsPowerShell7) {
+        # PowerShell 7+ uses ServerCertificateValidationCallback
+        try {
+            [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+            Write-Verbose "Disabled certificate validation using ServerCertificateValidationCallback."
+        }
+        catch {
+            Write-Warning "Could not set ServerCertificateValidationCallback."
+        }
+    }
+    else {
+        # PowerShell 5.1 uses CertificatePolicy
+        $currentPolicy = [System.Net.ServicePointManager]::CertificatePolicy
+        if ($null -eq $currentPolicy -or $currentPolicy.GetType().FullName -ne "TrustAllCertsPolicy") {
+            try {
+                Add-Type @"
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
+public class TrustAllCertsPolicy : ICertificatePolicy {
+    public bool CheckValidationResult(
+        ServicePoint srvPoint, X509Certificate certificate,
+        WebRequest request, int certificateProblem) {
+        return true;
+    }
 }
-catch {
-    Write-Warning "Could not update certificate validation or TLS settings. This may cause issues with self-signed certificates."
+"@
+                [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+                Write-Verbose "Disabled certificate validation using CertificatePolicy for PowerShell 5.1."
+            }
+            catch {
+                # Type might already be loaded from a previous run
+                if ($_.Exception.Message -match "already exists") {
+                    [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+                    Write-Verbose "Certificate policy already defined. Applied existing TrustAllCertsPolicy."
+                }
+                else {
+                    Write-Warning "Could not set certificate policy: $($_.Exception.Message)"
+                }
+            }
+        }
+        else {
+            Write-Verbose "Certificate policy already set. Skipping."
+        }
+    }
 }
+
+# Apply TLS and certificate configuration at script initialization
+Set-TlsConfiguration
+
+#endregion Certificate and TLS Configuration
 
 function Invoke-FlexApi {
     param (
@@ -293,11 +363,13 @@ function Get-EchoDbSourceInfo {
     }
 
     if (-not $sourceDbName -and $sourceDbId) {
-        $sourceDbName = (
-            $Topology
-            | ForEach-Object { $_.databases | Where-Object { $_.id -eq $sourceDbId } }
-            | Select-Object -First 1
-        ).name
+        $matchingDb = $Topology | ForEach-Object {
+            $_.databases | Where-Object { $_.id -eq $sourceDbId }
+        } | Select-Object -First 1
+
+        if ($matchingDb) {
+            $sourceDbName = $matchingDb.name
+        }
     }
 
     if (-not $sourceDbName -and $sourceDbId) {
@@ -429,15 +501,16 @@ function Resolve-EchoClonePlan {
         }
     }
 
-    $uniqueSources = $resolvedClones | Select-Object SourceHostId, SourceDbId -Unique
-    if ($uniqueSources.Count -ne 1) {
-        $sourceDetails = $resolvedClones | ForEach-Object { "{0}:{1}" -f $_.SourceHostId, $_.SourceDbId } | Sort-Object -Unique
+    # Check that all clones share the same source
+    $sourceDetails = $resolvedClones | ForEach-Object { "{0}:{1}" -f $_.SourceHostId, $_.SourceDbId } | Sort-Object -Unique
+    if ($sourceDetails.Count -ne 1) {
         throw "All Echo databases must share the same source. Found sources: $($sourceDetails -join ', ')"
     }
 
-    $sourceHostId = $uniqueSources[0].SourceHostId
-    $sourceDbId = $uniqueSources[0].SourceDbId
-    $sourceDbName = ($resolvedClones | Select-Object -First 1).SourceDbName
+    # All clones share the same source, so use the first one
+    $sourceHostId = $resolvedClones[0].SourceHostId
+    $sourceDbId = $resolvedClones[0].SourceDbId
+    $sourceDbName = $resolvedClones[0].SourceDbName
 
     Write-Info "Found $($resolvedClones.Count) Echo DB(s). Source is '$sourceDbName' (ID: $sourceDbId) on host ID '$sourceHostId'."
 
