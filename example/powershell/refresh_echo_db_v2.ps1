@@ -7,6 +7,8 @@
     takes a new snapshot of the source, and then replaces (refreshes) the Echo
     database with the newly created snapshot.
 
+    This version uses the newer Echo API endpoints (/api/echo/v1/*).
+
 .PARAMETER EchoDbNames
     One or more Echo databases to refresh. All must share the same source database.
 
@@ -39,15 +41,16 @@
 
 .EXAMPLE
     # Basic refresh
-    .\refresh_echo_db.ps1 -EchoDbNames "sales_db_clone" -EchoDbHostName "dev-host-1"
+    .\refresh_echo_db_v2.ps1 -EchoDbNames "sales_db_clone" -EchoDbHostName "dev-host-1"
 
 .EXAMPLE
     # Refresh multiple clones that share a source database
-    .\refresh_echo_db.ps1 -EchoDbNames moti_1,test_1 -EchoDbHostName primary -FlexIp 10.0.0.15 -FlexToken sometoken
+    .\refresh_echo_db_v2.ps1 -EchoDbNames moti_1,test_1 -EchoDbHostName primary -FlexIp 10.0.0.15 -FlexToken sometoken
 
 .NOTES
     Requires PowerShell 5.1 or higher.
     Ensure FLEX_IP and FLEX_TOKEN environment variables are set, or pass them as parameters.
+    This version uses the newer Echo API endpoints (/api/echo/v1/*).
 #>
 [CmdletBinding()]
 param (
@@ -324,7 +327,7 @@ function Remove-StaleSnapshots {
     $remainingSnapshots = @()
 
     for ($attempt = 0; $attempt -lt 5; $attempt++) {
-        $topology = Invoke-FlexApi -Uri "/api/ocie/v1/topology"
+        $topology = Invoke-FlexApi -Uri "/api/echo/v1/topology"
         $sourceHost = $topology | Where-Object { $_.host.id -eq $SourceHostId }
         if (-not $sourceHost) {
             Write-Warning "Could not locate host '$SourceHostId' when cleaning up snapshots."
@@ -371,7 +374,7 @@ function Remove-StaleSnapshots {
             $snapshotId = $snapshot.id
             Write-Info "Deleting snapshot '$snapshotId'..."
             Write-Verbose "Issuing DELETE for snapshot '$snapshotId'."
-            $deleteTask = Invoke-FlexApi -Uri "/flex/api/v1/db_snapshots/$snapshotId" -Method "DELETE"
+            $deleteTask = Invoke-FlexApi -Uri "/api/echo/v1/db_snapshots/$snapshotId" -Method "DELETE"
             if ($deleteTask -and $deleteTask.PSObject.Properties.Name -contains 'location') {
                 try {
                     $null = Wait-For-Task -Task $deleteTask
@@ -411,7 +414,7 @@ function Remove-StaleSnapshots {
 
 function Get-FlexTopology {
     Write-Info "Fetching system topology from $($script:FlexBaseUrl)..."
-    return Invoke-FlexApi -Uri "/api/ocie/v1/topology"
+    return Invoke-FlexApi -Uri "/api/echo/v1/topology"
 }
 
 function Resolve-EchoClonePlan {
@@ -490,7 +493,7 @@ function New-SourceSnapshot {
         consistency_level = $ConsistencyLevel
     }
 
-    $snapshotTask = Invoke-FlexApi -Uri "/flex/api/v1/db_snapshots" -Method "POST" -Body $snapshotBody
+    $snapshotTask = Invoke-FlexApi -Uri "/api/echo/v1/db_snapshots" -Method "POST" -Body $snapshotBody
     if ($snapshotTask.PSObject.Properties.Name -contains 'request_id') {
         Write-Verbose "Snapshot task request id: $($snapshotTask.request_id)"
     }
@@ -517,26 +520,26 @@ function Invoke-DatabaseRefresh {
     )
 
     Write-Info "Refreshing Echo DB(s) '$CloneListDisplay' with the new snapshot..."
-    $replaceBody = @{
+    $refreshBody = @{
         snapshot_id = $SnapshotId
         db_names    = $EchoDbNames
         keep_backup = $false
     }
 
-    $replaceEndpoint = "/flex/api/v1/hosts/$($EchoHost.host.id)/databases/_replace"
+    $refreshEndpoint = "/api/echo/v1/hosts/$($EchoHost.host.id)/databases/_refresh"
 
-    $replaceTask = Invoke-FlexApi -Uri $replaceEndpoint -Method "POST" -Body $replaceBody
-    $replaceTaskId = if ($replaceTask.PSObject.Properties.Name -contains 'request_id') { $replaceTask.request_id } else { $null }
-    Write-Verbose "Replace task request id: $replaceTaskId"
-    $completedReplaceTask = Wait-For-Task -Task $replaceTask
+    $refreshTask = Invoke-FlexApi -Uri $refreshEndpoint -Method "POST" -Body $refreshBody
+    $refreshTaskId = if ($refreshTask.PSObject.Properties.Name -contains 'request_id') { $refreshTask.request_id } else { $null }
+    Write-Verbose "Refresh task request id: $refreshTaskId"
+    $completedRefreshTask = Wait-For-Task -Task $refreshTask
 
     Write-Info "Successfully refreshed Echo DB(s) '$CloneListDisplay' on host '$($EchoHost.host.name)'."
     Write-Info "Refresh complete."
 
     return [pscustomobject]@{
-        OriginalTask  = $replaceTask
-        CompletedTask = $completedReplaceTask
-        RequestId     = $replaceTaskId
+        OriginalTask  = $refreshTask
+        CompletedTask = $completedRefreshTask
+        RequestId     = $refreshTaskId
     }
 }
 
@@ -564,7 +567,7 @@ function New-RefreshSummary {
     $removeSummary = if ($CleanupResult) { $CleanupResult } else { [pscustomobject]@{ Deleted = 0; Remaining = @() } }
     $durationSeconds = [Math]::Round(((Get-Date) - $ScriptStart).TotalSeconds, 2)
     $completedTask = $RefreshInfo.CompletedTask
-    $replaceRequestId = if ($completedTask -and $completedTask.PSObject.Properties.Name -contains 'request_id') {
+    $refreshRequestId = if ($completedTask -and $completedTask.PSObject.Properties.Name -contains 'request_id') {
         $completedTask.request_id
     }
     elseif ($RefreshInfo.RequestId) {
@@ -576,7 +579,7 @@ function New-RefreshSummary {
 
     return [pscustomobject]@{
         SnapshotId         = $SnapshotInfo.SnapshotId
-        ReplaceTaskId      = $replaceRequestId
+        RefreshTaskId      = $refreshRequestId
         Databases          = $EchoDbNames
         DatabaseList       = $Plan.CloneListDisplay
         Host               = $Plan.EchoHost.host.name
