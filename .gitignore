@@ -21,3 +21,4 @@ __pycache__/
 # Excluding OS generated files:
 .history
 .venv
+.env*
