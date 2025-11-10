@@ -74,7 +74,7 @@ def _host_topology(host_id):
 
 
 def _get_topology():
-    url = f"https://{FLEX_IP}/api/ocie/v1/topology"
+    url = f"https://{FLEX_IP}/api/echo/v1/topology"
     tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
@@ -110,7 +110,7 @@ def _make_snapshot(
 ) -> Tuple[bool, dict]:
 
     # perform a request to make a snapshot
-    url = f"https://{FLEX_IP}/flex/api/v1/db_snapshots"
+    url = f"https://{FLEX_IP}/api/echo/v1/db_snapshots"
 
     tracking_id = _tracking_id()
     headers = {

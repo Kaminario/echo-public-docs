@@ -415,7 +415,7 @@ function Remove-StaleSnapshots {
     $remainingSnapshots = @()
 
     for ($attempt = 0; $attempt -lt 5; $attempt++) {
-        $topology = Invoke-FlexApi -Uri "/api/ocie/v1/topology"
+        $topology = Invoke-FlexApi -Uri "/api/echo/v1/topology"
         $sourceHost = $topology | Where-Object { $_.host.id -eq $SourceHostId }
         if (-not $sourceHost) {
             Write-Warning "Could not locate host '$SourceHostId' when cleaning up snapshots."
@@ -440,7 +440,7 @@ function Remove-StaleSnapshots {
             $snapshotId = $snapshot.id
             Write-Info "Deleting snapshot '$snapshotId'..."
             Write-Verbose "Issuing DELETE for snapshot '$snapshotId'."
-            $deleteTask = Invoke-FlexApi -Uri "/flex/api/v1/db_snapshots/$snapshotId" -Method "DELETE"
+            $deleteTask = Invoke-FlexApi -Uri "/api/echo/v1/db_snapshots/$snapshotId" -Method "DELETE"
             if ($deleteTask -and $deleteTask.PSObject.Properties.Name -contains 'location') {
                 try {
                     $null = Wait-For-Task -Task $deleteTask
@@ -633,7 +633,7 @@ function Remove-SqlReplication {
 
 function Get-FlexTopology {
     Write-Info "Fetching system topology from $($script:FlexBaseUrl)..."
-    return Invoke-FlexApi -Uri "/api/ocie/v1/topology"
+    return Invoke-FlexApi -Uri "/api/echo/v1/topology"
 }
 
 function Resolve-EchoClonePlan {
@@ -713,7 +713,7 @@ function New-SourceSnapshot {
         consistency_level = $ConsistencyLevel
     }
 
-    $snapshotTask = Invoke-FlexApi -Uri "/flex/api/v1/db_snapshots" -Method "POST" -Body $snapshotBody
+    $snapshotTask = Invoke-FlexApi -Uri "/api/echo/v1/db_snapshots" -Method "POST" -Body $snapshotBody
     if ($snapshotTask.PSObject.Properties.Name -contains 'request_id') {
         Write-Verbose "Snapshot task request id: $($snapshotTask.request_id)"
     }
@@ -746,7 +746,7 @@ function Invoke-DatabaseRefresh {
         keep_backup = $false
     }
 
-    $replaceEndpoint = "/flex/api/v1/hosts/$($EchoHost.host.id)/databases/_replace"
+    $replaceEndpoint = "/api/echo/v1/hosts/$($EchoHost.host.id)/databases/_refresh"
 
     $replaceTask = Invoke-FlexApi -Uri $replaceEndpoint -Method "POST" -Body $replaceBody
     $replaceTaskId = if ($replaceTask.PSObject.Properties.Name -contains 'request_id') { $replaceTask.request_id } else { $null }

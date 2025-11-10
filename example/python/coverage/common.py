@@ -61,7 +61,7 @@ def _get_topology() -> List[Dict[str, Any]]:
     Returns:
         List[Dict[str, Any]]: Topology data containing hosts and databases.
     """
-    url = f"https://{FLEX_IP}/api/ocie/v1/topology"
+    url = f"https://{FLEX_IP}/api/echo/v1/topology"
     tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
@@ -186,3 +186,83 @@ def _make_request(
         )
 
     return response.json()
+
+
+def _wait_validation_pass(
+    method: str,
+    validate_endpoint: str,
+    max_retries: int = 5,
+    retry_delay: int = 2,
+    payload: Optional[Dict[str, Any]] = None,
+    ignore_status_codes: Optional[List[int]] = None
+):
+    """Wait for an API validation endpoint to pass by polling until valid.
+
+    Polls the validation endpoint until it returns valid: true. This handles
+    race conditions where resources may not be immediately ready for operations.
+
+    Args:
+        method: HTTP method for the validation endpoint (e.g., "DELETE", "POST")
+        validate_endpoint: The validation endpoint path (must end with /__validate)
+        max_retries: Maximum number of validation attempts (default: 5)
+        retry_delay: Seconds to wait between validation attempts (default: 2)
+        payload: Optional request payload for POST/DELETE requests
+        ignore_status_codes: List of HTTP status codes to treat as success (e.g., [404])
+    """
+    if ignore_status_codes is None:
+        ignore_status_codes = []
+
+    for attempt in range(1, max_retries + 1):
+        url = f"https://{FLEX_IP}{validate_endpoint}"
+        tracking_id = _tracking_id()
+        headers = {
+            "Authorization": f"Bearer {FLEX_TOKEN}",
+            "hs-ref-id": tracking_id,
+            "Accept": "application/json",
+        }
+
+        if payload:
+            headers["Content-Type"] = "application/json"
+
+        try:
+            if method.upper() == "GET":
+                response = requests.get(url, verify=False, headers=headers)
+            elif method.upper() == "POST":
+                response = requests.post(url, json=payload, verify=False, headers=headers)
+            elif method.upper() == "DELETE":
+                response = requests.delete(url, json=payload, verify=False, headers=headers)
+            else:
+                exit_with_error(f"Unsupported HTTP method: {method}")
+
+            if response.status_code // 100 == 2:
+                validation_result = response.json()
+
+                if validation_result.get("valid", False):
+                    print(f"   Validation passed (attempt {attempt})")
+                    return
+                else:
+                    # Check if this is a snapshot in use error that should be retried
+                    issues = validation_result.get("issues", [])
+                    has_in_use_issue = any("IN_USE" in issue.get("issue_type", "") for issue in issues)
+
+                    if has_in_use_issue:
+                        print(f"   Resource still in use (attempt {attempt}/{max_retries}), waiting {retry_delay}s...")
+                    else:
+                        print(f"   Validation failed (attempt {attempt}/{max_retries}), waiting {retry_delay}s...")
+
+                    if attempt < max_retries:
+                        time.sleep(retry_delay)
+            # Check if status code should be ignored (e.g., 404 for DELETE means already deleted)
+            elif response.status_code in ignore_status_codes:
+                print(f"   Validation returned {response.status_code} (ignored as success)")
+                return
+            else:
+                print(f"   Validation request failed with status {response.status_code}, retrying...")
+                if attempt < max_retries:
+                    time.sleep(retry_delay)
+        except Exception as e:
+            print(f"   Validation attempt {attempt} failed: {e}")
+            if attempt < max_retries:
+                time.sleep(retry_delay)
+
+    print(f"   Warning: Validation did not pass after {max_retries} attempts, proceeding anyway...")

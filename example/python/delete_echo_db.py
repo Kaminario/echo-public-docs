@@ -69,7 +69,7 @@ def _host_topology(host_id):
 
 
 def _get_topology():
-    url = f"https://{FLEX_IP}/api/ocie/v1/topology"
+    url = f"https://{FLEX_IP}/api/echo/v1/topology"
     tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
@@ -100,7 +100,7 @@ def _map_db_name_2_db_id(host_topology: dict) -> dict[str, str]:
 def _delete_echo_db(host_id: str, db_id: str) -> tuple[bool, dict]:
     """Delete an Echo database from the specified host."""
 
-    url = f"https://{FLEX_IP}/flex/api/v1/ocie/clone"
+    url = f"https://{FLEX_IP}/api/echo/v1/echo_dbs"
     tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
