@@ -64,7 +64,7 @@ def _tracking_id():
 
 
 def _fetch_topology():
-    url = f"https://{FLEX_IP}/api/ocie/v1/topology"
+    url = f"https://{FLEX_IP}/api/echo/v1/topology"
     tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
@@ -136,8 +136,8 @@ def _construct_destination(
 def _make_echo_dbs(snapshot_id: str, destinations: list[dict]) -> Tuple[bool, dict]:
     """Create Echo databases from a snapshot."""
 
-    # perform a request to make a snapshot
-    url = f"https://{FLEX_IP}/flex/api/v1/db_snapshots/{snapshot_id}/clone"
+    # perform a request to deploy echo db from snapshot
+    url = f"https://{FLEX_IP}/api/echo/v1/db_snapshots/{snapshot_id}/echo_db"
 
     tracking_id = _tracking_id()
     headers = {

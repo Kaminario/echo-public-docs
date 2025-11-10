@@ -4,12 +4,12 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Test snapshot creation and deletion endpoints (rewritten URLs).
+Test snapshot creation and deletion endpoints (direct access APIs).
 
 Tests:
-- POST /flex/api/v1/db_snapshots/__validate (validation)
-- POST /flex/api/v1/db_snapshots (create snapshot)
-- DELETE /flex/api/v1/db_snapshots/{id} (delete snapshot)
+- POST /api/echo/v1/db_snapshots/__validate (validation)
+- POST /api/echo/v1/db_snapshots (create snapshot)
+- DELETE /api/echo/v1/db_snapshots/{id} (delete snapshot)
 
 Creates a snapshot, validates it exists, then deletes it.
 """
@@ -26,6 +26,7 @@ from common import (
     _make_request,
     _wait_for_task,
     _get_host_topology,
+    _wait_validation_pass,
     exit_with_error,
 )
 
@@ -33,11 +34,11 @@ from common import (
 def run(
     host_name: str,
     db_name: str,
-    snapshot_prefix: str = "test-v2-",
+    snapshot_prefix: str = "test_snapshot",
     consistency_level: str = "crash",
     timeout: int = 300,
 ):
-    """Test snapshot creation and deletion endpoints (rewritten URLs).
+    """Test snapshot creation and deletion endpoints (direct access APIs).
 
     Args:
         host_name: Host name/ID to create snapshot from
@@ -51,7 +52,7 @@ def run(
     if consistency_level not in ["crash", "application"]:
         exit_with_error("Consistency level must be 'crash' or 'application'.")
 
-    print(f"Testing snapshot creation and deletion endpoints (rewritten URLs)")
+    print(f"Testing snapshot creation and deletion endpoints (direct access APIs)")
     print(f"  Host: {host_name}")
     print(f"  Database: {db_name}")
     print(f"  Consistency level: {consistency_level}")
@@ -82,17 +83,17 @@ def run(
         }
 
         # Test validation endpoint for creation
-        print("\n1. Testing POST /flex/api/v1/db_snapshots/__validate")
+        print("\n1. Testing POST /api/echo/v1/db_snapshots/__validate")
         validate_response = _make_request(
             "POST",
-            "/flex/api/v1/db_snapshots/__validate",
+            "/api/echo/v1/db_snapshots/__validate",
             payload=payload
         )
         print("   ✓ Validation passed")
 
-        # Test create snapshot endpoint (rewritten URL)
-        print("\n2. Testing POST /flex/api/v1/db_snapshots")
-        task = _make_request("POST", "/flex/api/v1/db_snapshots", payload=payload)
+        # Test create snapshot endpoint
+        print("\n2. Testing POST /api/echo/v1/db_snapshots")
+        task = _make_request("POST", "/api/echo/v1/db_snapshots", payload=payload)
         success, completed_task = _wait_for_task(task, timeout=timeout)
 
         if not success:
@@ -101,9 +102,10 @@ def run(
         snapshot_id = completed_task["result"]["db_snapshot"]["id"]
         print(f"   ✓ Snapshot created: {snapshot_id}")
 
-        # Test delete snapshot endpoint (rewritten URL)
-        print("\n3. Testing DELETE /flex/api/v1/db_snapshots/{id}")
-        delete_task = _make_request("DELETE", f"/flex/api/v1/db_snapshots/{snapshot_id}")
+        # Test delete snapshot endpoint
+        print("\n3. Testing DELETE /api/echo/v1/db_snapshots/{id}")
+        _wait_validation_pass("DELETE", f"/api/echo/v1/db_snapshots/{snapshot_id}/__validate", ignore_status_codes=[404])
+        delete_task = _make_request("DELETE", f"/api/echo/v1/db_snapshots/{snapshot_id}")
         success2, completed_delete_task = _wait_for_task(delete_task, timeout=timeout)
 
         if not success2:
@@ -118,7 +120,8 @@ def run(
         # Try to cleanup on error
         if snapshot_id:
             try:
-                delete_task = _make_request("DELETE", f"/flex/api/v1/db_snapshots/{snapshot_id}")
+                _wait_validation_pass("DELETE", f"/api/echo/v1/db_snapshots/{snapshot_id}/__validate", ignore_status_codes=[404])
+                delete_task = _make_request("DELETE", f"/api/echo/v1/db_snapshots/{snapshot_id}")
                 _wait_for_task(delete_task, timeout=timeout)
             except:
                 pass
@@ -126,10 +129,10 @@ def run(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Test snapshot creation and deletion endpoints (rewritten URLs)")
+    parser = argparse.ArgumentParser(description="Test snapshot creation and deletion endpoints (direct access APIs)")
     parser.add_argument("--host-name", required=True, help="Host name/ID to create snapshot from")
     parser.add_argument("--db-name", required=True, help="Database name to snapshot")
-    parser.add_argument("--snapshot-prefix", default="test-v2-", help="Prefix for snapshot name (default: 'test-v2-')")
+    parser.add_argument("--snapshot-prefix", default="test_snapshot", help="Prefix for snapshot name (default: 'test_snapshot')")
     parser.add_argument("--consistency-level", default="crash", choices=["crash", "application"], help="Consistency level (default: 'crash')")
     parser.add_argument("--timeout", type=int, default=300, help="Task timeout in seconds (default: 300)")
 

@@ -81,8 +81,8 @@ echo -e "${GREEN}  DB_NAME: $DB_NAME${NC}"
 echo -e "${GREEN}  DEST_HOST_NAME: $DEST_HOST_NAME${NC}"
 echo ""
 
-# Run primary tests (public /flex/api/v1/ endpoints)
-echo -e "${YELLOW}Running Primary API Tests (/flex/api/v1/)...${NC}"
+# Run tests (direct /api/echo/v1/ endpoints)
+echo -e "${YELLOW}Running API Tests (/api/echo/v1/)...${NC}"
 echo ""
 
 echo -e "${YELLOW}Running test_snapshot.py...${NC}"
@@ -103,30 +103,6 @@ echo ""
 
 echo -e "${YELLOW}Running test_refresh_database.py...${NC}"
 python test_refresh_database.py --source-host-name "$HOST_NAME" --dest-host-name "$DEST_HOST_NAME" --db-name "$DB_NAME" || exit 1
-echo ""
-
-# Run secondary tests (backward compatibility /api/ocie/v1/ endpoints)
-echo -e "${YELLOW}Running Secondary API Tests (/api/ocie/v1/ - Backward Compatibility)...${NC}"
-echo ""
-
-echo -e "${YELLOW}Running test_snapshot_v2.py...${NC}"
-python test_snapshot_v2.py --host-name "$HOST_NAME" --db-name "$DB_NAME" || exit 1
-echo ""
-
-echo -e "${YELLOW}Running test_list_tasks_v2.py...${NC}"
-python test_list_tasks_v2.py --host-name "$HOST_NAME" --db-name "$DB_NAME" || exit 1
-echo ""
-
-echo -e "${YELLOW}Running test_clone_echo_db_v2.py...${NC}"
-python test_clone_echo_db_v2.py --source-host-name "$HOST_NAME" --dest-host-name "$DEST_HOST_NAME" --db-name "$DB_NAME" || exit 1
-echo ""
-
-echo -e "${YELLOW}Running test_clone_from_snapshot_v2.py...${NC}"
-python test_clone_from_snapshot_v2.py --source-host-name "$HOST_NAME" --dest-host-name "$DEST_HOST_NAME" --db-name "$DB_NAME" || exit 1
-echo ""
-
-echo -e "${YELLOW}Running test_refresh_database_v2.py...${NC}"
-python test_refresh_database_v2.py --source-host-name "$HOST_NAME" --dest-host-name "$DEST_HOST_NAME" --db-name "$DB_NAME" || exit 1
 echo ""
 
 echo -e "${GREEN}All tests passed!${NC}"
