@@ -69,8 +69,8 @@ def _make_refresh(
     snapshot_id: str,
 ) -> Tuple[bool, dict]:
 
-    # perform a request to make a snapshot
-    url = f"https://{FLEX_IP}/flex/api/v1/hosts/{host_id}/databases/_replace"
+    # perform a request to refresh databases
+    url = f"https://{FLEX_IP}/api/echo/v1/hosts/{host_id}/databases/_refresh"
 
     tracking_id = _tracking_id()
     headers = {

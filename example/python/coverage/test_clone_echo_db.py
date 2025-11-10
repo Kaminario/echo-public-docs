@@ -4,13 +4,13 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Test echo DB clone endpoints (public API).
+Test echo DB creation endpoints (direct access APIs).
 
 Tests:
-- POST /flex/api/v1/ocie/clone/__validate (validation)
-- POST /flex/api/v1/ocie/clone (public endpoint - creates snapshot + echo DB)
-- DELETE /flex/api/v1/ocie/clone (delete echo DB)
-- DELETE /flex/api/v1/db_snapshots/{id} (delete snapshot)
+- POST /api/echo/v1/echo_dbs/__validate (validation)
+- POST /api/echo/v1/echo_dbs (direct endpoint - creates snapshot + echo DB)
+- DELETE /api/echo/v1/echo_dbs (delete echo DB)
+- DELETE /api/echo/v1/db_snapshots/{id} (delete snapshot)
 
 Creates an echo DB from source (which also creates a snapshot), validates it exists, then cleans up both.
 """
@@ -27,6 +27,7 @@ from common import (
     _make_request,
     _wait_for_task,
     _get_host_topology,
+    _wait_validation_pass,
     exit_with_error,
 )
 
@@ -35,11 +36,11 @@ def run(
     source_host_name: str,
     dest_host_name: str,
     db_name: str,
-    echo_db_suffix: str = "-test-v2",
+    echo_db_suffix: str = "_test",
     consistency_level: str = "crash",
     timeout: int = 300,
 ):
-    """Test echo DB clone endpoints (rewritten URLs).
+    """Test echo DB creation endpoints (direct access APIs).
 
     Args:
         source_host_name: Source host name/ID
@@ -54,7 +55,7 @@ def run(
     if consistency_level not in ["crash", "application"]:
         exit_with_error("Consistency level must be 'crash' or 'application'.")
 
-    print(f"Testing echo DB clone endpoints (rewritten URLs)")
+    print(f"Testing echo DB creation endpoints (direct access APIs)")
     print(f"  Source host: {source_host_name}")
     print(f"  Destination host: {dest_host_name}")
     print(f"  Database: {db_name}")
@@ -93,13 +94,13 @@ def run(
         }
 
         # Test validation endpoint
-        print("\n1. Testing POST /flex/api/v1/ocie/clone/__validate")
-        validate_response = _make_request("POST", "/flex/api/v1/ocie/clone/__validate", payload=payload)
+        print("\n1. Testing POST /api/echo/v1/echo_dbs/__validate")
+        validate_response = _make_request("POST", "/api/echo/v1/echo_dbs/__validate", payload=payload)
         print("   ✓ Validation passed")
 
-        # Test rewritten endpoint
-        print("\n2. Testing POST /flex/api/v1/ocie/clone")
-        task = _make_request("POST", "/flex/api/v1/ocie/clone", payload=payload)
+        # Test direct endpoint
+        print("\n2. Testing POST /api/echo/v1/echo_dbs")
+        task = _make_request("POST", "/api/echo/v1/echo_dbs", payload=payload)
         success, completed_task = _wait_for_task(task, timeout=timeout)
 
         if not success:
@@ -126,7 +127,7 @@ def run(
         if echo_db_id:
             try:
                 delete_payload = {"host_id": dest_host_id, "database_id": echo_db_id}
-                delete_task = _make_request("DELETE", "/flex/api/v1/ocie/clone", payload=delete_payload)
+                delete_task = _make_request("DELETE", "/api/echo/v1/echo_dbs", payload=delete_payload)
                 _wait_for_task(delete_task, timeout=timeout)
                 print(f"   ✓ Deleted echo DB: {echo_db_name}")
             except Exception as e:
@@ -135,7 +136,8 @@ def run(
         # Delete the snapshot created by clone operation
         if snapshot_id:
             try:
-                delete_snapshot_task = _make_request("DELETE", f"/flex/api/v1/db_snapshots/{snapshot_id}")
+                _wait_validation_pass("DELETE", f"/api/echo/v1/db_snapshots/{snapshot_id}/__validate", ignore_status_codes=[404])
+                delete_snapshot_task = _make_request("DELETE", f"/api/echo/v1/db_snapshots/{snapshot_id}")
                 _wait_for_task(delete_snapshot_task, timeout=timeout)
                 print(f"   ✓ Deleted snapshot: {snapshot_id}")
             except Exception as e:
@@ -148,18 +150,19 @@ def run(
         # Try to cleanup on error
         if snapshot_id:
             try:
-                _make_request("DELETE", f"/flex/api/v1/db_snapshots/{snapshot_id}")
+                _wait_validation_pass("DELETE", f"/api/echo/v1/db_snapshots/{snapshot_id}/__validate", ignore_status_codes=[404])
+                _make_request("DELETE", f"/api/echo/v1/db_snapshots/{snapshot_id}")
             except:
                 pass
         exit_with_error(f"Echo DB clone test failed: {str(e)}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Test echo DB clone endpoints (rewritten URLs)")
+    parser = argparse.ArgumentParser(description="Test echo DB creation endpoints (direct access APIs)")
     parser.add_argument("--source-host-name", required=True, help="Source host name/ID")
     parser.add_argument("--dest-host-name", required=True, help="Destination host name/ID")
     parser.add_argument("--db-name", required=True, help="Database name to clone")
-    parser.add_argument("--echo-db-suffix", default="-test-v2", help="Suffix for cloned echo DB name (default: '-test-v2')")
+    parser.add_argument("--echo-db-suffix", default="_test", help="Suffix for cloned echo DB name (default: '_test')")
     parser.add_argument("--consistency-level", default="crash", choices=["crash", "application"], help="Consistency level (default: 'crash')")
     parser.add_argument("--timeout", type=int, default=300, help="Task timeout in seconds (default: 300)")
 
