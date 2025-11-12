@@ -34,6 +34,15 @@
 .PARAMETER TimeoutMinutes
     The maximum time in minutes to wait for a task to complete. Defaults to 60.
 
+.PARAMETER SqlUsername
+    The SQL Server username for removing replication. Must have sysadmin server role. Can also be set via the $env:ECHO_MSSQL_USER environment variable.
+
+.PARAMETER SqlPassword
+    The SQL Server password for removing replication. Can also be set via the $env:ECHO_MSSQL_PASSWORD environment variable.
+
+.PARAMETER SkipReplicationCleanup
+    If set, skips SQL replication removal operations. SQL credentials are not required when this flag is set.
+
 .PARAMETER Quiet
     If set, suppresses all non-essential output.
 
@@ -48,6 +57,7 @@
 .NOTES
     Requires PowerShell 5.1 or higher.
     Ensure FLEX_IP and FLEX_TOKEN environment variables are set, or pass them as parameters.
+    SQL credentials (ECHO_MSSQL_USER and ECHO_MSSQL_PASSWORD) are only required if -SkipReplicationCleanup is not specified.
 #>
 [CmdletBinding()]
 param (
@@ -78,6 +88,15 @@ param (
 
     [ValidateRange(1, 240)]
     [int]$TimeoutMinutes = 60,
+
+    [Parameter(HelpMessage = "SQL Server username")]
+    [string]$SqlUsername = $env:ECHO_MSSQL_USER,
+
+    [Parameter(HelpMessage = "SQL Server password")]
+    [string]$SqlPassword = $env:ECHO_MSSQL_PASSWORD,
+
+    [Parameter(HelpMessage = "Skip SQL replication removal")]
+    [switch]$SkipReplicationCleanup,
 
     [switch]$Quiet
 )
@@ -455,6 +474,159 @@ function Remove-StaleSnapshots {
     }
 }
 
+function New-SqlConnectionString {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$SqlServerInstance,
+        [Parameter(Mandatory = $true)]
+        [string]$SqlUsername,
+        [Parameter(Mandatory = $true)]
+        [string]$SqlPassword,
+        [string]$Database = "master"
+    )
+
+    return "Server=$SqlServerInstance;Database=$Database;User Id=$SqlUsername;Password=$SqlPassword;TrustServerCertificate=True;"
+}
+
+function Test-SqlSysadminPermission {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$ConnectionString,
+        [Parameter(Mandatory = $true)]
+        [string]$SqlUsername,
+        [Parameter(Mandatory = $true)]
+        [string]$SqlServerInstance
+    )
+
+    Write-Info "Validating sysadmin permissions for SQL user '$SqlUsername' on '$SqlServerInstance'..."
+
+    try {
+        $connection = New-Object System.Data.SqlClient.SqlConnection($ConnectionString)
+        $connection.Open()
+
+        $command = $connection.CreateCommand()
+        $command.CommandText = "SELECT IS_SRVROLEMEMBER('sysadmin') AS IsSysadmin"
+        $command.CommandTimeout = 30
+
+        $result = $command.ExecuteScalar()
+        $connection.Close()
+        $connection.Dispose()
+
+        if ($result -eq 1) {
+            Write-Info "User '$SqlUsername' has sysadmin permissions."
+            return $true
+        }
+        elseif ($result -eq 0) {
+            Write-Error "User '$SqlUsername' does not have sysadmin permissions on '$SqlServerInstance'."
+            return $false
+        }
+        else {
+            Write-Warning "Could not determine sysadmin status for user '$SqlUsername'. Result: $result"
+            return $false
+        }
+    }
+    catch {
+        $errorMessage = $_.Exception.Message
+        $innerException = $_.Exception.InnerException
+
+        # Check for SQL authentication errors
+        if ($errorMessage -match "Login failed|authentication|password|credential|user.*not.*found|Cannot open database" -or
+            ($innerException -and $innerException.Message -match "Login failed|authentication|password|credential")) {
+            Write-Error "SQL Server authentication failed for user '$SqlUsername' on '$SqlServerInstance'. Please verify the username and password are correct."
+            throw "SQL Server authentication failed: $errorMessage"
+        }
+
+        # Connection errors
+        if ($errorMessage -match "timeout|connection|network|unreachable|refused") {
+            Write-Error "Failed to connect to SQL Server '$SqlServerInstance'. Please verify the server is accessible."
+            throw "SQL Server connection failed: $errorMessage"
+        }
+
+        # Other errors
+        Write-Error "Failed to validate sysadmin permissions: $errorMessage"
+        throw
+    }
+}
+
+function EnsureSQLUser {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$SqlServerInstance,
+        [Parameter(Mandatory = $true)]
+        [string]$SqlUsername,
+        [Parameter(Mandatory = $true)]
+        [string]$SqlPassword
+    )
+
+    Write-Info "Validating SQL Server credentials and permissions..."
+
+    # Validate parameters
+    if (-not $SqlUsername -or -not $SqlPassword) {
+        throw "SQL Server credentials not provided. Set -SqlUsername and -SqlPassword parameters or ECHO_MSSQL_USER and ECHO_MSSQL_PASSWORD environment variables."
+    }
+
+    # Create connection string
+    $connectionString = New-SqlConnectionString -SqlServerInstance $SqlServerInstance -SqlUsername $SqlUsername -SqlPassword $SqlPassword
+
+    # Validate permissions
+    try {
+        $hasSysadmin = Test-SqlSysadminPermission -ConnectionString $connectionString -SqlUsername $SqlUsername -SqlServerInstance $SqlServerInstance
+        if (-not $hasSysadmin) {
+            throw "SQL permission validation failed: User '$SqlUsername' does not have sysadmin permissions on '$SqlServerInstance'. The script requires sysadmin privileges to remove replication."
+        }
+    }
+    catch {
+        # Test-SqlSysadminPermission already provides detailed error messages for authentication/connection failures
+        # Re-throw with context if it's a permission error
+        if ($_.Exception.Message -notmatch "authentication|connection|Login failed") {
+            throw "SQL permission validation failed: $($_.Exception.Message)"
+        }
+        # Re-throw authentication/connection errors as-is (they already have good messages)
+        throw
+    }
+
+    Write-Info "SQL Server credentials and permissions validated successfully."
+
+    # Return connection string for reuse
+    return $connectionString
+}
+
+function Remove-SqlReplication {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$ConnectionString,
+        [Parameter(Mandatory = $true)]
+        [string[]]$DatabaseNames
+    )
+
+    Write-Info "Removing SQL Server replication from database(s): $($DatabaseNames -join ', ')..."
+
+    foreach ($dbName in $DatabaseNames) {
+        try {
+            Write-Info "Executing sp_removedbreplication on '$dbName'..."
+
+            $connection = New-Object System.Data.SqlClient.SqlConnection($ConnectionString)
+            $connection.Open()
+
+            $command = $connection.CreateCommand()
+            $command.CommandText = "EXEC sp_removedbreplication @dbname = @dbname"
+            $command.Parameters.AddWithValue("@dbname", $dbName) | Out-Null
+            $command.CommandTimeout = 300
+
+            $null = $command.ExecuteNonQuery()
+
+            $connection.Close()
+            $connection.Dispose()
+
+            Write-Info "Successfully removed replication from '$dbName'."
+        }
+        catch {
+            Write-Warning "Failed to remove replication from '$dbName': $($_.Exception.Message)"
+            # Continue with other databases even if one fails
+        }
+    }
+}
+
 #endregion Helper Functions
 
 #region Refresh Flow Helpers
@@ -648,6 +820,21 @@ function New-RefreshSummary {
 
 $topology = Get-FlexTopology
 $plan = Resolve-EchoClonePlan -Topology $topology -EchoDbHostName $EchoDbHostName -EchoDbNames $EchoDbNames
+
+# Handle replication operations if not skipped
+if (-not $SkipReplicationCleanup) {
+    # Add SQL Server default port 1433 to hostname
+    $sqlServerInstance = "$EchoDbHostName,1433"
+
+    # Validate SQL Server credentials and permissions BEFORE any replication operations
+    $sqlConnectionString = EnsureSQLUser -SqlServerInstance $sqlServerInstance -SqlUsername $SqlUsername -SqlPassword $SqlPassword
+
+    Remove-SqlReplication -ConnectionString $sqlConnectionString -DatabaseNames $EchoDbNames
+}
+else {
+    Write-Info "Skipping SQL replication removal (SkipReplicationCleanup flag is set)."
+}
+
 $snapshotInfo = New-SourceSnapshot -SourceHostId $plan.SourceHostId -SourceDbId $plan.SourceDbId -ConsistencyLevel $ConsistencyLevel -SnapshotPrefix $SnapshotPrefix
 $refreshInfo = Invoke-DatabaseRefresh -EchoHost $plan.EchoHost -EchoDbNames $EchoDbNames -CloneListDisplay $plan.CloneListDisplay -SnapshotId $snapshotInfo.SnapshotId
 $cleanupResult = Invoke-RefreshCleanup -SourceHostId $plan.SourceHostId -SourceDbId $plan.SourceDbId -SnapshotId $snapshotInfo.SnapshotId
