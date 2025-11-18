@@ -4,10 +4,10 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Test task listing endpoints (rewritten URLs).
+Test task listing endpoints (direct access APIs).
 
 Tests:
-- GET /flex/api/v1/ocie/tasks (rewritten endpoint)
+- GET /api/echo/v1/tasks (direct endpoint)
 
 Creates a task (via snapshot creation), then lists tasks.
 """
@@ -24,6 +24,7 @@ from common import (
     _make_request,
     _wait_for_task,
     _get_host_topology,
+    _wait_validation_pass,
     exit_with_error,
 )
 
@@ -31,11 +32,11 @@ from common import (
 def run(
     host_name: str,
     db_name: str,
-    snapshot_prefix: str = "test-list-v2-",
+    snapshot_prefix: str = "test_tasks",
     consistency_level: str = "crash",
     timeout: int = 300,
 ):
-    """Test task listing endpoints (rewritten URLs).
+    """Test task listing endpoints (direct access APIs).
 
     Args:
         host_name: Host name/ID to create snapshot from (creates task)
@@ -49,7 +50,7 @@ def run(
     if consistency_level not in ["crash", "application"]:
         exit_with_error("Consistency level must be 'crash' or 'application'.")
 
-    print(f"Testing task listing endpoints (rewritten URLs)")
+    print(f"Testing task listing endpoints (direct access APIs)")
     print(f"  Host: {host_name}")
     print(f"  Database: {db_name}")
 
@@ -70,7 +71,7 @@ def run(
     snapshot_id = None
 
     try:
-        # Create a snapshot to generate a task (using rewritten endpoint)
+        # Create a snapshot to generate a task (using direct endpoint)
         print("\n1. Creating snapshot to generate task")
         create_payload = {
             "source_host_id": actual_host_id,
@@ -79,7 +80,7 @@ def run(
             "consistency_level": consistency_level,
         }
 
-        task = _make_request("POST", "/flex/api/v1/db_snapshots", payload=create_payload)
+        task = _make_request("POST", "/api/echo/v1/db_snapshots", payload=create_payload)
         request_id = task.get("request_id")
 
         if not request_id:
@@ -87,9 +88,9 @@ def run(
 
         print(f"   ✓ Task created: {request_id}")
 
-        # Test rewritten endpoint
-        print("\n2. Testing GET /flex/api/v1/ocie/tasks")
-        tasks_list = _make_request("GET", "/flex/api/v1/ocie/tasks")
+        # Test direct endpoint
+        print("\n2. Testing GET /api/echo/v1/tasks")
+        tasks_list = _make_request("GET", "/api/echo/v1/tasks")
 
         if not isinstance(tasks_list, list):
             exit_with_error("Tasks list response is not a list.")
@@ -115,8 +116,9 @@ def run(
 
         snapshot_id = completed_task["result"]["db_snapshot"]["id"]
 
-        # Delete snapshot (using rewritten endpoint)
-        delete_task = _make_request("DELETE", f"/flex/api/v1/db_snapshots/{snapshot_id}")
+        # Delete snapshot (using direct endpoint)
+        _wait_validation_pass("DELETE", f"/api/echo/v1/db_snapshots/{snapshot_id}/__validate", ignore_status_codes=[404])
+        delete_task = _make_request("DELETE", f"/api/echo/v1/db_snapshots/{snapshot_id}")
         _wait_for_task(delete_task, timeout=timeout)
         print(f"   ✓ Cleanup completed")
 
@@ -127,17 +129,18 @@ def run(
         # Try to cleanup on error
         if snapshot_id:
             try:
-                _make_request("DELETE", f"/flex/api/v1/db_snapshots/{snapshot_id}")
+                _wait_validation_pass("DELETE", f"/api/echo/v1/db_snapshots/{snapshot_id}/__validate", ignore_status_codes=[404])
+                _make_request("DELETE", f"/api/echo/v1/db_snapshots/{snapshot_id}")
             except:
                 pass
         exit_with_error(f"Task listing test failed: {str(e)}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Test task listing endpoints (rewritten URLs)")
+    parser = argparse.ArgumentParser(description="Test task listing endpoints (direct access APIs)")
     parser.add_argument("--host-name", required=True, help="Host name/ID to create snapshot from (creates task)")
     parser.add_argument("--db-name", required=True, help="Database name to snapshot")
-    parser.add_argument("--snapshot-prefix", default="test-list-v2-", help="Prefix for snapshot name (default: 'test-list-v2-')")
+    parser.add_argument("--snapshot-prefix", default="test_tasks", help="Prefix for snapshot name (default: 'test_tasks')")
     parser.add_argument("--consistency-level", default="crash", choices=["crash", "application"], help="Consistency level (default: 'crash')")
     parser.add_argument("--timeout", type=int, default=300, help="Task timeout in seconds (default: 300)")
 

@@ -53,7 +53,7 @@ def _host_topology(host_name):
 
 
 def _get_topology():
-    url = f"https://{FLEX_IP}/api/ocie/v1/topology"
+    url = f"https://{FLEX_IP}/api/echo/v1/topology"
     tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",

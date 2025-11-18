@@ -63,7 +63,7 @@ def _tracking_id() -> str:
 
 def _get_topology() -> dict[str, Any]:
     """Retrieve the full topology from the Flex API."""
-    url = f"https://{FLEX_IP}/api/ocie/v1/topology"
+    url = f"https://{FLEX_IP}/api/echo/v1/topology"
     tracking_id = _tracking_id()
     headers = {
         "Authorization": f"Bearer {FLEX_TOKEN}",
@@ -163,8 +163,8 @@ def _make_clone(snapshot_id: str, dest_host_id: str, dbs: dict[str, str], suffix
             }
         )
 
-    # perform a request to make a snapshot
-    url = f"https://{FLEX_IP}/flex/api/v1/db_snapshots/{snapshot_id}/clone"
+    # perform a request to deploy echo db from snapshot
+    url = f"https://{FLEX_IP}/api/echo/v1/db_snapshots/{snapshot_id}/echo_db"
 
     tracking_id = _tracking_id()
     headers = {

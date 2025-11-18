@@ -4,14 +4,14 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Test database refresh/replace endpoints (public API).
+Test database refresh/replace endpoints (direct access APIs).
 
 Tests:
-- POST /flex/api/v1/db_snapshots (create snapshot)
-- POST /flex/api/v1/db_snapshots/{id}/clone (clone from snapshot)
-- POST /flex/api/v1/hosts/{host_id}/databases/_replace/__validate (validation)
-- POST /flex/api/v1/hosts/{host_id}/databases/_replace (public endpoint)
-- DELETE /flex/api/v1/ocie/clone (cleanup)
+- POST /api/echo/v1/db_snapshots (create snapshot)
+- POST /api/echo/v1/db_snapshots/{id}/clone (clone from snapshot)
+- POST /api/echo/v1/hosts/{host_id}/databases/_refresh/__validate (validation)
+- POST /api/echo/v1/hosts/{host_id}/databases/_refresh (public endpoint)
+- DELETE /api/echo/v1/echo_dbs (cleanup)
 
 Creates a snapshot, creates an echo DB, refreshes it, then cleans up.
 """
@@ -28,6 +28,7 @@ from common import (
     _make_request,
     _wait_for_task,
     _get_host_topology,
+    _wait_validation_pass,
     exit_with_error,
 )
 
@@ -36,12 +37,12 @@ def run(
     source_host_name: str,
     dest_host_name: str,
     db_name: str,
-    snapshot_prefix: str = "test-refresh-v2-",
-    echo_db_suffix: str = "-refresh-v2",
+    snapshot_prefix: str = "test_refresh",
+    echo_db_suffix: str = "_refresh",
     consistency_level: str = "crash",
     timeout: int = 300,
 ):
-    """Test database refresh/replace endpoints (rewritten URLs).
+    """Test database refresh/replace endpoints (direct access APIs).
 
     Args:
         source_host_name: Source host name/ID
@@ -57,7 +58,7 @@ def run(
     if consistency_level not in ["crash", "application"]:
         exit_with_error("Consistency level must be 'crash' or 'application'.")
 
-    print(f"Testing database refresh/replace endpoints (rewritten URLs)")
+    print(f"Testing database refresh/replace endpoints (direct access APIs)")
     print(f"  Source host: {source_host_name}")
     print(f"  Destination host: {dest_host_name}")
     print(f"  Database: {db_name}")
@@ -83,7 +84,7 @@ def run(
     echo_db_name = db_name + echo_db_suffix
 
     try:
-        # Create snapshot first (using rewritten endpoint)
+        # Create snapshot first (using direct endpoint)
         print("\n1. Creating snapshot")
         create_snapshot_payload = {
             "source_host_id": source_host_id,
@@ -92,7 +93,7 @@ def run(
             "consistency_level": consistency_level,
         }
 
-        create_task = _make_request("POST", "/flex/api/v1/db_snapshots", payload=create_snapshot_payload)
+        create_task = _make_request("POST", "/api/echo/v1/db_snapshots", payload=create_snapshot_payload)
         success, completed_task = _wait_for_task(create_task, timeout=timeout)
 
         if not success:
@@ -101,7 +102,7 @@ def run(
         snapshot_id = completed_task["result"]["db_snapshot"]["id"]
         print(f"   ✓ Snapshot created: {snapshot_id}")
 
-        # Create echo DB from snapshot (using rewritten endpoint)
+        # Create echo DB from snapshot (using direct endpoint)
         print("\n2. Creating echo DB from snapshot")
         clone_payload = {
             "destinations": [
@@ -113,7 +114,7 @@ def run(
             ],
         }
 
-        clone_task = _make_request("POST", f"/flex/api/v1/db_snapshots/{snapshot_id}/clone", payload=clone_payload)
+        clone_task = _make_request("POST", f"/api/echo/v1/db_snapshots/{snapshot_id}/echo_db", payload=clone_payload)
         success2, completed_clone_task = _wait_for_task(clone_task, timeout=timeout)
 
         if not success2:
@@ -133,12 +134,12 @@ def run(
         if not echo_db_id:
             exit_with_error(f"Created echo DB '{echo_db_name}' not found on destination host.")
 
-        # Create another snapshot for refresh (using rewritten endpoint)
+        # Create another snapshot for refresh (using direct endpoint)
         print("\n3. Creating new snapshot for refresh")
         create_snapshot_payload2 = create_snapshot_payload.copy()
         create_snapshot_payload2["name_prefix"] = snapshot_prefix + "new-"
 
-        create_task2 = _make_request("POST", "/flex/api/v1/db_snapshots", payload=create_snapshot_payload2)
+        create_task2 = _make_request("POST", "/api/echo/v1/db_snapshots", payload=create_snapshot_payload2)
         success3, completed_task2 = _wait_for_task(create_task2, timeout=timeout)
 
         if not success3:
@@ -154,11 +155,11 @@ def run(
             "keep_backup": False,
         }
 
-        # Test rewritten endpoint
-        print("\n4. Testing POST /flex/api/v1/hosts/{host_id}/databases/_replace")
+        # Test direct endpoint
+        print("\n4. Testing POST /api/echo/v1/hosts/{host_id}/databases/_refresh")
         refresh_task = _make_request(
             "POST",
-            f"/flex/api/v1/hosts/{dest_host_id}/databases/_replace",
+            f"/api/echo/v1/hosts/{dest_host_id}/databases/_refresh",
             payload=refresh_payload
         )
         success4, completed_refresh_task = _wait_for_task(refresh_task, timeout=timeout)
@@ -174,7 +175,7 @@ def run(
         if echo_db_id:
             try:
                 delete_payload = {"host_id": dest_host_id, "database_id": echo_db_id}
-                delete_task = _make_request("DELETE", "/flex/api/v1/ocie/clone", payload=delete_payload)
+                delete_task = _make_request("DELETE", "/api/echo/v1/echo_dbs", payload=delete_payload)
                 _wait_for_task(delete_task, timeout=timeout)
                 print(f"   ✓ Deleted echo DB: {echo_db_name}")
             except Exception as e:
@@ -183,7 +184,8 @@ def run(
         for snap_id in [snapshot_id2, snapshot_id]:
             if snap_id:
                 try:
-                    delete_snapshot_task = _make_request("DELETE", f"/flex/api/v1/db_snapshots/{snap_id}")
+                    _wait_validation_pass("DELETE", f"/api/echo/v1/db_snapshots/{snap_id}/__validate", ignore_status_codes=[404])
+                    delete_snapshot_task = _make_request("DELETE", f"/api/echo/v1/db_snapshots/{snap_id}")
                     _wait_for_task(delete_snapshot_task, timeout=timeout)
                     print(f"   ✓ Deleted snapshot: {snap_id}")
                 except Exception as e:
@@ -196,19 +198,20 @@ def run(
         # Try to cleanup on error
         if snapshot_id:
             try:
-                _make_request("DELETE", f"/flex/api/v1/db_snapshots/{snapshot_id}")
+                _wait_validation_pass("DELETE", f"/api/echo/v1/db_snapshots/{snapshot_id}/__validate", ignore_status_codes=[404])
+                _make_request("DELETE", f"/api/echo/v1/db_snapshots/{snapshot_id}")
             except:
                 pass
         exit_with_error(f"Database refresh test failed: {str(e)}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Test database refresh/replace endpoints (rewritten URLs)")
+    parser = argparse.ArgumentParser(description="Test database refresh/replace endpoints (direct access APIs)")
     parser.add_argument("--source-host-name", required=True, help="Source host name/ID")
     parser.add_argument("--dest-host-name", required=True, help="Destination host name/ID (where echo DB will be created)")
     parser.add_argument("--db-name", required=True, help="Database name to refresh")
-    parser.add_argument("--snapshot-prefix", default="test-refresh-v2-", help="Prefix for snapshot name (default: 'test-refresh-v2-')")
-    parser.add_argument("--echo-db-suffix", default="-refresh-v2", help="Suffix for echo DB name (default: '-refresh-v2')")
+    parser.add_argument("--snapshot-prefix", default="test_refresh", help="Prefix for snapshot name (default: 'test_refresh')")
+    parser.add_argument("--echo-db-suffix", default="_refresh", help="Suffix for echo DB name (default: '_refresh')")
     parser.add_argument("--consistency-level", default="crash", choices=["crash", "application"], help="Consistency level (default: 'crash')")
     parser.add_argument("--timeout", type=int, default=300, help="Task timeout in seconds (default: 300)")
 
