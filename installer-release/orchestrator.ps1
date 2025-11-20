@@ -802,9 +802,18 @@ function UpdateFlexAuthToken {
 function SkipCertificateCheck {
     $IsPowerShell7 = $PSVersionTable.PSVersion.Major -ge 7
     if ($IsPowerShell7) {
+        try {
+                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
+                Write-Verbose "Enabled TLS 1.2 and TLS 1.3."
+            }
+            catch {
+                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+                Write-Verbose "Enabled TLS 1.2."
+            }
         # if Powershell version is 7 or higher, set SkipCertificateCheck
         return
     }
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
     # set policy only once per powershell sessions
     $currentPolicy = [System.Net.ServicePointManager]::CertificatePolicy
     if ($currentPolicy -eq $null -or ($currentPolicy.GetType().FullName -ne "TrustAllCertsPolicy")) {
@@ -3593,8 +3602,17 @@ function SkipCertificateCheck {
     $IsPowerShell7 = $PSVersionTable.PSVersion.Major -ge 7
     if ($IsPowerShell7) {
         # if Powershell version is 7 or higher, set SkipCertificateCheck
+        try {
+                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
+                Write-Verbose "Enabled TLS 1.2 and TLS 1.3."
+            }
+            catch {
+                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+                Write-Verbose "Enabled TLS 1.2."
+            }
         return
     }
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
     # set policy only once per powershell sessions
     $currentPolicy = [System.Net.ServicePointManager]::CertificatePolicy
     if ($currentPolicy -eq $null -or ($currentPolicy.GetType().FullName -ne "TrustAllCertsPolicy")) {
