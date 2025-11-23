@@ -90,7 +90,7 @@ This installer is organized as a modular PowerShell system with the following co
 | Module | Function | Description |
 |--------|----------|-------------|
 | **orc_flex_login.ps1** | Silk Flex authentication | API token management, login endpoints |
-| **orc_no_verify_cert.ps1** | Certificate handling | Self-signed cert bypass for dev environments |
+| **orc_security.ps1** | TLS and Certificate handling | TLS version, Self-signed cert bypass for dev environments |
 
 ### Network & Integration
 | Module | Function | Description |

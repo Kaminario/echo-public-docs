@@ -1,3 +1,25 @@
+#region SetTLSVersion
+function SetTLSVersion {
+    $IsPowerShell7 = $PSVersionTable.PSVersion.Major -ge 7
+    if ($IsPowerShell7) {
+        # if Powershell version is 7 or higher, set both TLS 1.2 and TLS 1.3
+        try {
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
+            Write-Host "Enabled TLS 1.2 and TLS 1.3."
+        }
+        catch {
+            Write-Host "TLS 1.3 not supported, enabling only TLS 1.2."
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+            Write-Host "Enabled TLS 1.2."
+        }
+    } else {
+        # for Windows PowerShell, set only TLS 1.2
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+        Write-Host "Enabled TLS 1.2."
+    }
+}
+#endregion SetTLSVersion
+
 #region SkipCertificateCheck
 function SkipCertificateCheck {
     $IsPowerShell7 = $PSVersionTable.PSVersion.Major -ge 7
