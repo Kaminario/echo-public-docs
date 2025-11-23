@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Silk Echo Installer PowerShell Script - Install Silk Echo on multiple remote hosts using PowerShell.
 .DESCRIPTION
@@ -64,7 +64,7 @@
     File Name      : orchestrator.ps1
     Author         : Ilya.Levin@Silk.US
     Organization   : Silk.us, Inc.
-    Version        : 0.1.7
+    Version        : 0.1.8
     Copyright      : Copyright (c) 2025 Silk Technologies, Inc.
                      This source code is licensed under the MIT license found in the
                      LICENSE file in the root directory of this source tree.
@@ -128,7 +128,7 @@ if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
 # Constants
 #region orc_constants
 #region Constants
-Set-Variable -Name InstallerProduct -Value "0.1.7" -Option AllScope -Scope Script
+Set-Variable -Name InstallerProduct -Value "0.1.8" -Option AllScope -Scope Script
 Set-Variable -Name MessageCurrentObject -Value "Silk Echo Installer" -Option AllScope -Scope Script
 Set-Variable -Name ENUM_ACTIVE_DIRECTORY -Value "active_directory" -Option AllScope -Scope Script
 Set-Variable -Name ENUM_CREDENTIALS -Value "credentials" -Option AllScope -Scope Script
@@ -797,7 +797,28 @@ function UpdateFlexAuthToken {
 #endregion UpdateFlexAuthToken
 #endregion orc_flex_login
 # SkipCertificateCheck
-#region orc_no_verify_cert
+#region orc_security
+#region SetTLSVersion
+function SetTLSVersion {
+    $IsPowerShell7 = $PSVersionTable.PSVersion.Major -ge 7
+    if ($IsPowerShell7) {
+        # if Powershell version is 7 or higher, set both TLS 1.2 and TLS 1.3
+        try {
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
+            Write-Host "Enabled TLS 1.2 and TLS 1.3."
+        }
+        catch {
+            Write-Host "TLS 1.3 not supported, enabling only TLS 1.2."
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+            Write-Host "Enabled TLS 1.2."
+        }
+    } else {
+        # for Windows PowerShell, set only TLS 1.2
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+        Write-Host "Enabled TLS 1.2."
+    }
+}
+#endregion SetTLSVersion
 #region SkipCertificateCheck
 function SkipCertificateCheck {
     $IsPowerShell7 = $PSVersionTable.PSVersion.Major -ge 7
@@ -825,7 +846,7 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
     }
 }
 #endregion SkipCertificateCheck
-#endregion orc_no_verify_cert
+#endregion orc_security
 # ReadConfigFile, GenerateConfigTemplate
 #region orc_config
 #region ConfigFile
@@ -3179,6 +3200,7 @@ function MainOrchestrator {
     )
     # Skip certificate check for Invoke-WebRequest,
     # this is needed for self-signed certificates of the Flex server
+    SetTLSVersion
     SkipCertificateCheck
     # Load completed hosts to avoid duplicate installations (unless Force is specified)
     $completedHosts = LoadCompletedHosts -StateFilePath $script:processedHostsFile
@@ -3587,7 +3609,28 @@ Function WarningMessage {
 #endregion Logging
 #endregion orc_logging_on_host
 # SkipCertificateCheck
-#region orc_no_verify_cert
+#region orc_security
+#region SetTLSVersion
+function SetTLSVersion {
+    $IsPowerShell7 = $PSVersionTable.PSVersion.Major -ge 7
+    if ($IsPowerShell7) {
+        # if Powershell version is 7 or higher, set both TLS 1.2 and TLS 1.3
+        try {
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
+            Write-Host "Enabled TLS 1.2 and TLS 1.3."
+        }
+        catch {
+            Write-Host "TLS 1.3 not supported, enabling only TLS 1.2."
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+            Write-Host "Enabled TLS 1.2."
+        }
+    } else {
+        # for Windows PowerShell, set only TLS 1.2
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+        Write-Host "Enabled TLS 1.2."
+    }
+}
+#endregion SetTLSVersion
 #region SkipCertificateCheck
 function SkipCertificateCheck {
     $IsPowerShell7 = $PSVersionTable.PSVersion.Major -ge 7
@@ -3615,7 +3658,7 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
     }
 }
 #endregion SkipCertificateCheck
-#endregion orc_no_verify_cert
+#endregion orc_security
 # CallSelfCertEndpoint, CallSDPApi, CallFlexApi
 #region orc_web_client
 #region NETWORK
@@ -4511,6 +4554,7 @@ function setup{
 function SetupHost {
     InfoMessage "Starting Silk Node Agent and VSS Provider installation script..."
     try {
+        SetTLSVersion
         SkipCertificateCheck
         $error = setup
     } catch {
@@ -4535,4 +4579,3 @@ function SetupHost {
 SetupHost
 #endregion SetupHost
 #endregion orc_host_installer
-
