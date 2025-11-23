@@ -131,7 +131,7 @@ $ProgressPreference = 'SilentlyContinue'
 # ErrorMessage, InfoMessage, DebugMessage, WarningMessage
 . ./orc_logging_on_host.ps1
 # SkipCertificateCheck
-. ./orc_no_verify_cert.ps1
+. ./orc_security.ps1
 # CallSelfCertEndpoint, CallSDPApi, CallFlexApi
 . ./orc_web_client.ps1
 # Constants for installer
@@ -969,6 +969,7 @@ function SetupHost {
     InfoMessage "Starting Silk Node Agent and VSS Provider installation script..."
 
     try {
+        SetTLSVersion
         SkipCertificateCheck
         $error = setup
     } catch {

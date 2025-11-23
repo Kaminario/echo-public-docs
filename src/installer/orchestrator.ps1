@@ -233,7 +233,7 @@ $script:processedHostsFile = $processedHostsFile
 # UpdateFlexAuthToken
 . ./orc_flex_login.ps1
 # SkipCertificateCheck
-. ./orc_no_verify_cert.ps1
+. ./orc_security.ps1
 # ReadConfigFile, GenerateConfigTemplate
 . ./orc_config.ps1
 # EnsureRequirements
@@ -268,6 +268,7 @@ function MainOrchestrator {
 
     # Skip certificate check for Invoke-WebRequest,
     # this is needed for self-signed certificates of the Flex server
+    SetTLSVersion
     SkipCertificateCheck
 
     # Load completed hosts to avoid duplicate installations (unless Force is specified)
