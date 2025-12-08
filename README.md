@@ -66,12 +66,14 @@ curl -XGET "http://{flex}/{path}" -H "hs-ref-id: Hy6f50Ki"
 
 ### **Host APIs**
 
-| Method | Path                    | Description                   |
-| ------ | ----------------------- | ----------------------------- |
-| PUT    | /api/v1/hosts/{host_id} | Register a host               |
-| DELETE | /api/v1/hosts/{host_id} | Unregister a host             |
-| GET    | /api/v1/hosts/{host_id} | Retrieve host info            |
-| GET    | /api/v1/hosts           | Get all registered hosts info |
+| Method | Path                                        | Description                   |
+| ------ | ------------------------------------------- | ----------------------------- |
+| PUT    | /api/v1/hosts/{host_id}                     | Register a host               |
+| DELETE | /api/v1/hosts/{host_id}                     | Unregister a host             |
+| GET    | /api/v1/hosts/{host_id}                     | Retrieve host info            |
+| GET    | /api/v1/hosts                               | Get all registered hosts info |
+| GET    | /api/v1/hosts/{host_id}/databases           | List host databases           |
+| GET    | /api/v1/hosts/{host_id}/databases/{db_id}   | Get database details          |
 
 ### **Refresh APIs**
 
@@ -90,6 +92,7 @@ curl -XGET "http://{flex}/{path}" -H "hs-ref-id: Hy6f50Ki"
 
 | Method | Path                                    | Description                                          |
 | ------ | --------------------------------------- | ---------------------------------------------------- |
+| GET    | /api/echo/v1/db_snapshots               | List all snapshots                                   |
 | POST   | /api/echo/v1/db_snapshots               | Create a snapshot                                    |
 | DELETE | /api/echo/v1/db_snapshots/{id}          | Delete a snapshot                                    |
 | POST   | /api/echo/v1/db_snapshots/{id}/echo_db | Clone a database from an existing snapshot to a host |
@@ -241,6 +244,149 @@ curl -XGET "http://{flex}/api/v1/hosts/{host_id}" \
 
 ```bash
 curl -XGET "http://{flex}/api/v1/hosts" \
+-H "Authorization: Bearer {token}"
+```
+
+### List Databases
+
+List all databases on a specific host.
+
+#### Endpoint:
+
+`GET /api/v1/hosts/{host_id}/databases`
+
+#### Parameters:
+
+- `host_id` (string): The unique identifier for the host.
+
+#### Responses:
+
+- **200 OK**
+
+  ```json
+  [
+      {
+          "id": "5",
+          "host_id": "host01",
+          "name": "analytics",
+          "vendor": "mssql",
+          "status": "ONLINE",
+          "mssql": {
+              "files": [
+                  {
+                      "name": "analytics",
+                      "file_id": 1,
+                      "kind": "data",
+                      "path": "E:\\Data\\analytics.mdf",
+                      "size_mb": 1024,
+                      "backup_status": "ACTIVE"
+                  },
+                  {
+                      "name": "analytics_log",
+                      "file_id": 2,
+                      "kind": "log",
+                      "path": "F:\\Logs\\analytics_log.ldf",
+                      "size_mb": 256,
+                      "backup_status": "ACTIVE"
+                  }
+              ]
+          },
+          "mount_points": [
+              {
+                  "kind": "disk",
+                  "path": "E:\\",
+                  "serial": "ABC123"
+              },
+              {
+                  "kind": "disk",
+                  "path": "F:\\",
+                  "serial": "DEF456"
+              }
+          ]
+      }
+  ]
+  ```
+
+- **200 OK** (empty array if no databases)
+
+  ```json
+  []
+  ```
+
+#### Example:
+
+```bash
+curl -XGET "http://{flex}/api/v1/hosts/host01/databases" \
+-H "Authorization: Bearer {token}"
+```
+
+### Get Database
+
+Retrieve details of a specific database on a host.
+
+#### Endpoint:
+
+`GET /api/v1/hosts/{host_id}/databases/{db_id}`
+
+#### Parameters:
+
+- `host_id` (string): The unique identifier for the host.
+- `db_id` (string): The unique identifier for the database.
+
+#### Responses:
+
+- **200 OK**
+
+  ```json
+  {
+      "id": "5",
+      "host_id": "host01",
+      "name": "analytics",
+      "vendor": "mssql",
+      "status": "ONLINE",
+      "mssql": {
+          "files": [
+              {
+                  "name": "analytics",
+                  "file_id": 1,
+                  "kind": "data",
+                  "path": "E:\\Data\\analytics.mdf",
+                  "size_mb": 1024,
+                  "backup_status": "ACTIVE"
+              },
+              {
+                  "name": "analytics_log",
+                  "file_id": 2,
+                  "kind": "log",
+                  "path": "F:\\Logs\\analytics_log.ldf",
+                  "size_mb": 256,
+                  "backup_status": "ACTIVE"
+              }
+          ]
+      },
+      "mount_points": [
+          {
+              "kind": "disk",
+              "path": "E:\\",
+              "serial": "ABC123"
+          },
+          {
+              "kind": "disk",
+              "path": "F:\\",
+              "serial": "DEF456"
+          }
+      ]
+  }
+  ```
+
+- **404 Not Found**
+
+    Database does not exist on the specified host.
+
+#### Example:
+
+```bash
+curl -XGET "http://{flex}/api/v1/hosts/host01/databases/5" \
 -H "Authorization: Bearer {token}"
 ```
 
@@ -557,6 +703,89 @@ Following response example has a result field. This field will have a value only
   ```
 
 ## Snapshot APIs
+
+### List DB Snapshots
+
+Retrieve all database snapshots.
+
+#### Endpoint
+
+`GET /api/echo/v1/db_snapshots`
+
+#### Responses
+
+- 200 OK
+
+  ```json
+  [
+      {
+          "id": "primary__5__1735025906",
+          "host_id": "primary",
+          "host_name": "primary",
+          "sdp_id": "sdp-001",
+          "vg_snapshot_ids": [101, 102],
+          "databases": [
+              {
+                  "db_id": "5",
+                  "db_name": "analytics"
+              },
+              {
+                  "db_id": "6",
+                  "db_name": "reporting"
+              }
+          ],
+          "timestamp": 1735025906,
+          "consistency_level": "application",
+          "db_engine_version": "16.0.1000.6",
+          "is_vss_based": true
+      },
+      {
+          "id": "daily_1735100000",
+          "host_id": "primary",
+          "host_name": "primary",
+          "sdp_id": "sdp-001",
+          "vg_snapshot_ids": [103],
+          "databases": [
+              {
+                  "db_id": "7",
+                  "db_name": "inventory"
+              }
+          ],
+          "timestamp": 1735100000,
+          "consistency_level": "crash",
+          "db_engine_version": "16.0.1000.6",
+          "is_vss_based": false
+      }
+  ]
+  ```
+
+- 200 OK (empty array if no snapshots)
+
+  ```json
+  []
+  ```
+
+#### Response Fields
+
+- `id` (string): The unique identifier for the snapshot.
+- `host_id` (string): The identifier of the host where the snapshot was taken.
+- `host_name` (string): The name of the host.
+- `sdp_id` (string): The SDP identifier associated with the snapshot.
+- `vg_snapshot_ids` (array of integers): Volume group snapshot identifiers.
+- `databases` (array of objects): List of databases included in the snapshot.
+  - `db_id` (string): The database identifier.
+  - `db_name` (string): The database name.
+- `timestamp` (integer): Unix timestamp when the snapshot was created.
+- `consistency_level` (string): The consistency level. Values: `crash`, `application`.
+- `db_engine_version` (string): The database engine version.
+- `is_vss_based` (boolean): Whether the snapshot was created using VSS.
+
+#### Example
+
+```bash
+curl -XGET "http://{flex}/api/echo/v1/db_snapshots" \
+-H "Authorization: Bearer {token}"
+```
 
 ### Create DB Snapshot
 
