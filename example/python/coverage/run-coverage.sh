@@ -93,6 +93,10 @@ echo -e "${YELLOW}Running test_list_tasks.py...${NC}"
 python test_list_tasks.py --host-name "$HOST_NAME" --db-name "$DB_NAME" || exit 1
 echo ""
 
+echo -e "${YELLOW}Running test_list_databases.py...${NC}"
+python test_list_databases.py --host-name "$HOST_NAME" || exit 1
+echo ""
+
 echo -e "${YELLOW}Running test_clone_echo_db.py...${NC}"
 python test_clone_echo_db.py --source-host-name "$HOST_NAME" --dest-host-name "$DEST_HOST_NAME" --db-name "$DB_NAME" || exit 1
 echo ""
