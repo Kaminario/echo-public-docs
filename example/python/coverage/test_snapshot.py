@@ -4,14 +4,15 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Test snapshot creation and deletion endpoints (direct access APIs).
+Test snapshot endpoints (direct access APIs).
 
 Tests:
+- GET /api/echo/v1/db_snapshots (list snapshots)
 - POST /api/echo/v1/db_snapshots/__validate (validation)
 - POST /api/echo/v1/db_snapshots (create snapshot)
 - DELETE /api/echo/v1/db_snapshots/{id} (delete snapshot)
 
-Creates a snapshot, validates it exists, then deletes it.
+Lists snapshots, creates a new snapshot, verifies it appears in the list, then deletes it.
 """
 
 import sys
@@ -74,6 +75,12 @@ def run(
     snapshot_id = None
 
     try:
+        # Test list snapshots endpoint
+        print("\n1. Testing GET /api/echo/v1/db_snapshots")
+        initial_snapshots = _make_request("GET", "/api/echo/v1/db_snapshots")
+        initial_count = len(initial_snapshots)
+        print(f"   ✓ Listed {initial_count} existing snapshots")
+
         # Prepare payload
         payload = {
             "source_host_id": actual_host_id,
@@ -83,7 +90,7 @@ def run(
         }
 
         # Test validation endpoint for creation
-        print("\n1. Testing POST /api/echo/v1/db_snapshots/__validate")
+        print("\n2. Testing POST /api/echo/v1/db_snapshots/__validate")
         validate_response = _make_request(
             "POST",
             "/api/echo/v1/db_snapshots/__validate",
@@ -92,7 +99,7 @@ def run(
         print("   ✓ Validation passed")
 
         # Test create snapshot endpoint
-        print("\n2. Testing POST /api/echo/v1/db_snapshots")
+        print("\n3. Testing POST /api/echo/v1/db_snapshots")
         task = _make_request("POST", "/api/echo/v1/db_snapshots", payload=payload)
         success, completed_task = _wait_for_task(task, timeout=timeout)
 
@@ -102,8 +109,17 @@ def run(
         snapshot_id = completed_task["result"]["db_snapshot"]["id"]
         print(f"   ✓ Snapshot created: {snapshot_id}")
 
+        # Verify snapshot appears in list
+        print("\n4. Testing GET /api/echo/v1/db_snapshots (verify new snapshot)")
+        updated_snapshots = _make_request("GET", "/api/echo/v1/db_snapshots")
+        snapshot_ids = [s["id"] for s in updated_snapshots]
+        if snapshot_id in snapshot_ids:
+            print(f"   ✓ New snapshot found in list ({len(updated_snapshots)} total)")
+        else:
+            exit_with_error(f"Created snapshot {snapshot_id} not found in list")
+
         # Test delete snapshot endpoint
-        print("\n3. Testing DELETE /api/echo/v1/db_snapshots/{id}")
+        print("\n5. Testing DELETE /api/echo/v1/db_snapshots/{id}")
         _wait_validation_pass("DELETE", f"/api/echo/v1/db_snapshots/{snapshot_id}/__validate", ignore_status_codes=[404])
         delete_task = _make_request("DELETE", f"/api/echo/v1/db_snapshots/{snapshot_id}")
         success2, completed_delete_task = _wait_for_task(delete_task, timeout=timeout)
