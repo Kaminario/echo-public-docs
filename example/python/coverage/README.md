@@ -51,6 +51,7 @@ You can run individual test files directly:
 python coverage/test_topology.py
 python coverage/test_snapshot.py --host-name "$HOST_NAME" --db-name "$DB_NAME"
 python coverage/test_list_tasks.py --host-name "$HOST_NAME" --db-name "$DB_NAME"
+python coverage/test_list_databases.py --host-name "$HOST_NAME"
 
 # Two host tests
 python coverage/test_clone_echo_db.py --source-host-name "$HOST_NAME" --dest-host-name "$DEST_HOST_NAME" --db-name "$DB_NAME"
@@ -63,13 +64,14 @@ python coverage/test_refresh_database.py --source-host-name "$HOST_NAME" --dest-
 
 The test suite includes the following test files:
 
-1. **test_topology.py** - Tests GET /api/ocie/v1/topology endpoint
-2. **test_snapshot.py** - Tests snapshot creation and deletion endpoints (direct endpoint)
-3. **test_list_tasks.py** - Tests task listing endpoints (direct endpoint)
-4. **test_clone_echo_db.py** - Tests echo DB clone from source and deletion (direct endpoint)
-5. **test_clone_from_snapshot.py** - Tests clone from snapshot (direct endpoint)
-6. **test_refresh_database.py** - Tests database refresh/replace (direct endpoint)
-7. **clean.py** - Cleanup script to remove remaining test snapshots
+1. **test_topology.py** - Tests GET /api/echo/v1/topology endpoint
+2. **test_snapshot.py** - Tests snapshot listing, creation, and deletion endpoints
+3. **test_list_tasks.py** - Tests task listing endpoints
+4. **test_list_databases.py** - Tests database listing endpoints
+5. **test_clone_echo_db.py** - Tests echo DB clone from source and deletion
+6. **test_clone_from_snapshot.py** - Tests clone from snapshot
+7. **test_refresh_database.py** - Tests database refresh/replace
+8. **clean.py** - Cleanup script to remove remaining test snapshots
 
 ## Test Behavior
 
