@@ -102,6 +102,7 @@ $DirectoryToInstall = $Config.install_to_directory
 $DryRun = [switch]$Config.is_dry_run
 $InstallAgent = [bool]$Config.install_agent
 $InstallVSS = [bool]$Config.install_vss
+$UpgradeMode = [bool]$Config.upgrade_mode
 
 # print info about params
 Write-Host "Parameters:"
@@ -112,6 +113,7 @@ Write-Host "  SilkVSSPath: $SilkVSSPath"
 Write-Host "  InstallAgent: $InstallAgent"
 Write-Host "  InstallVSS: $InstallVSS"
 Write-Host "  DirectoryToInstall: $DirectoryToInstall"
+Write-Host "  UpgradeMode: $UpgradeMode"
 
 
 if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
@@ -153,6 +155,7 @@ Set-Variable -Name SDPCredential -Value $SDPCredential -Scope Global
 Set-Variable -Name IsDryRun -Value $DryRun.IsPresent -Scope Global
 Set-Variable -Name InstallAgent -Value $InstallAgent -Scope Global
 Set-Variable -Name InstallVSS -Value $InstallVSS -Scope Global
+Set-Variable -Name UpgradeMode -Value $UpgradeMode -Scope Global
 Set-Variable -Name AgentInstallationLogPath -Scope Global
 Set-Variable -Name SVSSInstallationLogPath -Scope Global
 Set-Variable -Name HostID -Value "$(hostname)" -Scope Global
@@ -882,6 +885,106 @@ function setup_vss {
 #endregion setup_vss
 
 
+#region upgrade_only
+function upgrade_only {
+    <#
+    .SYNOPSIS
+        Performs upgrade-only installation of Silk Echo components.
+
+    .DESCRIPTION
+        This function runs the installers in silent mode without any parameters.
+        Used for upgrading existing installations where configuration is already in place.
+        Skips all registration and validation steps.
+
+    .OUTPUTS
+        Returns $null on success, or an error message string on failure.
+    #>
+
+    InfoMessage "Starting Silk Echo upgrade (silent mode)..."
+
+    # Validate that at least one component is enabled
+    if (-not $InstallAgent -and -not $InstallVSS) {
+        ErrorMessage "No components selected for upgrade. At least one of InstallAgent or InstallVSS must be true."
+        return "No components selected for upgrade"
+    }
+
+    # Dry run - just validate installers exist
+    if ($IsDryRun) {
+        InfoMessage "Dry run mode enabled for upgrade."
+        if ($InstallAgent) {
+            if (-not (Test-Path $SilkAgentPath)) {
+                ErrorMessage "Agent installer not found at $SilkAgentPath"
+                return "Agent installer not found at $SilkAgentPath"
+            }
+            InfoMessage "Agent installer found at $SilkAgentPath"
+        }
+        if ($InstallVSS) {
+            if (-not (Test-Path $SilkVSSPath)) {
+                ErrorMessage "VSS installer not found at $SilkVSSPath"
+                return "VSS installer not found at $SilkVSSPath"
+            }
+            InfoMessage "VSS installer found at $SilkVSSPath"
+        }
+        InfoMessage "Dry run: upgrade validation passed"
+        return $null
+    }
+
+    # Upgrade Agent if enabled
+    if ($InstallAgent) {
+        InfoMessage "Upgrading Silk Node Agent from $SilkAgentPath..."
+        if (-not (Test-Path $SilkAgentPath)) {
+            ErrorMessage "Agent installer not found at $SilkAgentPath"
+            return "Agent installer not found at $SilkAgentPath"
+        }
+
+        $result = StartProcessWithTimeout `
+            -FilePath $SilkAgentPath `
+            -ArgumentList @('/S') `
+            -TimeoutSeconds $INTERNAL_INSTALL_TIMEOUT_SECONDS `
+            -ProcessName "Silk Node Agent Upgrade"
+
+        PrintAgentInstallationLog
+
+        if (-not $result.Success) {
+            ErrorMessage "Agent upgrade failed: $($result.Reason)"
+            return "Agent upgrade failed: $($result.Reason)"
+        }
+        InfoMessage "Silk Node Agent upgrade completed successfully"
+    }
+
+    # Upgrade VSS if enabled
+    if ($InstallVSS) {
+        InfoMessage "Upgrading Silk VSS Provider from $SilkVSSPath..."
+        if (-not (Test-Path $SilkVSSPath)) {
+            ErrorMessage "VSS installer not found at $SilkVSSPath"
+            return "VSS installer not found at $SilkVSSPath"
+        }
+
+        $result = StartProcessWithTimeout `
+            -FilePath $SilkVSSPath `
+            -ArgumentList @('/VERYSILENT', "/LOG=$SVSSInstallationLogPath") `
+            -TimeoutSeconds $INTERNAL_INSTALL_TIMEOUT_SECONDS `
+            -ProcessName "Silk VSS Provider Upgrade"
+
+        PrintSVSSInstallationLog
+
+        if (-not $result.Success) {
+            ErrorMessage "VSS upgrade failed: $($result.Reason)"
+            return "VSS upgrade failed: $($result.Reason)"
+        }
+        InfoMessage "Silk VSS Provider upgrade completed successfully"
+    }
+
+    # Success
+    $upgradedComponents = @()
+    if ($InstallAgent) { $upgradedComponents += "Silk Node Agent" }
+    if ($InstallVSS) { $upgradedComponents += "Silk VSS Provider" }
+    InfoMessage "$($upgradedComponents -join ' and ') upgrade completed successfully."
+
+    return $null
+}
+#endregion upgrade_only
+
 #region setup
 function setup{
     <#
@@ -894,9 +997,16 @@ function setup{
         - Calls setup_agent() if InstallAgent is enabled
         - Calls setup_vss() if InstallVSS is enabled
 
+        In upgrade mode, delegates to upgrade_only() which skips registration and validation.
+
     .OUTPUTS
         Returns $null on success, or an error message string on failure.
     #>
+
+    # Upgrade mode - skip all validation and registration, just run silent installers
+    if ($UpgradeMode) {
+        return upgrade_only
+    }
 
     InfoMessage "Starting Silk Echo installation setup..."
 
