@@ -40,6 +40,12 @@
     If not specified, the default log file location in the cache directory will be used.
     The log file will contain all console output, including debug messages if enabled.
 
+.PARAMETER Upgrade
+    Upgrade mode: skip Flex registration, SQL validation, and SDP credential checks.
+    Only host connectivity and installer upload are performed, then silent installers are run.
+    Use this to upgrade existing installations without re-registering hosts.
+    Can be combined with -CreateConfigTemplate to generate a minimal config for upgrades.
+
 .EXAMPLE
     .\orchestrator.ps1 -ConfigPath ".\config.json"
 
@@ -71,6 +77,11 @@
     Generates a config.json template file based on config-example.json structure.
 
 .EXAMPLE
+    .\orchestrator.ps1 -CreateConfigTemplate -Upgrade
+
+    Generates a minimal config-upgrade.json template for upgrade mode (no credentials needed).
+
+.EXAMPLE
     .\orchestrator.ps1 -ConfigPath "config.json" -Force
 
     Processes all hosts in configuration, ignoring any previously completed installations.
@@ -79,6 +90,11 @@
     .\orchestrator.ps1 -ConfigPath "config.json" -Log "C:\Logs\installation.log"
 
     Runs the installation and saves a full transcript of all output to the specified log file.
+
+.EXAMPLE
+    .\orchestrator.ps1 -ConfigPath "config.json" -Upgrade
+
+    Upgrades existing installations on hosts without re-registering with Flex.
 
 .INPUTS
     JSON configuration file with the following structure like generated with parameter -CreateConfigTemplate
@@ -143,7 +159,10 @@ param (
     [switch]$Force,
 
     [Parameter(Mandatory=$false, HelpMessage="Optional path to a log file for full transcript of script execution")]
-    [string]$Log
+    [string]$Log,
+
+    [Parameter(Mandatory=$false, HelpMessage="Upgrade mode: skip registration and run silent installers only")]
+    [switch]$Upgrade
 )
 
 Write-Host @"
@@ -338,35 +357,44 @@ function MainOrchestrator {
         return
     }
 
-    # make SQL server authentication string
-    $ok = UpdateHostSqlConnectionString -Config $config
-    if (-not $ok) {
-        ErrorMessage "Failed to prepare SQL connection string. Cannot proceed with installation."
-        return
+    # Upgrade mode: skip all validation, just upload and run silent installers
+    if ($Upgrade.IsPresent) {
+        ImportantMessage "Upgrade mode: skipping registration and credential validation"
+        # Set upgrade_mode flag on all hosts
+        foreach ($hostInfo in $hostsWithoutIssues) {
+            $hostInfo | Add-Member -NotePropertyName "upgrade_mode" -NotePropertyValue $true -Force
+        }
+    } else {
+        # make SQL server authentication string
+        $ok = UpdateHostSqlConnectionString -Config $config
+        if (-not $ok) {
+            ErrorMessage "Failed to prepare SQL connection string. Cannot proceed with installation."
+            return
+        }
+
+        # Validate SQL credentials by testing connection on each remote host
+        InfoMessage "Validating SQL credentials on remote hosts..."
+        $ok = ValidateHostSQLCredentials -Config $config
+        if (-not $ok) {
+            ErrorMessage "SQL credential validation failed. Cannot proceed with installation."
+            return
+        }
+
+        # Login to Silk Flex and get the token
+        $flexToken = UpdateFlexAuthToken -Config $config
+
+        # Get and validate SDP credentials
+        UpdateSDPCredentials -Config $config -flexToken $flexToken
+
+        # Only process hosts without issues for installation
+        $hostsWithoutIssues = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
+        if ($hostsWithoutIssues.Count -eq 0) {
+            ErrorMessage "No valid hosts remaining after connectivity validation. Cannot proceed."
+            return
+        }
     }
 
-    # Validate SQL credentials by testing connection on each remote host
-    InfoMessage "Validating SQL credentials on remote hosts..."
-    $ok = ValidateHostSQLCredentials -Config $config
-    if (-not $ok) {
-        ErrorMessage "SQL credential validation failed. Cannot proceed with installation."
-        return
-    }
-
-    # Login to Silk Flex and get the token
-    $flexToken = UpdateFlexAuthToken -Config $config
-
-    # Get and validate SDP credentials
-    UpdateSDPCredentials -Config $config -flexToken $flexToken
-
-    # Only process hosts without issues for installation
-    $hostsWithoutIssues = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
-    if ($hostsWithoutIssues.Count -eq 0) {
-        ErrorMessage "No valid hosts remaining after connectivity validation. Cannot proceed."
-        return
-    }
-
-    InfoMessage "The following hosts will be configured:"
+    InfoMessage "The following hosts will be $(if ($Upgrade.IsPresent) { 'upgraded' } else { 'configured' }):"
     foreach ($hostInfo in $hostsWithoutIssues) {
         InfoMessage "    $($hostInfo.host_addr)"
     }
@@ -492,7 +520,11 @@ if ($PSVersionTable.Platform -eq "Unix") {
 
 # Handle CreateConfigTemplate parameter
 if ($CreateConfigTemplate) {
-    GenerateConfigTemplate
+    if ($Upgrade) {
+        GenerateUpgradeConfigTemplate
+    } else {
+        GenerateConfigTemplate
+    }
     exit 0
 }
 
@@ -503,7 +535,11 @@ if (-Not $ConfigPath) {
     Exit 1
 }
 
-$config = ReadConfigFile -ConfigFile $ConfigPath
+if ($Upgrade) {
+    $config = ReadConfigFile -ConfigFile $ConfigPath -Upgrade
+} else {
+    $config = ReadConfigFile -ConfigFile $ConfigPath
+}
 if (-Not $config) {
     ErrorMessage "Failed to read the configuration file. Please ensure it is a valid JSON file."
     Exit 1
@@ -526,12 +562,18 @@ InfoMessage "Max Concurrency: $script:MaxConcurrency hosts"
 
 if ($DryRun) {
     ImportantMessage "Mode: DRY RUN (Validation Only - No Changes)"
+} elseif ($Upgrade) {
+    ImportantMessage "Mode: UPGRADE (Silent installers only)"
 } else {
     ImportantMessage "Mode: LIVE INSTALLATION"
 }
 
 if ($Force) {
     ImportantMessage "Force Mode: ENABLED (Ignoring completed hosts tracking)"
+}
+
+if ($Upgrade) {
+    ImportantMessage "Upgrade Mode: ENABLED (Skipping registration and validation)"
 }
 
 if ( $DebugPreference -eq 'Continue' ) {
