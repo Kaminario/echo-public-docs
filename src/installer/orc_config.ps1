@@ -250,12 +250,6 @@ function ReadConfigFile {
         return $null
     }
 
-    # Validate flex_host_ip is a valid IP address
-    if (-not ($commonConfig.flex_host_ip -as [IPAddress])) {
-        ErrorMessage "flex_host_ip must be a valid IP address"
-        return $null
-    }
-
     # Set default values in common section before constructing hosts (so hosts inherit these defaults)
     if (-not $commonConfig.PSObject.Properties['install_agent']) {
         Add-Member -InputObject $commonConfig -MemberType NoteProperty -Name "install_agent" -Value $true
