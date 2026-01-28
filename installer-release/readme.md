@@ -86,6 +86,7 @@ Edit the generated `config.json` file with your environment-specific values:
 | `DryRun` | Validation mode - checks connectivity without making changes | No | false |
 | `Force` | Force reprocessing all hosts, ignore completed tracking | No | false |
 | `Log` | Optional path to a log file for full transcript of script execution | No | Default cache directory |
+| `Upgrade` | Upgrade mode - skip registration, run silent installers only | No | false |
 | `Verbose/Debug` | Enable verbose output for detailed logging | No | false |
 
 *Required unless using `-CreateConfigTemplate`
@@ -117,9 +118,103 @@ Edit the generated `config.json` file with your environment-specific values:
 # Use relative path for log file
 .\orchestrator.ps1 -ConfigPath "config.json" -Log ".\my-installation.log"
 
+# Generate upgrade configuration template
+.\orchestrator.ps1 -CreateConfigTemplate -Upgrade
+
+# Upgrade existing installations (no re-registration)
+.\orchestrator.ps1 -ConfigPath "config-upgrade.json" -Upgrade
+
+# Validate upgrade configuration without making changes
+.\orchestrator.ps1 -ConfigPath "config-upgrade.json" -Upgrade -DryRun
+
 # Get detailed help
 Get-Help .\orchestrator.ps1 -Full
 ```
+
+## Upgrading Existing Installations
+
+The `-Upgrade` parameter enables upgrading already-installed Silk
+Echo components while preserving existing credentials and configuration.
+The installers run in silent mode and retain their current SDP and Flex credentials.
+
+### When to Use Upgrade Mode
+
+- Updating Silk Node Agent or VSS Provider to a newer version
+- Preserving existing SDP and Flex credentials on hosts
+- Avoiding re-registration and reconfiguration of hosts
+
+### Upgrade Quick Start
+
+#### 1. Generate Upgrade Configuration
+```powershell
+.\orchestrator.ps1 -CreateConfigTemplate -Upgrade
+```
+
+This creates a minimal `config-upgrade.json` with only the fields needed for upgrades.
+
+#### 2. Edit Configuration
+The upgrade configuration only requires:
+- Installer paths (or leave empty for default URLs)
+- Host list with connectivity credentials
+
+**Not required for upgrades:**
+- Flex credentials (`flex_user`, `flex_pass`, `flex_host_ip`)
+- SQL credentials (`sql_user`, `sql_pass`)
+- SDP credentials (`sdp_user`, `sdp_pass`, `sdp_id`)
+- Mount points directory
+
+#### 3. Run Upgrade
+```powershell
+.\orchestrator.ps1 -ConfigPath "config-upgrade.json" -Upgrade
+```
+
+### Upgrade Configuration Example
+
+```json
+{
+  "installers": {
+    "agent": {
+      "path": "C:\\Installers\\silk-agent-installer-new.exe"
+    },
+    "vss": {
+      "path": "C:\\Installers\\svss-install-new.exe"
+    }
+  },
+  "common": {
+    "install_agent": true,
+    "install_vss": true,
+    "host_auth": "active_directory"
+  },
+  "hosts": [
+    "sql-server-01",
+    "sql-server-02",
+    "sql-server-03"
+  ]
+}
+```
+
+### What Upgrade Mode Does
+
+1. **Validates host connectivity** - Ensures PowerShell remoting works
+2. **Uploads new installers** - Copies installer files to target hosts
+3. **Runs silent installers** - Executes installers with `/S` flag only
+
+### What Upgrade Mode Skips
+
+- Flex server login and token acquisition
+- Host registration/unregistration with Flex
+- SQL Server credential validation
+- SDP credential validation
+- Parameter passing to installers (existing configuration is preserved)
+
+### Upgrade with Dry Run
+
+Validate the upgrade configuration without making changes:
+```powershell
+.\orchestrator.ps1 -ConfigPath "config-upgrade.json" -Upgrade -DryRun
+```
+
+This verifies host connectivity and installer availability without running the actual upgrade.
 
 ## Configuration Guide
 
