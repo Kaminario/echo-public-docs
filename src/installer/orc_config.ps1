@@ -1,7 +1,7 @@
 #region ConfigFile
 
-function GenerateConfigTemplate {
 
+function GenerateConfigTemplate {
     $configPath = Join-Path $PSScriptRoot "config.json"
 
     # Check if config.json already exists and ask for confirmation
@@ -89,6 +89,72 @@ function GenerateConfigTemplate {
     }
     Exit 0
 }
+
+function GenerateUpgradeConfigTemplate {
+    $configPath = Join-Path $PSScriptRoot "config-upgrade.json"
+
+    # Check if file already exists
+    if (Test-Path -Path $configPath) {
+        WarningMessage "Configuration file already exists: $configPath"
+        $overwrite = Read-Host "Do you want to overwrite the existing file? (y/N)"
+        if ($overwrite -ne 'y' -and $overwrite -ne 'Y') {
+            InfoMessage "Configuration template creation cancelled."
+            Exit 0
+        }
+    }
+
+    Write-Host ""
+    Write-Host "Generating UPGRADE mode configuration template..." -ForegroundColor Yellow
+    Write-Host "This template contains only fields required for upgrading existing installations." -ForegroundColor Yellow
+    Write-Host ""
+
+    $useKerberos = Read-Host "Would you like to use Active Directory authentication for the hosts? (Y/n)"
+    if ($useKerberos -eq 'Y' -or $useKerberos -eq 'y' -or $useKerberos -eq '') {
+        $UseKerberos = $true
+    } else {
+        $UseKerberos = $false
+    }
+
+    $installVss = Read-Host "Would you like to upgrade Silk VSS Provider on the hosts? (Y/n)"
+    if ($installVss -eq 'Y' -or $installVss -eq 'y' -or $installVss -eq '') {
+        $InstallVSS = $true
+    } else {
+        $InstallVSS = $false
+    }
+
+    # Minimal template for upgrade mode
+    $templateConfigJson = '{"installers":{"agent":{"path":""},"vss":{"path":""}},"common":{"install_agent":true,"install_vss":true,"host_user":"host_user","host_pass":"host_pass","host_auth":"unset"},"hosts":["host_ip","host_ip","host_ip"]}'
+
+    $ConfObj = $templateConfigJson | ConvertFrom-Json
+    $ConfObj.common.install_vss = $InstallVSS
+
+    if ($UseKerberos) {
+        $ConfObj.common.host_auth = $ENUM_ACTIVE_DIRECTORY
+        $ConfObj.common.PSObject.Properties.Remove('host_pass')
+        $ConfObj.common.PSObject.Properties.Remove('host_user')
+        $ConfObj.hosts = @("hostname", "hostname", "hostname")
+    } else {
+        $ConfObj.common.host_auth = $ENUM_CREDENTIALS
+    }
+
+    try {
+        $formattedJson = $ConfObj | ConvertTo-Json -Depth 2
+        $formattedJson | Out-File -FilePath $configPath -Encoding UTF8
+        Write-Host "Upgrade configuration template created: $configPath" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "Please edit the file with your specific values." -ForegroundColor Yellow
+        Write-Host "- Update installer paths (or leave empty to use default URLs)"
+        Write-Host "- Add or remove hosts as required"
+        Write-Host ""
+        Write-Host "Usage: .\orchestrator.ps1 -ConfigPath config-upgrade.json -Upgrade" -ForegroundColor Cyan
+        Write-Host ""
+    } catch {
+        Write-Error "Failed to create configuration template: $_"
+        Exit 1
+    }
+    Exit 0
+}
+
 
 function constructHosts {
     param (
