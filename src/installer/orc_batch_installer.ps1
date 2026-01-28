@@ -140,25 +140,39 @@ function StartBatchInstallation {
                 is_dry_run = $IsDryRun
                 install_agent = $hostInfo.install_agent
                 install_vss = $hostInfo.install_vss
+                upgrade_mode = $hostInfo.upgrade_mode
             }
 
-            # Validate required fields based on what's being installed
-            if ($hostInfo.install_agent) {
-                $agentFields = @('flex_host_ip', 'flex_access_token', 'sql_connection_string', 'agent_path')
-                foreach ($field in $agentFields) {
-                    if ($null -eq $installConfig[$field] -or $installConfig[$field] -eq '') {
-                        ErrorMessageIJS "Required field for agent installation '$field' is null or empty"
-                        return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Missing required field: $field" }
+            # Skip validation in upgrade mode - only installer paths are needed
+            if ($hostInfo.upgrade_mode) {
+                # In upgrade mode, only validate installer paths
+                if ($hostInfo.install_agent -and -not $installConfig['agent_path']) {
+                    ErrorMessageIJS "Agent path is required for upgrade"
+                    return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Missing agent path for upgrade" }
+                }
+                if ($hostInfo.install_vss -and -not $installConfig['vss_path']) {
+                    ErrorMessageIJS "VSS path is required for upgrade"
+                    return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Missing VSS path for upgrade" }
+                }
+            } else {
+                # Validate required fields based on what's being installed
+                if ($hostInfo.install_agent) {
+                    $agentFields = @('flex_host_ip', 'flex_access_token', 'sql_connection_string', 'agent_path')
+                    foreach ($field in $agentFields) {
+                        if ($null -eq $installConfig[$field] -or $installConfig[$field] -eq '') {
+                            ErrorMessageIJS "Required field for agent installation '$field' is null or empty"
+                            return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Missing required field: $field" }
+                        }
                     }
                 }
-            }
 
-            if ($hostInfo.install_vss) {
-                $vssFields = @('vss_path', 'sdp_id', 'sdp_username', 'sdp_password')
-                foreach ($field in $vssFields) {
-                    if ($null -eq $installConfig[$field] -or $installConfig[$field] -eq '') {
-                        ErrorMessageIJS "Required field for VSS installation '$field' is null or empty"
-                        return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Missing required field: $field" }
+                if ($hostInfo.install_vss) {
+                    $vssFields = @('vss_path', 'sdp_id', 'sdp_username', 'sdp_password')
+                    foreach ($field in $vssFields) {
+                        if ($null -eq $installConfig[$field] -or $installConfig[$field] -eq '') {
+                            ErrorMessageIJS "Required field for VSS installation '$field' is null or empty"
+                            return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Missing required field: $field" }
+                        }
                     }
                 }
             }
