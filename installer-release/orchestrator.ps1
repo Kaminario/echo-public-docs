@@ -30,6 +30,11 @@
     Optional path to a log file where a full transcript of the script execution will be saved.
     If not specified, the default log file location in the cache directory will be used.
     The log file will contain all console output, including debug messages if enabled.
+.PARAMETER Upgrade
+    Upgrade mode: skip Flex registration, SQL validation, and SDP credential checks.
+    Only host connectivity and installer upload are performed, then silent installers are run.
+    Use this to upgrade existing installations without re-registering hosts.
+    Can be combined with -CreateConfigTemplate to generate a minimal config for upgrades.
 .EXAMPLE
     .\orchestrator.ps1 -ConfigPath ".\config.json"
     Installs Silk Echo on hosts specified in the configuration file using default MaxConcurrency of 10.
@@ -49,11 +54,17 @@
     .\orchestrator.ps1 -CreateConfigTemplate
     Generates a config.json template file based on config-example.json structure.
 .EXAMPLE
+    .\orchestrator.ps1 -CreateConfigTemplate -Upgrade
+    Generates a minimal config-upgrade.json template for upgrade mode (no credentials needed).
+.EXAMPLE
     .\orchestrator.ps1 -ConfigPath "config.json" -Force
     Processes all hosts in configuration, ignoring any previously completed installations.
 .EXAMPLE
     .\orchestrator.ps1 -ConfigPath "config.json" -Log "C:\Logs\installation.log"
     Runs the installation and saves a full transcript of all output to the specified log file.
+.EXAMPLE
+    .\orchestrator.ps1 -ConfigPath "config.json" -Upgrade
+    Upgrades existing installations on hosts without re-registering with Flex.
 .INPUTS
     JSON configuration file with the following structure like generated with parameter -CreateConfigTemplate
 .OUTPUTS
@@ -64,7 +75,7 @@
     File Name      : orchestrator.ps1
     Author         : Ilya.Levin@Silk.US
     Organization   : Silk.us, Inc.
-    Version        : 0.1.8
+    Version        : 0.1.9
     Copyright      : Copyright (c) 2025 Silk Technologies, Inc.
                      This source code is licensed under the MIT license found in the
                      LICENSE file in the root directory of this source tree.
@@ -103,7 +114,9 @@ param (
     [Parameter(Mandatory=$false, HelpMessage="Force reprocessing of all hosts, ignoring completed hosts tracking")]
     [switch]$Force,
     [Parameter(Mandatory=$false, HelpMessage="Optional path to a log file for full transcript of script execution")]
-    [string]$Log
+    [string]$Log,
+    [Parameter(Mandatory=$false, HelpMessage="Upgrade mode: skip registration and run silent installers only")]
+    [switch]$Upgrade
 )
 Write-Host @"
 Copyright (c) 2025 Silk Technologies, Inc.
@@ -128,7 +141,7 @@ if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
 # Constants
 #region orc_constants
 #region Constants
-Set-Variable -Name InstallerProduct -Value "0.1.8" -Option AllScope -Scope Script
+Set-Variable -Name InstallerProduct -Value "0.1.9" -Option AllScope -Scope Script
 Set-Variable -Name MessageCurrentObject -Value "Silk Echo Installer" -Option AllScope -Scope Script
 Set-Variable -Name ENUM_ACTIVE_DIRECTORY -Value "active_directory" -Option AllScope -Scope Script
 Set-Variable -Name ENUM_CREDENTIALS -Value "credentials" -Option AllScope -Scope Script
@@ -927,6 +940,62 @@ function GenerateConfigTemplate {
     }
     Exit 0
 }
+function GenerateUpgradeConfigTemplate {
+    $configPath = Join-Path $PSScriptRoot "config-upgrade.json"
+    # Check if file already exists
+    if (Test-Path -Path $configPath) {
+        WarningMessage "Configuration file already exists: $configPath"
+        $overwrite = Read-Host "Do you want to overwrite the existing file? (y/N)"
+        if ($overwrite -ne 'y' -and $overwrite -ne 'Y') {
+            InfoMessage "Configuration template creation cancelled."
+            Exit 0
+        }
+    }
+    Write-Host ""
+    Write-Host "Generating UPGRADE mode configuration template..." -ForegroundColor Yellow
+    Write-Host "This template contains only fields required for upgrading existing installations." -ForegroundColor Yellow
+    Write-Host ""
+    $useKerberos = Read-Host "Would you like to use Active Directory authentication for the hosts? (Y/n)"
+    if ($useKerberos -eq 'Y' -or $useKerberos -eq 'y' -or $useKerberos -eq '') {
+        $UseKerberos = $true
+    } else {
+        $UseKerberos = $false
+    }
+    $installVss = Read-Host "Would you like to upgrade Silk VSS Provider on the hosts? (Y/n)"
+    if ($installVss -eq 'Y' -or $installVss -eq 'y' -or $installVss -eq '') {
+        $InstallVSS = $true
+    } else {
+        $InstallVSS = $false
+    }
+    # Minimal template for upgrade mode
+    $templateConfigJson = '{"installers":{"agent":{"path":""},"vss":{"path":""}},"common":{"install_agent":true,"install_vss":true,"host_user":"host_user","host_pass":"host_pass","host_auth":"unset"},"hosts":["host_ip","host_ip","host_ip"]}'
+    $ConfObj = $templateConfigJson | ConvertFrom-Json
+    $ConfObj.common.install_vss = $InstallVSS
+    if ($UseKerberos) {
+        $ConfObj.common.host_auth = $ENUM_ACTIVE_DIRECTORY
+        $ConfObj.common.PSObject.Properties.Remove('host_pass')
+        $ConfObj.common.PSObject.Properties.Remove('host_user')
+        $ConfObj.hosts = @("hostname", "hostname", "hostname")
+    } else {
+        $ConfObj.common.host_auth = $ENUM_CREDENTIALS
+    }
+    try {
+        $formattedJson = $ConfObj | ConvertTo-Json -Depth 2
+        $formattedJson | Out-File -FilePath $configPath -Encoding UTF8
+        Write-Host "Upgrade configuration template created: $configPath" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "Please edit the file with your specific values." -ForegroundColor Yellow
+        Write-Host "- Update installer paths (or leave empty to use default URLs)"
+        Write-Host "- Add or remove hosts as required"
+        Write-Host ""
+        Write-Host "Usage: .\orchestrator.ps1 -ConfigPath config-upgrade.json -Upgrade" -ForegroundColor Cyan
+        Write-Host ""
+    } catch {
+        Write-Error "Failed to create configuration template: $_"
+        Exit 1
+    }
+    Exit 0
+}
 function constructHosts {
     param (
         [Parameter(Mandatory=$true)]
@@ -1039,7 +1108,9 @@ function ReadConfigFile {
     # }
     param (
         [Parameter(Mandatory=$true)]
-        [string]$ConfigFile
+        [string]$ConfigFile,
+        [Parameter(Mandatory=$false)]
+        [switch]$Upgrade
     )
     if (-Not (Test-Path -Path $ConfigFile)) {
         Write-Error -Message "Configuration file not found: $ConfigFile"
@@ -1052,22 +1123,26 @@ function ReadConfigFile {
     }
     # Get the common configuration
     $commonConfig = $config.common
-    if (-not ($config.hosts -and
-          $commonConfig.flex_host_ip -and
-          $commonConfig.sdp_id -and
-          $commonConfig.mount_points_directory -and
-          $commonConfig.mount_points_directory -ne "")) {
-        ErrorMessage "Configuration file must contain 'hosts', 'flex_host_ip', 'sdp_id', and 'mount_points_directory' fields"
-        return $null
+    # Upgrade mode: only require hosts list
+    if ($Upgrade.IsPresent) {
+        if (-not $config.hosts) {
+            ErrorMessage "Configuration file must contain 'hosts' field"
+            return $null
+        }
+    } else {
+        # Full install mode: require all credential fields
+        if (-not ($config.hosts -and
+              $commonConfig.flex_host_ip -and
+              $commonConfig.sdp_id -and
+              $commonConfig.mount_points_directory -and
+              $commonConfig.mount_points_directory -ne "")) {
+            ErrorMessage "Configuration file must contain 'hosts', 'flex_host_ip', 'sdp_id', and 'mount_points_directory' fields"
+            return $null
+        }
     }
     # Validate hosts array is not empty
     if ($config.hosts.Count -eq 0) {
         ErrorMessage "Configuration file must contain at least one host"
-        return $null
-    }
-    # Validate flex_host_ip is a valid IP address
-    if (-not ($commonConfig.flex_host_ip -as [IPAddress])) {
-        ErrorMessage "flex_host_ip must be a valid IP address"
         return $null
     }
     # Set default values in common section before constructing hosts (so hosts inherit these defaults)
@@ -1140,20 +1215,23 @@ function ReadConfigFile {
         }
         $hostAddresses += $hostInfo.host_addr
     }
-    # all host must have "host_auth" and "flex_host_ip"
+    # all hosts must have "host_auth"; "flex_host_ip" only required for full install
     foreach ($hostInfo in $config.hosts) {
         if (-not $hostInfo.host_auth) {
             ErrorMessage "Host '$($hostInfo.host_addr)' is missing 'host_auth' property. Update the host or a common section."
             return $null
         }
-        if (-not $hostInfo.flex_host_ip) {
-            ErrorMessage "Host '$($hostInfo.host_addr)' is missing 'flex_host_ip' property. Update the host or a common section."
-            return $null
-        }
-        # Validate flex_host_ip is a valid IP address
-        if (-not ($hostInfo.flex_host_ip -as [IPAddress])) {
-            ErrorMessage "Host '$($hostInfo.host_addr)' has invalid flex_host_ip '$($hostInfo.flex_host_ip)'. Must be a valid IP address."
-            return $null
+        # flex_host_ip validation only in full install mode
+        if (-not $Upgrade.IsPresent) {
+            if (-not $hostInfo.flex_host_ip) {
+                ErrorMessage "Host '$($hostInfo.host_addr)' is missing 'flex_host_ip' property. Update the host or a common section."
+                return $null
+            }
+            # Validate flex_host_ip is a valid IP address
+            if (-not ($hostInfo.flex_host_ip -as [IPAddress])) {
+                ErrorMessage "Host '$($hostInfo.host_addr)' has invalid flex_host_ip '$($hostInfo.flex_host_ip)'. Must be a valid IP address."
+                return $null
+            }
         }
     }
     return $config
@@ -2322,23 +2400,37 @@ function StartBatchInstallation {
                 is_dry_run = $IsDryRun
                 install_agent = $hostInfo.install_agent
                 install_vss = $hostInfo.install_vss
+                upgrade_mode = $hostInfo.upgrade_mode
             }
-            # Validate required fields based on what's being installed
-            if ($hostInfo.install_agent) {
-                $agentFields = @('flex_host_ip', 'flex_access_token', 'sql_connection_string', 'agent_path')
-                foreach ($field in $agentFields) {
-                    if ($null -eq $installConfig[$field] -or $installConfig[$field] -eq '') {
-                        ErrorMessageIJS "Required field for agent installation '$field' is null or empty"
-                        return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Missing required field: $field" }
+            # Skip validation in upgrade mode - only installer paths are needed
+            if ($hostInfo.upgrade_mode) {
+                # In upgrade mode, only validate installer paths
+                if ($hostInfo.install_agent -and -not $installConfig['agent_path']) {
+                    ErrorMessageIJS "Agent path is required for upgrade"
+                    return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Missing agent path for upgrade" }
+                }
+                if ($hostInfo.install_vss -and -not $installConfig['vss_path']) {
+                    ErrorMessageIJS "VSS path is required for upgrade"
+                    return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Missing VSS path for upgrade" }
+                }
+            } else {
+                # Validate required fields based on what's being installed
+                if ($hostInfo.install_agent) {
+                    $agentFields = @('flex_host_ip', 'flex_access_token', 'sql_connection_string', 'agent_path')
+                    foreach ($field in $agentFields) {
+                        if ($null -eq $installConfig[$field] -or $installConfig[$field] -eq '') {
+                            ErrorMessageIJS "Required field for agent installation '$field' is null or empty"
+                            return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Missing required field: $field" }
+                        }
                     }
                 }
-            }
-            if ($hostInfo.install_vss) {
-                $vssFields = @('vss_path', 'sdp_id', 'sdp_username', 'sdp_password')
-                foreach ($field in $vssFields) {
-                    if ($null -eq $installConfig[$field] -or $installConfig[$field] -eq '') {
-                        ErrorMessageIJS "Required field for VSS installation '$field' is null or empty"
-                        return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Missing required field: $field" }
+                if ($hostInfo.install_vss) {
+                    $vssFields = @('vss_path', 'sdp_id', 'sdp_username', 'sdp_password')
+                    foreach ($field in $vssFields) {
+                        if ($null -eq $installConfig[$field] -or $installConfig[$field] -eq '') {
+                            ErrorMessageIJS "Required field for VSS installation '$field' is null or empty"
+                            return @{ Success = $false; HostAddress = $HostAddress; Output = $null; Error = "Missing required field: $field" }
+                        }
                     }
                 }
             }
@@ -3258,30 +3350,39 @@ function MainOrchestrator {
         ErrorMessage "No valid hosts remaining after connectivity validation. Cannot proceed."
         return
     }
-    # make SQL server authentication string
-    $ok = UpdateHostSqlConnectionString -Config $config
-    if (-not $ok) {
-        ErrorMessage "Failed to prepare SQL connection string. Cannot proceed with installation."
-        return
+    # Upgrade mode: skip all validation, just upload and run silent installers
+    if ($Upgrade.IsPresent) {
+        ImportantMessage "Upgrade mode: skipping registration and credential validation"
+        # Set upgrade_mode flag on all hosts
+        foreach ($hostInfo in $hostsWithoutIssues) {
+            $hostInfo | Add-Member -NotePropertyName "upgrade_mode" -NotePropertyValue $true -Force
+        }
+    } else {
+        # make SQL server authentication string
+        $ok = UpdateHostSqlConnectionString -Config $config
+        if (-not $ok) {
+            ErrorMessage "Failed to prepare SQL connection string. Cannot proceed with installation."
+            return
+        }
+        # Validate SQL credentials by testing connection on each remote host
+        InfoMessage "Validating SQL credentials on remote hosts..."
+        $ok = ValidateHostSQLCredentials -Config $config
+        if (-not $ok) {
+            ErrorMessage "SQL credential validation failed. Cannot proceed with installation."
+            return
+        }
+        # Login to Silk Flex and get the token
+        $flexToken = UpdateFlexAuthToken -Config $config
+        # Get and validate SDP credentials
+        UpdateSDPCredentials -Config $config -flexToken $flexToken
+        # Only process hosts without issues for installation
+        $hostsWithoutIssues = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
+        if ($hostsWithoutIssues.Count -eq 0) {
+            ErrorMessage "No valid hosts remaining after connectivity validation. Cannot proceed."
+            return
+        }
     }
-    # Validate SQL credentials by testing connection on each remote host
-    InfoMessage "Validating SQL credentials on remote hosts..."
-    $ok = ValidateHostSQLCredentials -Config $config
-    if (-not $ok) {
-        ErrorMessage "SQL credential validation failed. Cannot proceed with installation."
-        return
-    }
-    # Login to Silk Flex and get the token
-    $flexToken = UpdateFlexAuthToken -Config $config
-    # Get and validate SDP credentials
-    UpdateSDPCredentials -Config $config -flexToken $flexToken
-    # Only process hosts without issues for installation
-    $hostsWithoutIssues = @($config.hosts | Where-Object { $_.issues.Count -eq 0 })
-    if ($hostsWithoutIssues.Count -eq 0) {
-        ErrorMessage "No valid hosts remaining after connectivity validation. Cannot proceed."
-        return
-    }
-    InfoMessage "The following hosts will be configured:"
+    InfoMessage "The following hosts will be $(if ($Upgrade.IsPresent) { 'upgraded' } else { 'configured' }):"
     foreach ($hostInfo in $hostsWithoutIssues) {
         InfoMessage "    $($hostInfo.host_addr)"
     }
@@ -3386,7 +3487,11 @@ if ($PSVersionTable.Platform -eq "Unix") {
 }
 # Handle CreateConfigTemplate parameter
 if ($CreateConfigTemplate) {
-    GenerateConfigTemplate
+    if ($Upgrade) {
+        GenerateUpgradeConfigTemplate
+    } else {
+        GenerateConfigTemplate
+    }
     exit 0
 }
 # get the configuration file path from the command line argument -ConfigPath
@@ -3395,7 +3500,11 @@ if (-Not $ConfigPath) {
     InfoMessage "Usage: .\orchestrator.ps1 -ConfigPath <path_to_config_file>"
     Exit 1
 }
-$config = ReadConfigFile -ConfigFile $ConfigPath
+if ($Upgrade) {
+    $config = ReadConfigFile -ConfigFile $ConfigPath -Upgrade
+} else {
+    $config = ReadConfigFile -ConfigFile $ConfigPath
+}
 if (-Not $config) {
     ErrorMessage "Failed to read the configuration file. Please ensure it is a valid JSON file."
     Exit 1
@@ -3414,11 +3523,16 @@ InfoMessage "Configuration File: $ConfigPath"
 InfoMessage "Max Concurrency: $script:MaxConcurrency hosts"
 if ($DryRun) {
     ImportantMessage "Mode: DRY RUN (Validation Only - No Changes)"
+} elseif ($Upgrade) {
+    ImportantMessage "Mode: UPGRADE (Silent installers only)"
 } else {
     ImportantMessage "Mode: LIVE INSTALLATION"
 }
 if ($Force) {
     ImportantMessage "Force Mode: ENABLED (Ignoring completed hosts tracking)"
+}
+if ($Upgrade) {
+    ImportantMessage "Upgrade Mode: ENABLED (Skipping registration and validation)"
 }
 if ( $DebugPreference -eq 'Continue' ) {
     Write-Verbose "Verbose/Debug output is enabled."
@@ -3525,6 +3639,7 @@ $DirectoryToInstall = $Config.install_to_directory
 $DryRun = [switch]$Config.is_dry_run
 $InstallAgent = [bool]$Config.install_agent
 $InstallVSS = [bool]$Config.install_vss
+$UpgradeMode = [bool]$Config.upgrade_mode
 # print info about params
 Write-Host "Parameters:"
 Write-Host "  FlexIP: $FlexIP"
@@ -3534,6 +3649,7 @@ Write-Host "  SilkVSSPath: $SilkVSSPath"
 Write-Host "  InstallAgent: $InstallAgent"
 Write-Host "  InstallVSS: $InstallVSS"
 Write-Host "  DirectoryToInstall: $DirectoryToInstall"
+Write-Host "  UpgradeMode: $UpgradeMode"
 if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
     Write-Host "Debug and Verbose output enabled."
     $DebugPreference = 'Continue'
@@ -3848,6 +3964,7 @@ Set-Variable -Name SDPCredential -Value $SDPCredential -Scope Global
 Set-Variable -Name IsDryRun -Value $DryRun.IsPresent -Scope Global
 Set-Variable -Name InstallAgent -Value $InstallAgent -Scope Global
 Set-Variable -Name InstallVSS -Value $InstallVSS -Scope Global
+Set-Variable -Name UpgradeMode -Value $UpgradeMode -Scope Global
 Set-Variable -Name AgentInstallationLogPath -Scope Global
 Set-Variable -Name SVSSInstallationLogPath -Scope Global
 Set-Variable -Name HostID -Value "$(hostname)" -Scope Global
@@ -4480,6 +4597,90 @@ function setup_vss {
     return $null
 }
 #endregion setup_vss
+#region upgrade_only
+function upgrade_only {
+    <#
+    .SYNOPSIS
+        Performs upgrade-only installation of Silk Echo components.
+    .DESCRIPTION
+        This function runs the installers in silent mode without any parameters.
+        Used for upgrading existing installations where configuration is already in place.
+        Skips all registration and validation steps.
+    .OUTPUTS
+        Returns $null on success, or an error message string on failure.
+    #>
+    InfoMessage "Starting Silk Echo upgrade (silent mode)..."
+    # Validate that at least one component is enabled
+    if (-not $InstallAgent -and -not $InstallVSS) {
+        ErrorMessage "No components selected for upgrade. At least one of InstallAgent or InstallVSS must be true."
+        return "No components selected for upgrade"
+    }
+    # Dry run - just validate installers exist
+    if ($IsDryRun) {
+        InfoMessage "Dry run mode enabled for upgrade."
+        if ($InstallAgent) {
+            if (-not (Test-Path $SilkAgentPath)) {
+                ErrorMessage "Agent installer not found at $SilkAgentPath"
+                return "Agent installer not found at $SilkAgentPath"
+            }
+            InfoMessage "Agent installer found at $SilkAgentPath"
+        }
+        if ($InstallVSS) {
+            if (-not (Test-Path $SilkVSSPath)) {
+                ErrorMessage "VSS installer not found at $SilkVSSPath"
+                return "VSS installer not found at $SilkVSSPath"
+            }
+            InfoMessage "VSS installer found at $SilkVSSPath"
+        }
+        InfoMessage "Dry run: upgrade validation passed"
+        return $null
+    }
+    # Upgrade Agent if enabled
+    if ($InstallAgent) {
+        InfoMessage "Upgrading Silk Node Agent from $SilkAgentPath..."
+        if (-not (Test-Path $SilkAgentPath)) {
+            ErrorMessage "Agent installer not found at $SilkAgentPath"
+            return "Agent installer not found at $SilkAgentPath"
+        }
+        $result = StartProcessWithTimeout `
+            -FilePath $SilkAgentPath `
+            -ArgumentList @('/S') `
+            -TimeoutSeconds $INTERNAL_INSTALL_TIMEOUT_SECONDS `
+            -ProcessName "Silk Node Agent Upgrade"
+        PrintAgentInstallationLog
+        if (-not $result.Success) {
+            ErrorMessage "Agent upgrade failed: $($result.Reason)"
+            return "Agent upgrade failed: $($result.Reason)"
+        }
+        InfoMessage "Silk Node Agent upgrade completed successfully"
+    }
+    # Upgrade VSS if enabled
+    if ($InstallVSS) {
+        InfoMessage "Upgrading Silk VSS Provider from $SilkVSSPath..."
+        if (-not (Test-Path $SilkVSSPath)) {
+            ErrorMessage "VSS installer not found at $SilkVSSPath"
+            return "VSS installer not found at $SilkVSSPath"
+        }
+        $result = StartProcessWithTimeout `
+            -FilePath $SilkVSSPath `
+            -ArgumentList @('/VERYSILENT', "/LOG=$SVSSInstallationLogPath") `
+            -TimeoutSeconds $INTERNAL_INSTALL_TIMEOUT_SECONDS `
+            -ProcessName "Silk VSS Provider Upgrade"
+        PrintSVSSInstallationLog
+        if (-not $result.Success) {
+            ErrorMessage "VSS upgrade failed: $($result.Reason)"
+            return "VSS upgrade failed: $($result.Reason)"
+        }
+        InfoMessage "Silk VSS Provider upgrade completed successfully"
+    }
+    # Success
+    $upgradedComponents = @()
+    if ($InstallAgent) { $upgradedComponents += "Silk Node Agent" }
+    if ($InstallVSS) { $upgradedComponents += "Silk VSS Provider" }
+    InfoMessage "$($upgradedComponents -join ' and ') upgrade completed successfully."
+    return $null
+}
+#endregion upgrade_only
 #region setup
 function setup{
     <#
@@ -4490,9 +4691,14 @@ function setup{
         - Tests Flex connectivity (common prerequisite)
         - Calls setup_agent() if InstallAgent is enabled
         - Calls setup_vss() if InstallVSS is enabled
+        In upgrade mode, delegates to upgrade_only() which skips registration and validation.
     .OUTPUTS
         Returns $null on success, or an error message string on failure.
     #>
+    # Upgrade mode - skip all validation and registration, just run silent installers
+    if ($UpgradeMode) {
+        return upgrade_only
+    }
     InfoMessage "Starting Silk Echo installation setup..."
     # Validate that at least one component is enabled
     if (-not $InstallAgent -and -not $InstallVSS) {
