@@ -220,7 +220,10 @@ function ReadConfigFile {
 
     param (
         [Parameter(Mandatory=$true)]
-        [string]$ConfigFile
+        [string]$ConfigFile,
+
+        [Parameter(Mandatory=$false)]
+        [switch]$Upgrade
     )
     if (-Not (Test-Path -Path $ConfigFile)) {
         Write-Error -Message "Configuration file not found: $ConfigFile"
@@ -234,14 +237,24 @@ function ReadConfigFile {
 
     # Get the common configuration
     $commonConfig = $config.common
-    if (-not ($config.hosts -and
-          $commonConfig.flex_host_ip -and
-          $commonConfig.sdp_id -and
-          $commonConfig.mount_points_directory -and
-          $commonConfig.mount_points_directory -ne "")) {
 
-        ErrorMessage "Configuration file must contain 'hosts', 'flex_host_ip', 'sdp_id', and 'mount_points_directory' fields"
-        return $null
+    # Upgrade mode: only require hosts list
+    if ($Upgrade.IsPresent) {
+        if (-not $config.hosts) {
+            ErrorMessage "Configuration file must contain 'hosts' field"
+            return $null
+        }
+    } else {
+        # Full install mode: require all credential fields
+        if (-not ($config.hosts -and
+              $commonConfig.flex_host_ip -and
+              $commonConfig.sdp_id -and
+              $commonConfig.mount_points_directory -and
+              $commonConfig.mount_points_directory -ne "")) {
+
+            ErrorMessage "Configuration file must contain 'hosts', 'flex_host_ip', 'sdp_id', and 'mount_points_directory' fields"
+            return $null
+        }
     }
 
     # Validate hosts array is not empty
@@ -333,20 +346,23 @@ function ReadConfigFile {
         $hostAddresses += $hostInfo.host_addr
     }
 
-    # all host must have "host_auth" and "flex_host_ip"
+    # all hosts must have "host_auth"; "flex_host_ip" only required for full install
     foreach ($hostInfo in $config.hosts) {
         if (-not $hostInfo.host_auth) {
             ErrorMessage "Host '$($hostInfo.host_addr)' is missing 'host_auth' property. Update the host or a common section."
             return $null
         }
-        if (-not $hostInfo.flex_host_ip) {
-            ErrorMessage "Host '$($hostInfo.host_addr)' is missing 'flex_host_ip' property. Update the host or a common section."
-            return $null
-        }
-        # Validate flex_host_ip is a valid IP address
-        if (-not ($hostInfo.flex_host_ip -as [IPAddress])) {
-            ErrorMessage "Host '$($hostInfo.host_addr)' has invalid flex_host_ip '$($hostInfo.flex_host_ip)'. Must be a valid IP address."
-            return $null
+        # flex_host_ip validation only in full install mode
+        if (-not $Upgrade.IsPresent) {
+            if (-not $hostInfo.flex_host_ip) {
+                ErrorMessage "Host '$($hostInfo.host_addr)' is missing 'flex_host_ip' property. Update the host or a common section."
+                return $null
+            }
+            # Validate flex_host_ip is a valid IP address
+            if (-not ($hostInfo.flex_host_ip -as [IPAddress])) {
+                ErrorMessage "Host '$($hostInfo.host_addr)' has invalid flex_host_ip '$($hostInfo.flex_host_ip)'. Must be a valid IP address."
+                return $null
+            }
         }
     }
 
