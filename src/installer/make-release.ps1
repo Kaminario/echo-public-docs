@@ -2,7 +2,8 @@
 
 param(
     [ValidateSet("major", "minor", "patch")]
-    [string]$Part = "patch"
+    [string]$Part = "patch",
+    [switch]$Final
 )
 
 Write-Host @"
@@ -57,8 +58,8 @@ $newVersion = Increment-Version -Version $currentVersion -Part $Part
 
 Write-Host "Incrementing $Part version from $currentVersion to $newVersion" -ForegroundColor Yellow
 
-# Update version file
-$newVersion | Out-File -FilePath $versionFile -Encoding UTF8 -NoNewline
+# Update version file (with trailing newline for pre-commit hook)
+"$newVersion`n" | Out-File -FilePath $versionFile -Encoding UTF8 -NoNewline
 Write-Host "Version updated in $versionFile" -ForegroundColor Green
 
 . ./orc_constants.ps1
@@ -74,7 +75,21 @@ $finalContent = ExpandImportsInline -ScriptContent $orchestratorContent
 # Replace version placeholder in the final content
 $finalContent = $finalContent -replace '\{\{VERSION_PLACEHOLDER\}\}', $newVersion
 
+# Ensure trailing newline for pre-commit hook
+$finalContent = $finalContent.TrimEnd() + "`n"
+
 # Write to release file
-$finalContent | Out-File -FilePath $releaseFile -Encoding UTF8
+$finalContent | Out-File -FilePath $releaseFile -Encoding UTF8 -NoNewline
 
 Write-Host "$releaseFile created successfully." -ForegroundColor Green
+
+if ($Final) {
+    git add $versionFile $releaseFile
+    git commit -m "Release orchestrator v$newVersion"
+    if ($LASTEXITCODE -eq 0) {
+        git tag "orchestrator-v$newVersion"
+        Write-Host "Tagged as orchestrator-v$newVersion" -ForegroundColor Green
+    } else {
+        Write-Host "Commit failed. Tag not created." -ForegroundColor Red
+    }
+}
