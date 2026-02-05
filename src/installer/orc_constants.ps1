@@ -5,9 +5,8 @@ Set-Variable -Name MessageCurrentObject -Value "Silk Echo Installer" -Option All
 Set-Variable -Name ENUM_ACTIVE_DIRECTORY -Value "active_directory" -Option AllScope -Scope Script
 Set-Variable -Name ENUM_CREDENTIALS -Value "credentials" -Option AllScope -Scope Script
 
-# Installer URLs
-Set-Variable -Name SilkAgentURL -Value 'https://storage.googleapis.com/silk-public-files/silk-agent-installer-latest.exe' -Option AllScope -Scope Script
-Set-Variable -Name SilkVSSURL -Value 'https://storage.googleapis.com/silk-public-files/svss-install.exe' -Option AllScope -Scope Script
+# Component versions and installer URLs
+. ./orc_component_versions.ps1
 
 # Installer Script Artifacts Directory
 $cacheDir = Join-Path $PSScriptRoot "SilkEchoInstallerArtifacts"
