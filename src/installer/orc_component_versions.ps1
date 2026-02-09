@@ -1,5 +1,5 @@
 # Component versions - update these to lock specific releases
-Set-Variable -Name SilkAgentVersion -Value "v1.1.8-20260129-123104" -Option AllScope -Scope Script
+Set-Variable -Name SilkAgentVersion -Value "v1.1.8" -Option AllScope -Scope Script
 Set-Variable -Name SvssVersion -Value "2.0.18" -Option AllScope -Scope Script
 
 # Installer URLs
