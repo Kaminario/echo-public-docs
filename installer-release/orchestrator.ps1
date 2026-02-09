@@ -75,7 +75,7 @@
     File Name      : orchestrator.ps1
     Author         : Ilya.Levin@Silk.US
     Organization   : Silk.us, Inc.
-    Version        : 0.1.10
+    Version        : 0.1.11
     Copyright      : Copyright (c) 2025 Silk Technologies, Inc.
                      This source code is licensed under the MIT license found in the
                      LICENSE file in the root directory of this source tree.
@@ -141,14 +141,14 @@ if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
 # Constants
 #region orc_constants
 #region Constants
-Set-Variable -Name InstallerProduct -Value "0.1.10" -Option AllScope -Scope Script
+Set-Variable -Name InstallerProduct -Value "0.1.11" -Option AllScope -Scope Script
 Set-Variable -Name MessageCurrentObject -Value "Silk Echo Installer" -Option AllScope -Scope Script
 Set-Variable -Name ENUM_ACTIVE_DIRECTORY -Value "active_directory" -Option AllScope -Scope Script
 Set-Variable -Name ENUM_CREDENTIALS -Value "credentials" -Option AllScope -Scope Script
 # Component versions and installer URLs
 #region orc_component_versions
 # Component versions - update these to lock specific releases
-Set-Variable -Name SilkAgentVersion -Value "v1.1.8-20260129-123104" -Option AllScope -Scope Script
+Set-Variable -Name SilkAgentVersion -Value "v1.1.8" -Option AllScope -Scope Script
 Set-Variable -Name SvssVersion -Value "2.0.18" -Option AllScope -Scope Script
 # Installer URLs
 Set-Variable -Name SilkAgentURL -Value "https://storage.googleapis.com/silk-public-files/silk-agent-installer-$SilkAgentVersion.exe" -Option AllScope -Scope Script
