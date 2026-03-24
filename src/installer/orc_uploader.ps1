@@ -83,10 +83,10 @@ function downloadInstaller {
     $fileName = "$InstallerType-installer.exe"
     $localPath = Join-Path $CacheDir $fileName
 
-    # Check if already cached
+    # Remove stale cached installer to ensure fresh download
     if (Test-Path $localPath) {
-        InfoMessage "$InstallerType installer already cached at: $localPath"
-        return $localPath
+        InfoMessage "Removing cached $InstallerType installer: $localPath"
+        Remove-Item -Path $localPath -Force
     }
 
     InfoMessage "Downloading $InstallerType installer from: $($InstallerURL)"
@@ -196,7 +196,7 @@ function UploadInstallersToHosts {
 
         try {
             $testResult = Receive-Job -Job $job
-            
+
             # write all job debug/info/error messages in to the main script log
             Write-Output $testResult.StdErrOut
             if ($job.State -eq 'Completed') {
@@ -219,7 +219,7 @@ function UploadInstallersToHosts {
             $hostInfo.issues += "Error while receiving job output: $(_.Exception.Message)"
             ErrorMessage "Upload job failed for $($hostInfo.host_addr): State $($job.State), $issue"
         }
-        
+
         Remove-Job -Job $job -Force
     }
 
