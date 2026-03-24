@@ -75,7 +75,7 @@
     File Name      : orchestrator.ps1
     Author         : Ilya.Levin@Silk.US
     Organization   : Silk.us, Inc.
-    Version        : 0.1.11
+    Version        : 0.1.12
     Copyright      : Copyright (c) 2025 Silk Technologies, Inc.
                      This source code is licensed under the MIT license found in the
                      LICENSE file in the root directory of this source tree.
@@ -141,7 +141,7 @@ if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
 # Constants
 #region orc_constants
 #region Constants
-Set-Variable -Name InstallerProduct -Value "0.1.11" -Option AllScope -Scope Script
+Set-Variable -Name InstallerProduct -Value "0.1.12" -Option AllScope -Scope Script
 Set-Variable -Name MessageCurrentObject -Value "Silk Echo Installer" -Option AllScope -Scope Script
 Set-Variable -Name ENUM_ACTIVE_DIRECTORY -Value "active_directory" -Option AllScope -Scope Script
 Set-Variable -Name ENUM_CREDENTIALS -Value "credentials" -Option AllScope -Scope Script
@@ -1991,10 +1991,10 @@ function downloadInstaller {
     # If URL is provided, download to cache
     $fileName = "$InstallerType-installer.exe"
     $localPath = Join-Path $CacheDir $fileName
-    # Check if already cached
+    # Remove stale cached installer to ensure fresh download
     if (Test-Path $localPath) {
-        InfoMessage "$InstallerType installer already cached at: $localPath"
-        return $localPath
+        InfoMessage "Removing cached $InstallerType installer: $localPath"
+        Remove-Item -Path $localPath -Force
     }
     InfoMessage "Downloading $InstallerType installer from: $($InstallerURL)"
     try {
