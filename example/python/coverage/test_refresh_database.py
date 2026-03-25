@@ -152,7 +152,6 @@ def run(
         refresh_payload = {
             "snapshot_id": snapshot_id2,
             "db_names": [echo_db_name],
-            "keep_backup": False,
         }
 
         # Test direct endpoint

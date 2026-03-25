@@ -616,17 +616,6 @@ curl -XDELETE "http://{flex}/api/echo/v1/echo_dbs" -H 'Content-Type: application
 This api will replace underline volumes of the selected databases with an new volumes.
 The new volumes are cloned from a desired snapshot.
 
-In case of keep_backup is true. The original database is renamed to a new name
-
-```
-<db_name>_bkp_<timestamp>
-```
-
-db_name: is an original db name
-timestamp: The time of the refresh. The timestamp is in ISO 8601 format. "20250216T143521Z"
-
-fin-db => fin-db_bkp_20250216T143521Z
-
 ### Endpoint:
 
 `POST /api/echo/v1/hosts/{host_id}/databases/_refresh`
@@ -643,7 +632,6 @@ fin-db => fin-db_bkp_20250216T143521Z
   "db_names": [
     "string"
   ],
-  "keep_backup": true,
   "target_state": "online"
 }
 ```
@@ -659,8 +647,6 @@ fin-db => fin-db_bkp_20250216T143521Z
 
 - `snapshot_id` (string, required): The unique identifier for the database snapshot.
 - `db_names` (array of strings, required): The names of the databases on the host to be replaced.
-- `keep_backup` (boolean, optional): If set to true, Flex will rename the original db to `{name}_bkp_{timestamp}` instead of deletion. Default: `false`.
-  - Note: Requires special permissions on the host.
 - `target_state` (string, optional): The target state for the refreshed database. Default: `"online"`.
   - Possible values: `recovery`, `online`
 
@@ -669,7 +655,7 @@ fin-db => fin-db_bkp_20250216T143521Z
 ```bash
 curl -XPOST "http://{flex}/api/echo/v1/hosts/{host_id}/databases/_refresh" \
 -H "Authorization: Bearer {token}" \
--d'{"snapshot_id":"snap_1735025906","db_names": ["dev_db","dev_db2"],"keep_backup":true}'
+-d'{"snapshot_id":"snap_1735025906","db_names": ["dev_db","dev_db2"]}'
 ```
 
 #### Responses:
