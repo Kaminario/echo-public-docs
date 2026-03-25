@@ -748,7 +748,6 @@ function Invoke-DatabaseRefresh {
     $replaceBody = @{
         snapshot_id = $SnapshotId
         db_names    = $EchoDbNames
-        keep_backup = $false
     }
 
     $replaceEndpoint = "/api/echo/v1/hosts/$($EchoHost.host.id)/databases/_refresh"

@@ -65,7 +65,6 @@ def _tracking_id():
 def _make_refresh(
     host_id: str,
     db_names: tuple[str],
-    keep_backup: bool,
     snapshot_id: str,
 ) -> Tuple[bool, dict]:
 
@@ -81,7 +80,6 @@ def _make_refresh(
     }
     post_data = {
         "db_names": db_names,
-        "keep_backup": keep_backup,
         "snapshot_id": snapshot_id,
     }
     print(f"Making refresh request with tracking ID: {tracking_id}, data: {post_data}")
@@ -145,7 +143,6 @@ def _wait_for_task(task: dict) -> tuple[bool, dict]:
 def run(
     host_id: str,
     db_names: tuple[str],
-    keep_backup: bool,
     snapshot_id: str,
 ):
     """This script refreshes a databases on host from a snapshot.
@@ -156,12 +153,11 @@ def run(
        - `FLEX_TOKEN`: Bearer token for Flex API authentication.
        - `FLEX_IP`: Flex server IP address.
 
-    python refresh.py --host-name <host-name> --db-names <db-name-1,db-name-2> --keep-backup --snapshot-id <snapshot-id>
+    python refresh.py --host-name <host-name> --db-names <db-name-1,db-name-2> --snapshot-id <snapshot-id>
 
     Args:
         host_id (str): Host id to take snapshot from
         db_names (list[str]): List of database names to refresh
-        keep_backup (bool): Keep backup of the current databases by renaming them
         snapshot_id (str): Snapshot id to refresh from
     """
 
@@ -172,7 +168,7 @@ def run(
     _go_no_go(msg="Do you want to continue?")
 
     print(f"refreshing")
-    success, task = _make_refresh(host_id, db_names, keep_backup, snapshot_id)
+    success, task = _make_refresh(host_id, db_names, snapshot_id)
     if not success:
         exit_with_error(f"Failed to refresh databases. Error: {task['error']}")
     else:
@@ -205,13 +201,6 @@ def parse_arguments():
         metavar="DB_NAMES",
     )
     parser.add_option(
-        "--keep-backup",
-        dest="keep_backup",
-        action="store_true",
-        default=False,
-        help="Keep backup of the current databases by renaming them",
-    )
-    parser.add_option(
         "--snapshot-id",
         dest="snapshot_id",
         help="Snapshot id to refresh from",
@@ -233,7 +222,6 @@ def parse_arguments():
     return {
         "host_id": options.host_id,
         "db_names": db_names,
-        "keep_backup": options.keep_backup,
         "snapshot_id": options.snapshot_id,
     }
 
