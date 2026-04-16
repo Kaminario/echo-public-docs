@@ -32,7 +32,7 @@ function EnsureLocalInstallers {
 
         # If path is provided and file exists, use it directly
         if ($installerConfig.path) {
-            if (Test-Path $installerConfig.path) {
+            if (Test-Path $installerConfig.path -PathType Leaf) {
                 InfoMessage "Using existing $installerType installer at: $($installerConfig.path)"
                 $installerPath = $installerConfig.path
             } else {
