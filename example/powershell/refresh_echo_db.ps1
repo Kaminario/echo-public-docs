@@ -106,6 +106,9 @@ param (
     [switch]$Quiet
 )
 
+# lockeye: autoink 3 (2026-04-16T00:00:00Z)
+$ScriptVersion = "3 (2026-04-16T00:00:00Z)"
+
 $script:QuietMode = $Quiet.IsPresent
 $script:PollSeconds = $PollSeconds
 $script:TimeoutMinutes = $TimeoutMinutes
@@ -821,6 +824,8 @@ function New-RefreshSummary {
 #endregion Refresh Flow Helpers
 
 # --- Main Script Logic ---
+
+Write-Info "refresh_echo_db version: $ScriptVersion"
 
 $topology = Get-FlexTopology
 $plan = Resolve-EchoClonePlan -Topology $topology -EchoDbHostName $EchoDbHostName -EchoDbNames $EchoDbNames
