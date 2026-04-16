@@ -8,6 +8,11 @@ repos:
         files: ^(src/installer/.*\.ps1|installer-release/.*\.ps1)$
         args: ['-c', 'for file in "$@"; do echo "Checking $file"; if command -v pwsh > /dev/null 2>&1; then pwsh -NoProfile -Command "try { [System.Management.Automation.PSParser]::Tokenize((Get-Content \"$file\" -Raw), [ref]\$null) > \$null; Write-Host \"✓ Syntax OK: $file\" } catch { Write-Error \"✗ Syntax Error in: $file - $_\"; exit 1 }"; else echo "⚠ PowerShell not available, skipping syntax check for $file"; fi; done', '--']
 
+  - repo: https://github.com/worroc/lockeye
+    rev: v0.1.3
+    hooks:
+      - id: autoink
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0
     hooks:
