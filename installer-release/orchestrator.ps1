@@ -75,7 +75,7 @@
     File Name      : orchestrator.ps1
     Author         : Ilya.Levin@Silk.US
     Organization   : Silk.us, Inc.
-    Version        : 0.1.13
+    Version        : 0.1.14
     Copyright      : Copyright (c) 2025 Silk Technologies, Inc.
                      This source code is licensed under the MIT license found in the
                      LICENSE file in the root directory of this source tree.
@@ -141,7 +141,7 @@ if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
 # Constants
 #region orc_constants
 #region Constants
-Set-Variable -Name InstallerProduct -Value "0.1.13" -Option AllScope -Scope Script
+Set-Variable -Name InstallerProduct -Value "0.1.14" -Option AllScope -Scope Script
 Set-Variable -Name MessageCurrentObject -Value "Silk Echo Installer" -Option AllScope -Scope Script
 Set-Variable -Name ENUM_ACTIVE_DIRECTORY -Value "active_directory" -Option AllScope -Scope Script
 Set-Variable -Name ENUM_CREDENTIALS -Value "credentials" -Option AllScope -Scope Script
@@ -149,7 +149,7 @@ Set-Variable -Name ENUM_CREDENTIALS -Value "credentials" -Option AllScope -Scope
 #region orc_component_versions
 # Component versions - update these to lock specific releases
 Set-Variable -Name SilkAgentVersion -Value "v1.1.17" -Option AllScope -Scope Script
-Set-Variable -Name SvssVersion -Value "2.0.19" -Option AllScope -Scope Script
+Set-Variable -Name SvssVersion -Value "2.0.20" -Option AllScope -Scope Script
 # Installer URLs
 Set-Variable -Name SilkAgentURL -Value "https://storage.googleapis.com/silk-public-files/silk-agent-installer-$SilkAgentVersion.exe" -Option AllScope -Scope Script
 Set-Variable -Name SilkVSSURL -Value "https://storage.googleapis.com/silk-public-files/svss-$SvssVersion.exe" -Option AllScope -Scope Script
