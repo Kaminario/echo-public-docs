@@ -13,6 +13,13 @@ For rapid data capture, crash-consistent snapshots offer a fast and reliable way
 - Destination host running Windows Server with MSSQL.
 - Hosts must be capable of communicating with the Flex server and the SDP rest API.
 - You'l need Silk VSS installed (on both sides) if you're doing app-consistent operations on MSSQL2019 .
+- The SQL user configured for the Silk Agent (`sql_user`) must have permissions to perform the snapshot/backup operations on the target databases. When using application-consistent snapshots **without VSS** (SQL Server 2022 and later), the simplest working setup is to grant the user server-wide rights:
+
+  ```sql
+  GRANT CONTROL SERVER TO "silk_agent";
+  ```
+
+  This is broader than the strictly minimal set (`ALTER SETTINGS` plus `BACKUP DATABASE` granted inside each target database), but it lets the agent operate without maintaining per-database grants. Adding the login to the `sysadmin` role has the same effect.
 
 ### Required Setup Actions:
 
