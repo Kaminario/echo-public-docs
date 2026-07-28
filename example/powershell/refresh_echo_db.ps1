@@ -106,8 +106,8 @@ param (
     [switch]$Quiet
 )
 
-# lockeye: autoink 3 (2026-04-16T00:00:00Z)
-$ScriptVersion = "3 (2026-04-16T00:00:00Z)"
+# lockeye: autoink 5 (2026-07-28T15:45:02Z)
+$ScriptVersion = "5 (2026-07-28T15:45:02Z)"
 
 $script:QuietMode = $Quiet.IsPresent
 $script:PollSeconds = $PollSeconds
@@ -281,26 +281,34 @@ function Invoke-FlexApi {
             $errorMessage = $_.Exception.Message
 
             if ($null -ne $response) {
-                if ($response -is [System.Net.Http.HttpResponseMessage]) {
-                    try {
-                        $errorMessage = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-                    }
-                    catch {
-                        $errorMessage = $_.Exception.Message
-                    }
+                if ($response.PSObject.Properties.Match('StatusCode').Count -gt 0) {
                     $statusCode = [int]$response.StatusCode
+                }
+
+                if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+                    # PowerShell 6/7: Invoke-RestMethod already read the response body and
+                    # disposed the content, so the body is only available here. Reading
+                    # $response.Content would fail with "Cannot access a disposed object".
+                    $errorMessage = $_.ErrorDetails.Message
                 }
                 elseif ($response -is [System.Net.HttpWebResponse]) {
-                    $errorMessage = $response.GetResponseStream() | ForEach-Object {
-                        $reader = New-Object System.IO.StreamReader($_)
-                        $reader.ReadToEnd()
+                    # PowerShell 5.1
+                    try {
+                        $stream = $response.GetResponseStream()
+                        if ($null -ne $stream) {
+                            $reader = New-Object System.IO.StreamReader($stream)
+                            try {
+                                $errorMessage = $reader.ReadToEnd()
+                            }
+                            finally {
+                                $reader.Dispose()
+                            }
+                        }
                     }
-                    $statusCode = [int]$response.StatusCode
-                }
-                else {
-                    $errorMessage = $response.ToString()
-                    if ($response.PSObject.Properties.Match('StatusCode').Count -gt 0) {
-                        $statusCode = [int]$response.StatusCode
+                    catch {
+                        # The stream may be null or already disposed. Keep $errorMessage as
+                        # the original exception message instead of throwing from the catch
+                        # block, which would skip the retry logic below.
                     }
                 }
             }
