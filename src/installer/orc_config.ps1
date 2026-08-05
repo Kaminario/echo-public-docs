@@ -400,6 +400,17 @@ function ReadConfigFile {
         InfoMessage "VSS installation disabled in common config - skipping VSS installer validation"
     }
 
+    # Validate installer paths point to existing files (not directories)
+    foreach ($name in @('agent', 'vss')) {
+        $p = $config.installers.$name.path
+        if ($p -and $p -ne "") {
+            if (-not (Test-Path -Path $p -PathType Leaf)) {
+                ErrorMessage "Installer path for '$name' is not a valid file: $p"
+                return $null
+            }
+        }
+    }
+
     # the sql connection script is optional.
 
     # Validate that all hosts have unique addresses
