@@ -100,6 +100,7 @@ curl -XGET "http://{flex}/{path}" -H "hs-ref-id: Hy6f50Ki"
 | Method | Path                                    | Description                                          |
 | ------ | --------------------------------------- | ---------------------------------------------------- |
 | GET    | /api/echo/v1/db_snapshots               | List all snapshots                                   |
+| GET    | /api/echo/v1/db_snapshots/hosts/{host_id} | List snapshot IDs taken on a host                  |
 | POST   | /api/echo/v1/db_snapshots               | Create a snapshot                                    |
 | DELETE | /api/echo/v1/db_snapshots/{id}          | Delete a snapshot                                    |
 | POST   | /api/echo/v1/db_snapshots/{id}/echo_db | Clone a database from an existing snapshot to a host |
@@ -136,7 +137,10 @@ curl -XGET "http://{flex}/{path}" -H "hs-ref-id: Hy6f50Ki"
 
   Example pattern: `^[a-zA-Z][a-zA-Z0-9_-]+[a-zA-Z0-9]$`
 
-- `db_vendor` (string): The database vendor for the host. Currently, only `mssql` is supported.
+- `db_vendor` (string, optional): The database vendor for the host. Default: `"mssql"`.
+  - Possible values: `mssql`, `oracledb`
+- `sdp_id` (string, optional): The SDP the host is attached to. When omitted, Flex resolves it.
+- `host_registration_date` (integer, optional): Unix timestamp of the registration. Defaults to the current time.
 
 #### Example:
 
@@ -196,15 +200,34 @@ curl -XDELETE "http://{flex}/api/v1/hosts/{host_id}" \
   {
       "host_id": "host01",
       "db_vendor": "mssql",
+      "host_registration_date": 1722841000,
+      "first_connection_ts": 1722841100,
       "last_seen_ts": 1722841284,
+      "is_connected": true,
+      "is_operational": true,
+      "not_operational_reason": "",
       "host_name": "host_wfGIWX4",
       "host_iqn": "iqn.2009-01.com.kaminario:initiator.host_wfGIWX4",
       "host_os": "Windows",
       "host_os_version": "Windows 10",
-      "agent_version": "0.1.0",
+      "agent_version": "1.1.17",
+      "vss_version": "2.0.20",
+      "db_engine_version": "16.0.1000.6",
       "cloud_vendor": "AZURE"
   }
   ```
+
+  Selected fields:
+
+  - `is_connected` (boolean): The agent is currently reporting in.
+  - `is_operational` (boolean): The host is usable for Echo operations.
+  - `not_operational_reason` (string): Why the host is not operational. Empty when it is.
+  - `first_connection_ts` (integer): Unix timestamp of the first agent connection.
+  - `agent_version` / `vss_version` (string): Installed Silk Node Agent and Silk VSS Provider versions.
+  - `db_engine_version` (string): The database engine version reported by the agent.
+  - `db_authentication_type` (string): How the agent authenticates to the database.
+  - `vss_sdp_external_ip` (string): SDP address the VSS Provider uses.
+  - `storage_type`, `device_management` (string): Oracle hosts only.
 
 - **404 Not Found**
 
@@ -232,20 +255,31 @@ curl -XGET "http://{flex}/api/v1/hosts/{host_id}" \
       {
           "host_id": "host01",
           "db_vendor": "mssql",
+          "host_registration_date": 1722841000,
+          "first_connection_ts": 1722841100,
           "last_seen_ts": 1722841284,
+          "is_connected": true,
+          "is_operational": true,
+          "not_operational_reason": "",
           "host_name": "host_wfGIWX4",
           "host_iqn": "iqn.2009-01.com.kaminario:initiator.host_wfGIWX4",
           "host_os": "Windows",
           "host_os_version": "Windows 10",
-          "agent_version": "0.1.0",
+          "agent_version": "1.1.17",
+          "vss_version": "2.0.20",
+          "db_engine_version": "16.0.1000.6",
           "cloud_vendor": "AZURE"
       }
   ]
   ```
 
-- **204 No Content**
+  Each entry has the same shape as **Get Host Info**.
 
-    No hosts are registered.
+- **200 OK** (empty array if no hosts are registered)
+
+  ```json
+  []
+  ```
 
 #### Example:
 
@@ -452,11 +486,14 @@ by calling the same request with "/__validate" at the end of the endpoint
   - Possible values: `crash`, `application`
 - `target_state` (string, optional): The target state for the cloned database. Default: `"online"`.
   - Possible values: `recovery`, `online`
-- `force_vss_usage` (boolean, optional): Force the use of VSS for snapshot creation. Default: `false`.
+- `use_vss` (boolean, optional): Use VSS for the application-consistent snapshot where the
+  database engine supports it. Default: `true`. Ignored when `consistency_level` is `crash`.
+- `backup_session_timeout_sec` (integer, optional): Timeout for the backup phase, in seconds.
+- `restore_session_timeout_sec` (integer, optional): Timeout for the restore phase, in seconds.
 
 #### Responses
 
-- 200 OK
+- 202 Accepted
 
   ```json
   {
@@ -548,7 +585,7 @@ All validation responses come with the identical format:
 # - name_prefix defaults to "snap"
 # - consistency_level is explicitly set to "crash" (default is "application")
 # - target_state defaults to "online"
-# - force_vss_usage defaults to false
+# - use_vss defaults to true
 
 curl -XPOST "http://{flex}/api/echo/v1/echo_dbs" \
 -H 'Content-Type: application/json' \
@@ -586,13 +623,17 @@ by calling the same request with "/__validate" at the end of the endpoint
 ```json
 {
     "host_id":"dev-2",
-    "database_id":"6"
+    "database_id":"6",
+    "cascade": false
 }
 ```
 
 #### Parameters
   - `host_id` (string): The unique identifier for the host to delete from.
   - `database_id` (string): The unique identifier for the database to delete.
+  - `cascade` (boolean, optional): Also delete everything that depends on this Echo DB.
+    Default: `false`. Without it the delete is refused when dependents exist.
+    The same flag works on the `/__validate` endpoint, so you can preview the cascade.
 
 #### Responses
 
@@ -669,7 +710,7 @@ curl -XPOST "http://{flex}/api/echo/v1/hosts/{host_id}/databases/_refresh" \
 
 Following response example has a result field. This field will have a value only after operation completion. See: **Task State APIs**
 
-- 200 OK
+- 202 Accepted
 
   ```json
   {
@@ -720,17 +761,22 @@ Retrieve all database snapshots.
           "databases": [
               {
                   "db_id": "5",
-                  "db_name": "analytics"
+                  "db_name": "analytics",
+                  "is_echo_db": false
               },
               {
                   "db_id": "6",
-                  "db_name": "reporting"
+                  "db_name": "reporting",
+                  "is_echo_db": false
               }
           ],
           "timestamp": 1735025906,
           "consistency_level": "application",
           "db_engine_version": "16.0.1000.6",
-          "is_vss_based": true
+          "db_vendor": "mssql",
+          "is_vss_based": true,
+          "deletable": false,
+          "uses_count": 2
       },
       {
           "id": "daily_1735100000",
@@ -741,13 +787,17 @@ Retrieve all database snapshots.
           "databases": [
               {
                   "db_id": "7",
-                  "db_name": "inventory"
+                  "db_name": "inventory",
+                  "is_echo_db": false
               }
           ],
           "timestamp": 1735100000,
           "consistency_level": "crash",
           "db_engine_version": "16.0.1000.6",
-          "is_vss_based": false
+          "db_vendor": "mssql",
+          "is_vss_based": false,
+          "deletable": true,
+          "uses_count": 0
       }
   ]
   ```
@@ -768,10 +818,15 @@ Retrieve all database snapshots.
 - `databases` (array of objects): List of databases included in the snapshot.
   - `db_id` (string): The database identifier.
   - `db_name` (string): The database name.
+  - `is_echo_db` (boolean): The database was itself an Echo DB (a clone) when snapshotted.
 - `timestamp` (integer): Unix timestamp when the snapshot was created.
 - `consistency_level` (string): The consistency level. Values: `crash`, `application`.
 - `db_engine_version` (string): The database engine version.
+- `db_vendor` (string): The database vendor. Values: `mssql`, `oracledb`.
 - `is_vss_based` (boolean): Whether the snapshot was created using VSS.
+- `deletable` (boolean): The snapshot can be deleted now. `false` when Echo DBs still
+  depend on it, or when the underlying SDP snapshot is locked.
+- `uses_count` (integer): How many Echo DBs were cloned from this snapshot.
 
 #### Example
 
@@ -818,11 +873,13 @@ by calling the same request with "/__validate" at the end of the endpoint
   - Pattern: `^[a-z][a-z0-9_-]+$`
 - `consistency_level` (string, optional): The consistency level for the snapshot. Default: `"application"`.
   - Possible values: `crash`, `application`
-- `force_vss_usage` (boolean, optional): Force the use of VSS for snapshot creation. Default: `false`
+- `use_vss` (boolean, optional): Use VSS for the application-consistent snapshot where the
+  database engine supports it. Default: `true`. Ignored when `consistency_level` is `crash`.
+- `backup_session_timeout_sec` (integer, optional): Timeout for the backup phase, in seconds.
 
 #### Responses
 
-- 200 OK
+- 202 Accepted
 
   ```json
   {
@@ -831,13 +888,17 @@ by calling the same request with "/__validate" at the end of the endpoint
       "update_ts": 1735025908,
       "request_id": "Fj3U7QTsDDWL45ikk0bvk2tsanfC3H",
       "owner": "ocie-0",
-      "command_type": "CreateDBSnapshotCommand",
+      "command_type": "CreateVssDbSnapshotCommand",
       "ref_id": "ADD62kMoLB",
       "error": "",
       "result": {"db_snapshot": {"id": "primary__5__1735025906"}},
       "location": "/api/echo/v1/tasks/Fj3U7QTsDDWL45ikk0bvk2tsanfC3H"
   }
   ```
+
+  `command_type` depends on how the snapshot was captured:
+  `CreateVssDbSnapshotCommand`, `CreateGenericDBSnapshotCommand`, or
+  `CreateDBSnapshotCrashLevelCommand`.
 
 #### Example
 
@@ -889,7 +950,7 @@ by calling the same request with "/__validate" at the end of the endpoint
 
 #### Responses
 
-- 200 OK
+- 202 Accepted
 
   ```json
   {
@@ -943,9 +1004,10 @@ curl -XPOST "http://{flex}/api/echo/v1/db_snapshots/primary__10__1735028786/echo
 
 ### Delete DB Snapshot
 
-Deletes a DB Snapshot. It is only possible to delete a DB Snapshot if there are no cloned databases that were created from that snapshot.
+Deletes a DB Snapshot. By default a DB Snapshot can only be deleted when no cloned
+databases were created from it. Pass `cascade` to delete the dependent Echo DBs as well.
 
-Note that this endpoint does not create a task. A successful status code indicates that the DB Snapshot has already been deleted.
+This endpoint creates a task. Poll it with the **Task State APIs** to see the result.
 
 #### Endpoint
 
@@ -957,14 +1019,81 @@ by calling the same request with "/__validate" at the end of the endpoint
 
 `DELETE /api/echo/v1/db_snapshots/{db_snapshot_id}/__validate`
 
+#### Request Body
+
+The body is optional. Send it only to request a cascade delete.
+
+```json
+{
+    "cascade": false
+}
+```
+
+#### Parameters
+
+- `db_snapshot_id` (string, required): The unique identifier for the database snapshot.
+- `cascade` (boolean, optional): Also delete every Echo DB cloned from this snapshot.
+  Default: `false`. Without it the delete is refused when dependents exist.
+  The same flag works on the `/__validate` endpoint, so you can preview the cascade.
+
 #### Responses
 
-- 204 OK
+- 200 OK
+
+  ```json
+  {
+      "state": "running",
+      "create_ts": 1735049892,
+      "update_ts": 1735049892,
+      "request_id": "Kk2sT9pQvXm4LbNc7dRfWy",
+      "owner": "ocie-0",
+      "command_type": "DeleteDbSnapshotCommand",
+      "ref_id": "ECHO1a2b3c",
+      "error": "",
+      "result": null,
+      "location": "/api/echo/v1/tasks/Kk2sT9pQvXm4LbNc7dRfWy"
+  }
+  ```
 
 #### Example
 
 ```bash
 curl -XDELETE "http://{flex}/api/echo/v1/db_snapshots/primary__10__1735028786" -H 'Authorization: Bearer {token}'
+
+# cascade: also delete the Echo DBs cloned from this snapshot
+curl -XDELETE "http://{flex}/api/echo/v1/db_snapshots/primary__10__1735028786" \
+-H 'Content-Type: application/json' \
+-H 'Authorization: Bearer {token}' \
+-d'{"cascade": true}'
+```
+
+### List Host DB Snapshots
+
+List the IDs of all snapshots taken on a specific host.
+
+#### Endpoint
+
+`GET /api/echo/v1/db_snapshots/hosts/{host_id}`
+
+#### Parameters
+
+- `host_id` (string, required): The unique identifier for the host.
+
+#### Responses
+
+- 200 OK
+
+  ```json
+  {
+      "db_snapshot_ids": ["primary__5__1735025906", "primary__6__1735100000"]
+  }
+  ```
+
+#### Example
+
+```bash
+curl -XGET "http://{flex}/api/echo/v1/db_snapshots/hosts/primary" \
+-H "Authorization: Bearer {token}"
 ```
 
 ## Task State APIs
@@ -992,7 +1121,7 @@ Retrieve the current state of a task by ID.
       "update_ts": 1723108781,
       "request_id": "KscTYPMYiMUjCjJleHLauR0y",
       "owner": "ocie",
-      "command_type": "DeployCommand",
+      "command_type": "ImportDBSnapshotCommand",
       "ref_id": "bjGP9ygRMew",
       "error": "",
       "result": null,
@@ -1016,6 +1145,11 @@ Retrieve all tasks.
 
 `GET /api/echo/v1/tasks`
 
+#### Parameters
+
+- `state` (string, optional): Query parameter. Return only tasks in this state.
+  - Possible values: `running`, `completed`, `failed`, `aborted`
+
 #### Responses
 
 - 200 OK
@@ -1028,7 +1162,7 @@ Retrieve all tasks.
           "update_ts": 1723108981,
           "request_id": "KscTYPMYiMUjCjJleHLauR0y",
           "owner": "ocie",
-          "command_type": "DeployCommand",
+          "command_type": "ImportDBSnapshotCommand",
           "ref_id": "bjGP9ygRMew",
           "error": "",
           "result": {
