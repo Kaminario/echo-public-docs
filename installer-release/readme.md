@@ -76,6 +76,10 @@ Edit the generated `config.json` file with your environment-specific values:
   - SQL Server instances
   - Target Windows hosts (if using credential-based authentication)
 
+For the exact ports and services that must be open (WinRM, SMB, SQL Server,
+outbound HTTPS to Flex, SDP, and the installer download location), and for the
+call flow diagrams, see [installer-internals.md](installer-internals.md).
+
 ## Parameters Reference
 
 | Parameter | Description | Required | Default |
