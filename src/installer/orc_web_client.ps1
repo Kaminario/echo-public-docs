@@ -12,9 +12,9 @@ function CallSelfCertEndpoint {
     DebugMessage "Calling [$HttpMethod]$URL"
     # capitalize the first letter of HttpMethod
     $HttpMethod = $HttpMethod.Substring(0,1).ToUpper() + $HttpMethod.Substring(1).ToLower()
-    # String bodies are JSON; Flex (FastAPI) rejects them without Content-Type. Hashtable bodies (login form) are left alone.
+    # String bodies are JSON; FastAPI needs the header.
     $ContentTypeParams = @{}
-    if ($RequestBody -is [string] -and -not $Headers.ContainsKey('Content-Type')) { $ContentTypeParams.ContentType = 'application/json' }
+    if ($RequestBody -is [string] -and -not ($Headers -and $Headers.ContainsKey('Content-Type'))) { $ContentTypeParams.ContentType = 'application/json; charset=utf-8' }
     $IsPowerShell7 = $PSVersionTable.PSVersion.Major -ge 7
     if ($IsPowerShell7) {
         if ( $HttpMethod -in @("POST", "PUT") -and $RequestBody -ne $null ) {
