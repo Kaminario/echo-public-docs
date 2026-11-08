@@ -75,7 +75,7 @@
     File Name      : orchestrator.ps1
     Author         : Ilya.Levin@Silk.US
     Organization   : Silk.us, Inc.
-    Version        : 0.1.14
+    Version        : 0.1.15
     Copyright      : Copyright (c) 2025 Silk Technologies, Inc.
                      This source code is licensed under the MIT license found in the
                      LICENSE file in the root directory of this source tree.
@@ -141,7 +141,7 @@ if ($DebugPreference -eq 'Continue' -or $VerbosePreference -eq 'Continue') {
 # Constants
 #region orc_constants
 #region Constants
-Set-Variable -Name InstallerProduct -Value "0.1.14" -Option AllScope -Scope Script
+Set-Variable -Name InstallerProduct -Value "0.1.15" -Option AllScope -Scope Script
 Set-Variable -Name MessageCurrentObject -Value "Silk Echo Installer" -Option AllScope -Scope Script
 Set-Variable -Name ENUM_ACTIVE_DIRECTORY -Value "active_directory" -Option AllScope -Scope Script
 Set-Variable -Name ENUM_CREDENTIALS -Value "credentials" -Option AllScope -Scope Script
@@ -646,17 +646,22 @@ function CallSelfCertEndpoint {
     DebugMessage "Calling [$HttpMethod]$URL"
     # capitalize the first letter of HttpMethod
     $HttpMethod = $HttpMethod.Substring(0,1).ToUpper() + $HttpMethod.Substring(1).ToLower()
+    # String bodies are JSON; FastAPI needs the header. Header names are case-insensitive, and a
+    # non-literal hashtable ([hashtable]::new()) compares keys case-sensitively, so match by hand.
+    $HasContentType = [bool]($Headers -and @($Headers.Keys | Where-Object { "$_" -ieq 'Content-Type' }))
+    $ContentTypeParams = @{}
+    if ($RequestBody -is [string] -and -not $HasContentType) { $ContentTypeParams.ContentType = 'application/json; charset=utf-8' }
     $IsPowerShell7 = $PSVersionTable.PSVersion.Major -ge 7
     if ($IsPowerShell7) {
         if ( $HttpMethod -in @("POST", "PUT") -and $RequestBody -ne $null ) {
-            $response = Invoke-WebRequest -Uri $URL -Method $HttpMethod -Headers $Headers -Body $RequestBody -UseBasicParsing -SkipCertificateCheck -ErrorAction Stop
+            $response = Invoke-WebRequest -Uri $URL -Method $HttpMethod -Headers $Headers -Body $RequestBody @ContentTypeParams -UseBasicParsing -SkipCertificateCheck -ErrorAction Stop
         } else {
             $response = Invoke-WebRequest -Uri $URL -Method $HttpMethod -Headers $Headers -UseBasicParsing -SkipCertificateCheck -ErrorAction Stop
         }
     } else {
         if ($HttpMethod -in @("POST", "PUT") -and $RequestBody -ne $null ) {
             # If no request body is provided
-            $response = Invoke-WebRequest -Uri $URL -Method $HttpMethod -Headers $Headers -Body $RequestBody -UseBasicParsing -ErrorAction Stop
+            $response = Invoke-WebRequest -Uri $URL -Method $HttpMethod -Headers $Headers -Body $RequestBody @ContentTypeParams -UseBasicParsing -ErrorAction Stop
         } else {
             $response = Invoke-WebRequest -Uri $URL -Method $HttpMethod -Headers $Headers -UseBasicParsing -ErrorAction Stop
         }
@@ -3795,17 +3800,22 @@ function CallSelfCertEndpoint {
     DebugMessage "Calling [$HttpMethod]$URL"
     # capitalize the first letter of HttpMethod
     $HttpMethod = $HttpMethod.Substring(0,1).ToUpper() + $HttpMethod.Substring(1).ToLower()
+    # String bodies are JSON; FastAPI needs the header. Header names are case-insensitive, and a
+    # non-literal hashtable ([hashtable]::new()) compares keys case-sensitively, so match by hand.
+    $HasContentType = [bool]($Headers -and @($Headers.Keys | Where-Object { "$_" -ieq 'Content-Type' }))
+    $ContentTypeParams = @{}
+    if ($RequestBody -is [string] -and -not $HasContentType) { $ContentTypeParams.ContentType = 'application/json; charset=utf-8' }
     $IsPowerShell7 = $PSVersionTable.PSVersion.Major -ge 7
     if ($IsPowerShell7) {
         if ( $HttpMethod -in @("POST", "PUT") -and $RequestBody -ne $null ) {
-            $response = Invoke-WebRequest -Uri $URL -Method $HttpMethod -Headers $Headers -Body $RequestBody -UseBasicParsing -SkipCertificateCheck -ErrorAction Stop
+            $response = Invoke-WebRequest -Uri $URL -Method $HttpMethod -Headers $Headers -Body $RequestBody @ContentTypeParams -UseBasicParsing -SkipCertificateCheck -ErrorAction Stop
         } else {
             $response = Invoke-WebRequest -Uri $URL -Method $HttpMethod -Headers $Headers -UseBasicParsing -SkipCertificateCheck -ErrorAction Stop
         }
     } else {
         if ($HttpMethod -in @("POST", "PUT") -and $RequestBody -ne $null ) {
             # If no request body is provided
-            $response = Invoke-WebRequest -Uri $URL -Method $HttpMethod -Headers $Headers -Body $RequestBody -UseBasicParsing -ErrorAction Stop
+            $response = Invoke-WebRequest -Uri $URL -Method $HttpMethod -Headers $Headers -Body $RequestBody @ContentTypeParams -UseBasicParsing -ErrorAction Stop
         } else {
             $response = Invoke-WebRequest -Uri $URL -Method $HttpMethod -Headers $Headers -UseBasicParsing -ErrorAction Stop
         }
